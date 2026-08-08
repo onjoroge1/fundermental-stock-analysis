@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "stock-machine-ui",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["-m", "uvicorn", "stock_machine.webapp:app", "--port", "8642"],
+      "port": 8642
+    }
+  ]
+}
