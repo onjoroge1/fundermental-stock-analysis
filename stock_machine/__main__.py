@@ -126,6 +126,18 @@ def main() -> None:
                                   "conventions": s["conventions"]}, indent=1))
         finally:
             conn.close()
+    elif cmd == "ibkr":
+        from .ingestion.ibkr import fetch_statement, probe_token
+        sub = sys.argv[2] if len(sys.argv) > 2 else "fetch"
+        if sub == "probe":
+            print(json.dumps(probe_token(), indent=1))
+        else:
+            r = fetch_statement()
+            compact = {k: (len(v) if isinstance(v, list) else v)
+                       for k, v in r.items()}
+            print(json.dumps(compact, indent=1))
+            for e in r.get("events", []):
+                print("NOTE:", e["detail"])
     elif cmd == "mlrank":
         from datetime import datetime, timezone
 
