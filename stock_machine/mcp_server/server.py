@@ -15,6 +15,7 @@ from mcp.server.fastmcp import FastMCP
 from .. import db, valuation_tools
 from ..bundle import build_bundle, write_bundle
 from ..config import REPORT_DIR, ensure_dirs
+from ..report_schema import validate_analysis_report
 
 mcp = FastMCP("stock-machine")
 
@@ -135,6 +136,9 @@ def save_analysis_report(ticker: str, as_of: str, report_json: str) -> str:
     output schema). The only write path exposed to the analyst."""
     ticker = ticker.upper()
     report = json.loads(report_json)
+    validate_analysis_report(
+        report, expected_ticker=ticker, expected_as_of=as_of
+    )
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     report_id = f"{ticker}__{as_of[:10]}__{stamp}"
     ensure_dirs()

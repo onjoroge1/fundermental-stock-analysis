@@ -50,11 +50,14 @@ Paper portfolio + invalidation monitoring + outcome scorer + KPI dashboard
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install duckdb pydantic httpx mcp pytest "psycopg[binary]" fastapi "uvicorn[standard]" torch
+.venv/bin/pip install -e '.[dev]'
+# Optional LSTM forecaster; without it the prediction lab uses its bootstrap baseline.
+.venv/bin/pip install -e '.[prediction]'
 cp .env.example .env   # fill in DATABASE_URL (Postgres), SEC_USER_AGENT, FMP_API_KEY
+.venv/bin/alembic upgrade head
 .venv/bin/python -m stock_machine all AAPL          # ingest one ticker end-to-end
 .venv/bin/python -m uvicorn stock_machine.webapp:app --port 8642   # dashboard
-.venv/bin/python -m pytest tests/                   # 75 tests
+.venv/bin/python -m pytest tests/                   # 78 tests
 ```
 
 Daily operation: `.venv/bin/python scripts/daily_refresh.py` (schedule it —

@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from stock_machine import db
 from stock_machine.bundle import build_bundle
 from stock_machine.config import REPORT_DIR, ensure_dirs
+from stock_machine.report_schema import validate_analysis_report
 from stock_machine.valuation_tools import (calculate_expected_return,
                                            calculate_scenario_values)
 
@@ -111,6 +112,7 @@ def build_report(ticker: str, spec: dict) -> dict:
 
 
 def save(report: dict) -> None:
+    validate_analysis_report(report)
     ticker = report["ticker"]
     ensure_dirs()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
