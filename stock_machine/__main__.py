@@ -11,6 +11,7 @@ Commands:
   kpis                  compute the system KPI dashboard
   planprobe             test what the configured FMP key/plan can access
   ibkr-market ...       read-only IBKR contract and market-data commands
+  options generate ...  rank bounded strategies from read-only IBKR data
 """
 from __future__ import annotations
 
@@ -161,6 +162,36 @@ def main() -> None:
                     "status | quote SYMBOL | strikes SYMBOL MONYY | "
                     "chain SYMBOL MONYY STRIKE[,STRIKE...]"
                 )
+        print(result.model_dump_json(indent=2))
+    elif cmd == "options":
+        from .market_data.ibkr_client_portal import IBKRClientPortalMarketData
+        from .options import (
+            GenerationPolicy,
+            generate_strategies,
+            load_latest_forecast,
+        )
+
+        if len(sys.argv) < 6 or sys.argv[2] != "generate":
+            raise SystemExit(
+                "usage: stock-machine options generate SYMBOL MONYY "
+                "STRIKE[,STRIKE...] [CAPITAL] [--allow-delayed]"
+            )
+        symbol, month = sys.argv[3], sys.argv[4]
+        strikes = [float(value) for value in sys.argv[5].split(",")]
+        extras = sys.argv[6:]
+        allow_delayed = "--allow-delayed" in extras
+        capital_values = [value for value in extras if not value.startswith("--")]
+        capital_limit = float(capital_values[0]) if capital_values else None
+        with IBKRClientPortalMarketData() as provider:
+            chain = provider.option_chain(symbol, month, strikes)
+        result = generate_strategies(
+            chain,
+            load_latest_forecast(symbol),
+            GenerationPolicy(
+                capital_limit=capital_limit,
+                allow_delayed=allow_delayed,
+            ),
+        )
         print(result.model_dump_json(indent=2))
     elif cmd == "mlrank":
         from datetime import datetime, timezone

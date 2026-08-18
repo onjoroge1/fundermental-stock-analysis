@@ -38,6 +38,7 @@ Paper portfolio + invalidation monitoring + outcome scorer + KPI dashboard
 | `stock_machine/prediction.py` | probabilistic forecaster: torch LSTM vs block-bootstrap baseline, kill criterion decides which leads |
 | `stock_machine/forecasts/` | versioned forecast distribution contract + adapters for the prediction lab and LightGBM/conformal output |
 | `stock_machine/market_data/` | provider-neutral stock/option quote contracts + read-only IBKR Client Portal adapter |
+| `stock_machine/options/` | exact expiration payoff math + liquidity gates + forecast-aware, explainable strategy ranking |
 | `stock_machine/backtest/` | walk-forward harness + embargoed ridge model, each with pre-committed kill criteria |
 | `stock_machine/paper.py` | mechanical long-ATTRACTIVE / short-UNATTRACTIVE paper book, marked daily |
 | `stock_machine/monitoring.py` | per-report invalidation rules checked every refresh — breaches flag, never auto-act |
@@ -73,6 +74,18 @@ Portal Gateway. The adapter has no order methods:
 ```
 
 See `docs/PHASE_2_CONTRACTS.md` for the data contract and gateway limitations.
+
+Phase 3 can generate read-only strategy candidates from explicitly selected
+strikes. The optional capital value is a collateral gate, not an order size:
+
+```bash
+.venv/bin/stock-machine options generate SPY SEP26 630,635,640,660,665,670 18000
+```
+
+The generator buys at the ask and sells at the bid, rejects weak liquidity and
+non-live data by default, and labels its score as a heuristic comparison—not
+expected return or probability of profit. Add `--allow-delayed` only for
+exploratory analysis. See `docs/PHASE_3_OPTIONS_ENGINE.md`.
 
 Daily operation: `.venv/bin/python scripts/daily_refresh.py` (schedule it —
 and monitor that it actually runs; a 13-day silent freeze is documented
