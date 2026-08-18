@@ -27,6 +27,7 @@ from datetime import date
 from pathlib import Path
 
 from .config import DATA_DIR
+from .forecasts import from_prediction_lab
 
 PRED_DIR = DATA_DIR / "predictions"
 HORIZONS = {"1m": 21, "3m": 63, "6m": 126, "12m": 252}
@@ -41,6 +42,15 @@ try:
     TORCH_OK = True
 except ImportError:  # degrade to bootstrap-only, stated in payload
     TORCH_OK = False
+
+
+def _attach_canonical_contract(payload: dict) -> dict:
+    """Add the versioned forecast contract without removing legacy fields."""
+    if payload.get("status") == "OK":
+        payload["forecast_distribution"] = from_prediction_lab(
+            payload
+        ).model_dump(mode="json")
+    return payload
 
 
 # ---------------- data prep (pure) ----------------
@@ -297,6 +307,9 @@ def forecast(ticker: str, closes: list[dict],
         # before the daily refresh landed) — rebuild, never serve it
         if (cached.get("status") == "OK" and closes
                 and cached.get("as_of") == closes[-1]["date"]):
+            if "forecast_distribution" not in cached:
+                _attach_canonical_contract(cached)
+                cache.write_text(json.dumps(cached))
             return cached
 
     series = [c["adj_close"] for c in closes if c.get("adj_close")]
@@ -377,5 +390,6 @@ def forecast(ticker: str, closes: list[dict],
                            "guarantees; not investment advice",
         },
     }
+    _attach_canonical_contract(payload)
     cache.write_text(json.dumps(payload))
     return payload
