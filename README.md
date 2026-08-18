@@ -87,6 +87,10 @@ non-live data by default, and labels its score as a heuristic comparison—not
 expected return or probability of profit. Add `--allow-delayed` only for
 exploratory analysis. See `docs/PHASE_3_OPTIONS_ENGINE.md`.
 
+Forecast probabilities use purged 5/10/20-day walk-forward calibration. The
+drift-neutral bootstrap leads unless a drift-bearing model beats no-change and
+class-prior baselines at every horizon. See `docs/FORECAST_CALIBRATION.md`.
+
 Daily operation: `.venv/bin/python scripts/daily_refresh.py` (schedule it —
 and monitor that it actually runs; a 13-day silent freeze is documented
 history, see the KPI dashboard's freshness row).

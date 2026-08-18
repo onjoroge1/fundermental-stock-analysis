@@ -12,9 +12,9 @@ notebook family has four disqualifying defects, each corrected here:
 3. POINT PREDICTIONS: a single line implies false precision. Here the model
    outputs a distribution (Gaussian head: mu, sigma per step), rolled out by
    Monte Carlo into percentile fans and move probabilities.
-4. NO BASELINE: pretty test-set overlays prove nothing. Here the LSTM is
-   walk-forward validated against a block-bootstrap Monte Carlo baseline;
-   if it does not beat the baseline, the UI says so and the baseline leads.
+4. NO BASELINE: pretty test-set overlays prove nothing. Here drift-bearing
+   models face purged walk-forward gates against no-change and historical
+   class-prior baselines; drift-neutral leads unless every gate passes.
 
 All outputs are labeled: short-horizon equity returns are near-random-walk;
 honest probabilities hug 50% and honest fans are wide."""
@@ -28,13 +28,27 @@ from pathlib import Path
 
 from .config import DATA_DIR
 from .forecasts import from_prediction_lab
+from .forecasts.calibration import (
+    apply_isotonic,
+    balanced_accuracy,
+    calibration_error,
+    fit_isotonic,
+    quantile,
+)
 
 PRED_DIR = DATA_DIR / "predictions"
-HORIZONS = {"1m": 21, "3m": 63, "6m": 126, "12m": 252}
+HORIZONS = {
+    "5d": 5, "10d": 10, "20d": 20,
+    "1m": 21, "3m": 63, "6m": 126, "12m": 252,
+}
+VALIDATION_HORIZONS = (5, 10, 20)
 N_PATHS = 500
 WINDOW = 40
 BLOCK = 21
+PURGE = 20
 SEED = 7
+MODEL_VERSION = "forecast-calibration.v1"
+MIN_CALIBRATION_SAMPLES = 5
 
 try:
     import torch
@@ -103,12 +117,17 @@ def bootstrap_paths(returns: list[float], n_days: int, n_paths: int = N_PATHS,
     """Resample contiguous blocks of REAL historical returns — preserves
     volatility clustering; invents nothing."""
     rng = random.Random(seed)
+    if not returns:
+        raise ValueError("bootstrap requires at least one return")
+    block = min(block, len(returns))
     max_start = len(returns) - block
     paths = []
     for _ in range(n_paths):
         path: list[float] = []
         while len(path) < n_days:
-            s = rng.randrange(0, max_start)
+            # randint is inclusive: the final valid historical block must be
+            # eligible for sampling too.
+            s = rng.randint(0, max_start)
             path.extend(returns[s:s + block])
         paths.append(path[:n_days])
     return paths
@@ -195,9 +214,9 @@ def summarize_paths(paths: list[list[float]], last_price: float) -> dict:
     for label, days in HORIZONS.items():
         if days > len(paths[0]):
             continue
-        finals = sorted(last_price * math.exp(sum(p[:days])) for p in paths)
+        finals = [last_price * math.exp(sum(p[:days])) for p in paths]
         n = len(finals)
-        pct = lambda q: round(finals[min(n - 1, int(q * n))], 2)
+        pct = lambda q: round(quantile(finals, q), 2)
         out["horizons"][label] = {
             "days": days,
             "p10": pct(0.10), "p25": pct(0.25), "p50": pct(0.50),
@@ -211,86 +230,280 @@ def summarize_paths(paths: list[list[float]], last_price: float) -> dict:
     fan = []
     horizon = len(paths[0])
     for d in range(4, horizon, 5):
-        finals = sorted(last_price * math.exp(sum(p[:d + 1])) for p in paths)
-        n = len(finals)
+        finals = [last_price * math.exp(sum(p[:d + 1])) for p in paths]
         fan.append({"day": d + 1,
-                    "p10": round(finals[int(0.10 * n)], 2),
-                    "p25": round(finals[int(0.25 * n)], 2),
-                    "p50": round(finals[int(0.50 * n)], 2),
-                    "p75": round(finals[int(0.75 * n)], 2),
-                    "p90": round(finals[int(0.90 * n)], 2)})
+                    "p10": round(quantile(finals, 0.10), 2),
+                    "p25": round(quantile(finals, 0.25), 2),
+                    "p50": round(quantile(finals, 0.50), 2),
+                    "p75": round(quantile(finals, 0.75), 2),
+                    "p90": round(quantile(finals, 0.90), 2)})
     out["fan"] = fan
     return out
 
 
-# ---------------- walk-forward validation ----------------
+def apply_probability_calibration(summary: dict, model_name: str,
+                                  validation: dict) -> None:
+    """Calibrate supported horizons in-place while preserving raw P(up)."""
+    model_validation = validation.get(model_name) or {}
+    calibrators = model_validation.get("probability_calibrators") or {}
+    for horizon in summary.get("horizons", {}).values():
+        raw = float(horizon["prob_positive"])
+        horizon["prob_positive_raw"] = raw
+        calibrator = calibrators.get(str(horizon["days"]))
+        if calibrator:
+            horizon["prob_positive"] = round(
+                apply_isotonic(raw, calibrator), 3
+            )
+            horizon["calibration_status"] = "calibrated"
+            horizon["calibration_method"] = (
+                "walk_forward_isotonic_pava_beta_smoothed"
+            )
+            horizon["calibration_samples"] = calibrator["sample_size"]
+        else:
+            horizon["calibration_status"] = "pending"
+            horizon["calibration_method"] = None
+            horizon["calibration_samples"] = 0
 
-def validate(returns: list[float], n_folds: int = 6,
-             eval_days: int = 21) -> dict:
-    """Train strictly before each cutoff MINUS a purge gap of WINDOW days
-    (no training window may touch evaluation data); score the next 21
-    trading days. Metrics: direction hit rate and 80%-interval coverage,
-    LSTM vs bootstrap. The verdict decides which model LEADS the UI."""
+
+# ---------------- walk-forward validation and calibration ----------------
+
+def _historical_up_probability(returns: list[float], days: int) -> float:
+    outcomes = [sum(returns[i:i + days]) > 0
+                for i in range(0, len(returns) - days + 1, days)]
+    # Laplace smoothing avoids pretending that a finite sample proves 0%/100%.
+    return (sum(outcomes) + 1) / (len(outcomes) + 2)
+
+
+def _fold_score(paths: list[list[float]], realized: float, days: int) -> dict:
+    sums = [sum(path[:days]) for path in paths]
+    probability_up = sum(value > 0 for value in sums) / len(sums)
+    median = quantile(sums, 0.50)
+    return {
+        "prob_positive": probability_up,
+        "median_log_return": median,
+        "signed_error": median - realized,
+        "absolute_error": abs(median - realized),
+        "brier": (probability_up - float(realized > 0)) ** 2,
+        "direction_hit": (probability_up >= 0.5) == (realized > 0),
+        "in_80pct_interval": (
+            quantile(sums, 0.10) <= realized <= quantile(sums, 0.90)
+        ),
+    }
+
+
+def _summarize_validation(folds: list[dict], model: str) -> dict | None:
+    observations = [
+        (int(days), scores, fold["outcomes"][days]["positive"], fold)
+        for fold in folds
+        for days, scores in fold.get("models", {}).get(model, {}).items()
+    ]
+    if not observations:
+        return None
+
+    def summarize(rows: list[tuple[int, dict, bool]]) -> dict:
+        probabilities = [row[1]["prob_positive"] for row in rows]
+        outcomes = [row[2] for row in rows]
+        ba = balanced_accuracy(probabilities, outcomes)
+        return {
+            "samples": len(rows),
+            "signed_bias_pct": round(
+                100 * sum(row[1]["signed_error"] for row in rows) / len(rows), 3
+            ),
+            "return_mae_pct": round(
+                100 * sum(row[1]["absolute_error"] for row in rows) / len(rows), 3
+            ),
+            "brier_score": round(
+                sum(row[1]["brier"] for row in rows) / len(rows), 4
+            ),
+            "expected_calibration_error": round(
+                calibration_error(probabilities, outcomes), 4
+            ),
+            "direction_hit_rate": round(
+                sum(row[1]["direction_hit"] for row in rows) / len(rows), 3
+            ),
+            "balanced_accuracy": round(ba, 3) if ba is not None else None,
+            "interval_80_coverage": round(
+                sum(row[1]["in_80pct_interval"] for row in rows) / len(rows), 3
+            ),
+        }
+
+    by_horizon = {
+        str(days): summarize([row for row in observations if row[0] == days])
+        for days in VALIDATION_HORIZONS
+    }
+    calibrators = {}
+    for days in VALIDATION_HORIZONS:
+        rows = [row for row in observations if row[0] == days]
+        probabilities = [row[1]["prob_positive"] for row in rows]
+        outcomes = [row[2] for row in rows]
+        if (len(rows) >= MIN_CALIBRATION_SAMPLES
+                and len(set(outcomes)) == 2):
+            calibrators[str(days)] = fit_isotonic(probabilities, outcomes)
+    return {
+        **summarize(observations),
+        "by_horizon": by_horizon,
+        "by_regime": {
+            "trend": {
+                regime: summarize([row for row in observations
+                                   if row[3]["trend_regime"] == regime])
+                for regime in ("bull", "bear")
+                if any(row[3]["trend_regime"] == regime for row in observations)
+            },
+            "volatility": {
+                regime: summarize([row for row in observations
+                                   if row[3]["volatility_regime"] == regime])
+                for regime in ("high", "low")
+                if any(row[3]["volatility_regime"] == regime for row in observations)
+            },
+            "earnings_proximity": {
+                "status": "unavailable",
+                "reason": "price-only input has no point-in-time earnings calendar",
+            },
+        },
+        "probability_calibrators": calibrators,
+    }
+
+
+def _promotion_checks(candidate: dict | None, no_change: dict) -> dict:
+    checks: list[dict] = []
+    for days in VALIDATION_HORIZONS:
+        model_h = (candidate or {}).get("by_horizon", {}).get(str(days), {})
+        base_h = no_change["by_horizon"][str(days)]
+        values = {
+            "minimum_five_folds": model_h.get("samples", 0) >= 5,
+            "mae_beats_no_change": (
+                model_h.get("return_mae_pct", math.inf)
+                < base_h["return_mae_pct"]
+            ),
+            "brier_beats_class_prior": (
+                model_h.get("brier_score", math.inf) < base_h["brier_score"]
+            ),
+            "balanced_accuracy_above_half": (
+                (model_h.get("balanced_accuracy") or 0.0) > 0.5
+            ),
+            "interval_coverage_acceptable": (
+                0.70 <= model_h.get("interval_80_coverage", -1.0) <= 0.95
+            ),
+            "probability_calibrator_fitted": (
+                str(days) in (candidate or {}).get("probability_calibrators", {})
+            ),
+            # The current LSTM recursively feeds its own one-day output back
+            # into the next step. Keep it diagnostic until it produces each
+            # horizon directly; recursive error may not earn promotion.
+            "direct_horizon_output": candidate is not None,
+        }
+        if candidate and candidate.get("model_name") == "lstm":
+            values["direct_horizon_output"] = False
+        checks.append({"horizon_days": days, **values,
+                       "passed": all(values.values())})
+    return {"by_horizon": checks,
+            "passed": bool(checks) and all(check["passed"] for check in checks)}
+
+
+def validate(returns: list[float], n_folds: int = 6) -> dict:
+    """Purged expanding-window validation at 5/10/20 trading days.
+
+    A drift-bearing model may lead only when every horizon beats a no-change
+    return baseline and a historical class-prior probability baseline while
+    also meeting direction, coverage, and calibration gates.
+    """
     folds = []
     min_train = 750
+    max_horizon = max(VALIDATION_HORIZONS)
     step = 63
-    cut_positions = [len(returns) - eval_days - i * step
+    cut_positions = [len(returns) - max_horizon - i * step
                      for i in range(n_folds)]
-    for cut in sorted(p for p in cut_positions if p >= min_train):
-        train = returns[:cut - WINDOW]  # purge gap
-        realized = sum(returns[cut:cut + eval_days])
-        fold = {"realized_21d_pct": round((math.exp(realized) - 1) * 100, 2)}
-        for name in ("bootstrap", "lstm"):
-            if name == "bootstrap":
-                paths = bootstrap_paths(train, eval_days, n_paths=300)
-            elif TORCH_OK:
-                m, s = train_stats(train)
-                vm, vs = train_stats(rolling_vol(train))
-                feats = make_features(train, m, s, vm, vs)
-                model = train_lstm(feats, epochs=8)
-                paths = lstm_paths(model, feats[-WINDOW:], m, s, vm, vs,
-                                   eval_days, n_paths=300)
-            else:
-                continue
-            sums = sorted(sum(p) for p in paths)
-            n = len(sums)
-            p_up = sum(1 for x in sums if x > 0) / n
-            lo, hi = sums[int(0.10 * n)], sums[int(0.90 * n)]
-            fold[name] = {
-                "prob_positive": round(p_up, 3),
-                "direction_hit": (p_up > 0.5) == (realized > 0),
-                "in_80pct_interval": lo <= realized <= hi,
+    for fold_number, cut in enumerate(sorted(
+            position for position in cut_positions if position - PURGE >= min_train
+    )):
+        train = returns[:cut - PURGE]
+        mean = sum(train) / len(train)
+        demeaned = [value - mean for value in train]
+        model_paths = {
+            "bootstrap": bootstrap_paths(
+                train, max_horizon, n_paths=300, seed=SEED + fold_number
+            ),
+            "bootstrap_drift_neutral": bootstrap_paths(
+                demeaned, max_horizon, n_paths=300, seed=SEED + fold_number
+            ),
+        }
+        if TORCH_OK:
+            m, s = train_stats(train)
+            vm, vs = train_stats(rolling_vol(train))
+            feats = make_features(train, m, s, vm, vs)
+            model = train_lstm(feats, epochs=8, seed=SEED + fold_number)
+            model_paths["lstm"] = lstm_paths(
+                model, feats[-WINDOW:], m, s, vm, vs, max_horizon,
+                n_paths=300, seed=SEED + fold_number,
+            )
+
+        historical_vol = rolling_vol(train)
+        recent_vol = historical_vol[-1]
+        reference_vol = quantile(historical_vol[-252:], 0.50)
+        fold = {"cut_index": cut, "purge_days": PURGE,
+                "trend_regime": ("bull" if sum(train[-63:]) >= 0 else "bear"),
+                "volatility_regime": ("high" if recent_vol >= reference_vol
+                                      else "low"),
+                "outcomes": {}, "models": {}}
+        for days in VALIDATION_HORIZONS:
+            realized = sum(returns[cut:cut + days])
+            prior = _historical_up_probability(train, days)
+            outcome = realized > 0
+            fold["outcomes"][str(days)] = {
+                "realized_return_pct": round(100 * math.expm1(realized), 3),
+                "positive": outcome,
             }
+            fold["models"].setdefault("no_change", {})[str(days)] = {
+                "prob_positive": prior,
+                "median_log_return": 0.0,
+                "signed_error": -realized,
+                "absolute_error": abs(realized),
+                "brier": (prior - float(outcome)) ** 2,
+                "direction_hit": (prior >= 0.5) == outcome,
+                "in_80pct_interval": False,
+            }
+            for name, paths in model_paths.items():
+                fold["models"].setdefault(name, {})[str(days)] = _fold_score(
+                    paths, realized, days
+                )
         folds.append(fold)
 
-    def rate(model, key):
-        vals = [f[model][key] for f in folds if model in f]
-        return round(sum(vals) / len(vals), 3) if vals else None
-
-    result = {
+    summaries = {
+        name: _summarize_validation(folds, name)
+        for name in ("no_change", "bootstrap_drift_neutral", "bootstrap", "lstm")
+    }
+    for name, summary in summaries.items():
+        if summary is not None:
+            summary["model_name"] = name
+    no_change = summaries["no_change"]
+    promotion = {
+        name: _promotion_checks(summaries[name], no_change)
+        for name in ("bootstrap", "lstm") if summaries[name] is not None
+    }
+    promoted = next(
+        (name for name in ("lstm", "bootstrap")
+         if promotion.get(name, {}).get("passed")),
+        None,
+    )
+    primary = promoted or "bootstrap_drift_neutral"
+    return {
         "folds": folds,
         "n_folds": len(folds),
-        "bootstrap": {"direction_hit_rate": rate("bootstrap", "direction_hit"),
-                      "interval_80_coverage": rate("bootstrap", "in_80pct_interval")},
-        "lstm": ({"direction_hit_rate": rate("lstm", "direction_hit"),
-                  "interval_80_coverage": rate("lstm", "in_80pct_interval")}
-                 if TORCH_OK else None),
+        "horizons_days": list(VALIDATION_HORIZONS),
+        "purge_days": PURGE,
+        **summaries,
+        "promotion": promotion,
+        "verdict": {
+            "primary_model": primary,
+            "forecast_edge": promoted is not None,
+            "lstm_beats_baseline": promoted == "lstm",
+            "kill_criterion": "a drift-bearing model leads only if all 5/10/20-day "
+                              "walk-forward gates pass against no-change and "
+                              "historical class-prior baselines",
+            "note": (f"{len(folds)} expanding-window folds with a {PURGE}-session "
+                     "purge; no forecast edge means drift-neutral leads"),
+        },
     }
-    lstm_hr = (result["lstm"] or {}).get("direction_hit_rate")
-    boot_hr = result["bootstrap"]["direction_hit_rate"]
-    beats = (lstm_hr is not None and boot_hr is not None
-             and lstm_hr > boot_hr)
-    result["verdict"] = {
-        "kill_criterion": "the LSTM leads the display only if it beats the "
-                          "block-bootstrap baseline on walk-forward "
-                          "direction hit rate; otherwise the baseline leads",
-        "lstm_beats_baseline": beats,
-        "primary_model": "lstm" if beats else "bootstrap",
-        "note": f"small-sample verdict ({len(folds)} folds) — indicative, "
-                "not proof; daily equity returns are near-random-walk and "
-                "honest probabilities sit near 50%",
-    }
-    return result
 
 
 # ---------------- top-level: forecast one ticker ----------------
@@ -306,7 +519,8 @@ def forecast(ticker: str, closes: list[dict],
         # a same-day cache built from OLDER prices is stale (e.g. computed
         # before the daily refresh landed) — rebuild, never serve it
         if (cached.get("status") == "OK" and closes
-                and cached.get("as_of") == closes[-1]["date"]):
+                and cached.get("as_of") == closes[-1]["date"]
+                and cached.get("model_version") == MODEL_VERSION):
             if "forecast_distribution" not in cached:
                 _attach_canonical_contract(cached)
                 cache.write_text(json.dumps(cached))
@@ -347,8 +561,12 @@ def forecast(ticker: str, closes: list[dict],
                                      n_paths=N_PATHS // 3, seed=seed))
         models["lstm"] = summarize_paths(pooled, last_price)
 
+    for model_name, summary in models.items():
+        apply_probability_calibration(summary, model_name, validation)
+
     payload = {
         "status": "OK",
+        "model_version": MODEL_VERSION,
         "ticker": ticker,
         "as_of": closes[-1]["date"],
         "last_price": round(last_price, 2),
@@ -365,8 +583,8 @@ def forecast(ticker: str, closes: list[dict],
             "note": "Raw fans extrapolate this stock's own historical drift "
                     "(survivorship-selected bull-market sample). Universe "
                     "pressure test measured +6-8pt upward bias in P(up) vs "
-                    "walk-forward reality — read raw and drift-neutral "
-                    "columns as bracketing the honest answer.",
+                    "walk-forward reality. Drift-neutral therefore leads "
+                    "unless the raw model passes every promotion gate.",
         },
         "methodology": {
             "target": "log-return distribution (never price levels)",
@@ -379,15 +597,17 @@ def forecast(ticker: str, closes: list[dict],
                         f"(block={BLOCK}d, {N_PATHS} paths)",
             "leak_controls": "scaling stats fit on training slices only; "
                              f"walk-forward folds train strictly before "
-                             f"each cutoff with a {WINDOW}-day purge gap",
-            "calibration": "PENDING: probability calibration (temperature "
-                           "scaling) needs more folds than currently "
-                           "available — interval coverage is reported "
-                           "instead and probabilities are model-implied",
+                             f"each cutoff with a {PURGE}-day purge gap",
+            "calibration": "5/10/20-day P(up) uses beta-smoothed isotonic "
+                           "PAVA fitted only "
+                           "to purged walk-forward predictions when at least "
+                           f"{MIN_CALIBRATION_SAMPLES} folds and both outcome "
+                           "classes are present; other horizons remain pending",
             "limitations": "price-history-only model: knows nothing about "
                            "earnings dates, filings, or fundamentals; "
-                           "probabilities are model-implied, not calibrated "
-                           "guarantees; not investment advice",
+                           "calibration status is reported per horizon and "
+                           "is never a guarantee; recursive LSTM output is "
+                           "diagnostic-only; not investment advice",
         },
     }
     _attach_canonical_contract(payload)

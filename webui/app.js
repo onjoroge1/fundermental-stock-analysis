@@ -312,8 +312,9 @@ async function renderPredict(ticker) {
     <div class="page-head"><h1>Prediction lab</h1>
       <select id="pred-ticker" style="background:var(--surface-2);color:var(--text-1);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-family:var(--mono)">${options}</select>
       <span class="chip neutral">probabilistic · returns-based</span></div>
-    <div class="page-sub">LSTM (torch) with a Gaussian head vs a block-bootstrap Monte Carlo baseline —
-      whichever wins walk-forward validation leads the display. Price-history-only: it knows nothing
+    <div class="page-sub">Purged 5/10/20-day walk-forward calibration compares LSTM and historical-drift
+      bootstrap forecasts with no-change and drift-neutral baselines. A drift-bearing model leads only
+      after every promotion gate passes. Price-history-only: it knows nothing
       about earnings or fundamentals. First run per ticker trains ~1–2 min. Not investment advice.</div>
     <div id="pred-body"><div class="loading">Training walk-forward folds for ${sel}… (~1–2 min on first run)</div></div>`;
   $("#pred-ticker").addEventListener("change", (e) => renderPredict(e.target.value));
@@ -325,15 +326,15 @@ async function renderPredict(ticker) {
     return;
   }
   const primary = r.models[r.primary_model];
-  const other = r.primary_model === "lstm" ? "bootstrap" : "lstm";
+  const other = r.primary_model === "bootstrap_drift_neutral" ? "bootstrap" : "bootstrap_drift_neutral";
   const v = r.validation;
   const probRow = (label, h) => {
     if (!h) return "";
-    const dn = r.models.bootstrap_drift_neutral?.horizons?.[label];
+    const raw = r.models.bootstrap?.horizons?.[label];
     return `<tr><td>${label}</td>
     <td>$${h.p10}</td><td>$${h.p25}</td><td><b>$${h.p50}</b></td><td>$${h.p75}</td><td>$${h.p90}</td>
     <td class="${h.prob_positive >= 0.5 ? "pos" : "neg"}">${(h.prob_positive * 100).toFixed(0)}%</td>
-    <td>${dn ? (dn.prob_positive * 100).toFixed(0) + "%" : "—"}</td>
+    <td>${raw ? ((raw.prob_positive_raw ?? raw.prob_positive) * 100).toFixed(0) + "%" : "—"}</td>
     <td>${(h.prob_up_10pct * 100).toFixed(0)}%</td>
     <td>${(h.prob_down_10pct * 100).toFixed(0)}%</td>
     <td>${(h.prob_down_20pct * 100).toFixed(0)}%</td></tr>`;
@@ -344,7 +345,7 @@ async function renderPredict(ticker) {
   chartPanel.className = "panel wide";
   fanChart(chartPanel, r.history_tail, primary.fan, r.last_price);
   chartPanel.innerHTML += `<div class="note">Primary model: <b>${r.primary_model}</b>
-    (${v.verdict.lstm_beats_baseline ? "LSTM beat the bootstrap baseline in walk-forward validation" : "LSTM did NOT beat the block-bootstrap baseline — the baseline leads"}).
+    (${v.verdict.forecast_edge ? "passed every out-of-sample promotion gate" : "no forecast edge detected — drift-neutral leads"}).
     Last price $${r.last_price} (${r.as_of}).</div>`;
   body.appendChild(chartPanel);
   const pt = document.createElement("div");
@@ -352,26 +353,32 @@ async function renderPredict(ticker) {
   pt.innerHTML = `<h3>Probability of future moves — ${r.primary_model} (primary)</h3>
     <div class="table-wrap"><table class="scen-table"><thead><tr>
       <th>Horizon</th><th>P10</th><th>P25</th><th>Median</th><th>P75</th><th>P90</th>
-      <th>P(up) drift</th><th>P(up) neutral</th><th>P(+10%)</th><th>P(−10%)</th><th>P(−20%)</th></tr></thead>
+      <th>P(up) primary</th><th>P(up) raw drift</th><th>P(+10%)</th><th>P(−10%)</th><th>P(−20%)</th></tr></thead>
       <tbody>${Object.entries(primary.horizons).map(([k, h]) => probRow(k, h)).join("")}</tbody></table></div>
     ${r.drift_diagnostics ? `<div class="note"><b>Directional-bias warning</b> (pressure-tested):
       raw probabilities extrapolate historical drift of
       ${fmtSignedPct(r.drift_diagnostics.historical_drift_annualized_pct)}/yr from a
       survivorship-selected sample, and ran +6–8pt hot vs walk-forward reality across the universe.
-      The drift-neutral column removes it — the honest number sits between the two.</div>` : ""}
+      The calibrated drift-neutral forecast now leads unless the raw model earns promotion.</div>` : ""}
     ${r.models[other] ? `<div class="mini" style="margin-top:8px">Comparison — ${other}: 12m P(up)
       ${(r.models[other].horizons["12m"].prob_positive * 100).toFixed(0)}%, median $${r.models[other].horizons["12m"].p50}</div>` : ""}`;
   body.appendChild(pt);
   const vp = document.createElement("div");
   vp.className = "panel wide";
+  const primaryValidation = v[r.primary_model];
   vp.innerHTML = `<h3>Validation — has this model earned trust?</h3>
     <div class="kv">
-      <span class="k">Walk-forward folds (21-day, train strictly before cutoff)</span><span class="v">${v.n_folds}</span>
+      <span class="k">Expanding walk-forward folds (5/10/20-day)</span><span class="v">${v.n_folds}</span>
+      <span class="k">Purge between train and test</span><span class="v">${v.purge_days} sessions</span>
+      <span class="k">Primary signed return bias</span><span class="v">${fmtSignedPct(primaryValidation.signed_bias_pct)}</span>
+      <span class="k">Primary return MAE</span><span class="v">${primaryValidation.return_mae_pct.toFixed(2)}%</span>
+      <span class="k">No-change return MAE</span><span class="v">${v.no_change.return_mae_pct.toFixed(2)}%</span>
+      <span class="k">Primary Brier score</span><span class="v">${primaryValidation.brier_score.toFixed(3)}</span>
       <span class="k">LSTM direction hit rate</span><span class="v">${v.lstm ? (v.lstm.direction_hit_rate * 100).toFixed(0) + "%" : "n/a"}</span>
       <span class="k">Bootstrap direction hit rate</span><span class="v">${(v.bootstrap.direction_hit_rate * 100).toFixed(0)}%</span>
       <span class="k">LSTM 80%-interval coverage</span><span class="v">${v.lstm ? (v.lstm.interval_80_coverage * 100).toFixed(0) + "%" : "n/a"}</span>
       <span class="k">Bootstrap 80%-interval coverage</span><span class="v">${(v.bootstrap.interval_80_coverage * 100).toFixed(0)}%</span>
-      <span class="k">Verdict</span><span class="v">${v.verdict.lstm_beats_baseline ? "LSTM leads" : "baseline leads"}</span>
+      <span class="k">Verdict</span><span class="v">${v.verdict.forecast_edge ? r.primary_model + " earned promotion" : "no forecast edge"}</span>
     </div>
     <div class="note">${v.verdict.kill_criterion}. ${v.verdict.note}. ${r.methodology.leak_controls}.
       ${r.methodology.limitations}</div>`;
@@ -802,7 +809,7 @@ async function renderStock(ticker) {
   // price prediction panel — async so the page never blocks on training
   const predP = document.createElement("div");
   predP.className = "panel wide";
-  predP.innerHTML = `<h3>Price prediction — Monte Carlo</h3>
+  predP.innerHTML = `<h3>Median projected-price distribution — Monte Carlo</h3>
     <div class="loading">Loading forecast… (first run per ticker trains ~30s)</div>`;
   grid.appendChild(predP);
   (async () => {
@@ -815,19 +822,19 @@ async function renderStock(ticker) {
     }
     const prim = r.models[r.primary_model];
     const v = r.validation;
-    predP.innerHTML = `<h3>Price prediction — ${r.primary_model} (primary)
-      <span class="chip ${v.verdict.lstm_beats_baseline ? "good" : "neutral"}" style="margin-left:8px">
-        ${v.verdict.lstm_beats_baseline ? "LSTM beat baseline" : "baseline leads"}</span></h3>`;
+    predP.innerHTML = `<h3>Median projected-price distribution — ${r.primary_model} (primary)
+      <span class="chip ${v.verdict.forecast_edge ? "good" : "neutral"}" style="margin-left:8px">
+        ${v.verdict.forecast_edge ? "forecast edge" : "drift-neutral"}</span></h3>`;
     fanChart(predP, r.history_tail, prim.fan, r.last_price);
     predP.innerHTML += `
       <div class="table-wrap" style="margin-top:8px"><table class="scen-table"><thead><tr>
         <th>Horizon</th><th>P10</th><th>Median</th><th>P90</th>
-        <th>P(up) drift</th><th>P(up) neutral</th><th>P(+10%)</th><th>P(−10%)</th><th>P(−20%)</th></tr></thead>
+        <th>P(up) primary</th><th>P(up) raw drift</th><th>P(+10%)</th><th>P(−10%)</th><th>P(−20%)</th></tr></thead>
         <tbody>${Object.entries(prim.horizons).map(([k, h]) => {
-          const dn = r.models.bootstrap_drift_neutral?.horizons?.[k];
+          const raw = r.models.bootstrap?.horizons?.[k];
           return `<tr><td>${k}</td><td>$${h.p10}</td><td><b>$${h.p50}</b></td><td>$${h.p90}</td>
           <td class="${h.prob_positive >= 0.5 ? "pos" : "neg"}">${(h.prob_positive * 100).toFixed(0)}%</td>
-          <td>${dn ? (dn.prob_positive * 100).toFixed(0) + "%" : "—"}</td>
+          <td>${raw ? ((raw.prob_positive_raw ?? raw.prob_positive) * 100).toFixed(0) + "%" : "—"}</td>
           <td>${(h.prob_up_10pct * 100).toFixed(0)}%</td>
           <td>${(h.prob_down_10pct * 100).toFixed(0)}%</td>
           <td>${(h.prob_down_20pct * 100).toFixed(0)}%</td></tr>`; }).join("")}
@@ -835,7 +842,7 @@ async function renderStock(ticker) {
       <div class="note">${r.drift_diagnostics ? `<b>Directional-bias warning:</b> raw P(up) extrapolates
         this stock's historical drift (${fmtSignedPct(r.drift_diagnostics.historical_drift_annualized_pct)}/yr);
         universe pressure-testing measured a +6–8pt upward bias vs walk-forward reality. The
-        drift-neutral column removes historical drift — read the two as bracketing the honest answer. ` : ""}
+        drift-neutral forecast leads unless a drift-bearing model passes every promotion gate. ` : ""}
         Price-history-only model — knows nothing about earnings, filings or fundamentals.
         Walk-forward direction hit: ${v.lstm ? "LSTM " + (v.lstm.direction_hit_rate * 100).toFixed(0) + "% vs " : ""}bootstrap
         ${(v.bootstrap.direction_hit_rate * 100).toFixed(0)}% (${v.n_folds} folds).
