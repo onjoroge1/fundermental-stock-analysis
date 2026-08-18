@@ -53,9 +53,9 @@ def from_prediction_lab(payload: dict[str, Any]) -> ForecastDistribution:
         ) from exc
 
     verdict = (payload.get("validation") or {}).get("verdict") or {}
-    if primary == "lstm" and verdict.get("lstm_beats_baseline"):
+    if primary in {"lstm", "bootstrap"} and verdict.get("forecast_edge"):
         baseline_status: BaselineStatus = "beats_baseline"
-    elif primary == "bootstrap":
+    elif primary == "bootstrap_drift_neutral":
         baseline_status = "leads"
     else:
         baseline_status = "failed"
@@ -71,23 +71,34 @@ def from_prediction_lab(payload: dict[str, Any]) -> ForecastDistribution:
                 p90=float(raw["p90"]),
             )
             returns = _returns_from_prices(prices, spot)
+            limitations = [f"source horizon label: {label}"]
+            calibration = _coerce_status(
+                raw.get("calibration_status"),
+                {"calibrated", "pending", "uncalibrated", "unknown"},
+                "pending",
+            )
+            if calibration != "calibrated":
+                limitations.insert(0, "probability is model-implied and not calibrated")
+            median_up = prices.p50 >= spot
+            probability_up = float(raw["prob_positive"])
+            if (probability_up >= 0.5) != median_up:
+                limitations.append(
+                    "P(up) and median-return direction disagree; treat direction as low confidence"
+                )
             horizons.append(
                 ForecastHorizon(
                     horizon_days=int(raw["days"]),
-                    probability_up=float(raw["prob_positive"]),
+                    probability_up=probability_up,
                     expected_return=returns.p50,
                     expected_price=prices.p50,
                     expected_return_method="median",
                     price_quantiles=prices,
                     return_quantiles=returns,
                     confidence=None,
-                    calibration_status="pending",
+                    calibration_status=calibration,
                     baseline_status=baseline_status,
                     model_name=primary,
-                    limitations=[
-                        "probabilities are model-implied and not calibrated",
-                        f"source horizon label: {label}",
-                    ],
+                    limitations=limitations,
                 )
             )
         except (KeyError, TypeError, ValueError) as exc:

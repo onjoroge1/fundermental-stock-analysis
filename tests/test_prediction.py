@@ -3,7 +3,7 @@ import random
 
 from stock_machine.prediction import (bootstrap_paths, log_returns,
                                       make_windows, summarize_paths,
-                                      train_stats)
+                                      train_stats, validate)
 
 
 def _series(n=1200, drift=0.0004, vol=0.015, seed=3):
@@ -65,6 +65,21 @@ def test_bootstrap_deterministic_with_seed():
     assert a == b
 
 
+def test_bootstrap_accepts_exactly_one_full_block():
+    returns = [float(i) / 10_000 for i in range(21)]
+    assert bootstrap_paths(returns, 21, n_paths=2, block=21) == [
+        returns, returns
+    ]
+
+
+def test_even_sample_median_is_interpolated():
+    # The shortest configured horizon is five days.
+    paths = [[math.log(value / 100.0)] + [0.0] * 4
+             for value in (90.0, 100.0, 110.0, 120.0)]
+    summary = summarize_paths(paths, 100.0)
+    assert summary["horizons"]["5d"]["p50"] == 105.0
+
+
 def test_drift_neutral_bootstrap_centers_on_50pct():
     """Demeaned resampling must remove directional bias: P(up) ≈ 0.5 even
     for a strongly drifting series."""
@@ -74,6 +89,25 @@ def test_drift_neutral_bootstrap_centers_on_50pct():
     s = summarize_paths(bootstrap_paths(demeaned, 252, n_paths=300), 100.0)
     p = s["horizons"]["12m"]["prob_positive"]
     assert 0.40 <= p <= 0.60, f"drift-neutral P(up) should be ~0.5, got {p}"
+
+
+def test_validation_defaults_to_drift_neutral_without_proven_edge(monkeypatch):
+    import stock_machine.prediction as prediction
+
+    monkeypatch.setattr(prediction, "TORCH_OK", False)
+    returns = [0.001 + (0.002 if i % 2 else -0.002) for i in range(1200)]
+    result = validate(returns)
+    assert result["n_folds"] >= 5
+    assert result["purge_days"] == 20
+    assert result["horizons_days"] == [5, 10, 20]
+    assert result["verdict"]["primary_model"] == "bootstrap_drift_neutral"
+    assert "trend" in result["bootstrap"]["by_regime"]
+    assert result["bootstrap"]["by_regime"]["earnings_proximity"][
+        "status"
+    ] == "unavailable"
+    assert result["bootstrap"]["signed_bias_pct"] > result[
+        "bootstrap_drift_neutral"
+    ]["signed_bias_pct"]
 
 
 def test_stale_same_day_cache_is_rebuilt(tmp_path, monkeypatch):

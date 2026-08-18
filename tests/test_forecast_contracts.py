@@ -13,25 +13,28 @@ def prediction_lab_payload() -> dict:
         "ticker": "SPY",
         "as_of": "2026-08-17",
         "last_price": 650.0,
-        "primary_model": "bootstrap",
+        "primary_model": "bootstrap_drift_neutral",
         "models": {
-            "bootstrap": {
+            "bootstrap_drift_neutral": {
                 "horizons": {
-                    "1m": {
-                        "days": 21,
+                    "20d": {
+                        "days": 20,
                         "p10": 610.0,
                         "p25": 630.0,
                         "p50": 655.0,
                         "p75": 670.0,
                         "p90": 690.0,
                         "prob_positive": 0.54,
+                        "prob_positive_raw": 0.58,
+                        "calibration_status": "calibrated",
                     }
                 }
             }
         },
         "validation": {
             "verdict": {
-                "primary_model": "bootstrap",
+                "primary_model": "bootstrap_drift_neutral",
+                "forecast_edge": False,
                 "lstm_beats_baseline": False,
             }
         },
@@ -68,10 +71,10 @@ def test_prediction_lab_adapter_preserves_baseline_and_uncertainty():
     result = from_prediction_lab(prediction_lab_payload())
     horizon = result.horizons[0]
     assert result.schema_version == "forecast_distribution.v1"
-    assert result.primary_model == "bootstrap"
-    assert horizon.horizon_days == 21
+    assert result.primary_model == "bootstrap_drift_neutral"
+    assert horizon.horizon_days == 20
     assert horizon.baseline_status == "leads"
-    assert horizon.calibration_status == "pending"
+    assert horizon.calibration_status == "calibrated"
     assert horizon.confidence is None
     assert horizon.expected_return == pytest.approx(655 / 650 - 1)
 
