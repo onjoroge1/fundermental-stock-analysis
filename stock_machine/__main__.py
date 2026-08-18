@@ -10,6 +10,7 @@ Commands:
   mlrank                walk-forward ridge model on the latest backtest panel
   kpis                  compute the system KPI dashboard
   planprobe             test what the configured FMP key/plan can access
+  ibkr-market ...       read-only IBKR contract and market-data commands
 """
 from __future__ import annotations
 
@@ -138,6 +139,29 @@ def main() -> None:
             print(json.dumps(compact, indent=1))
             for e in r.get("events", []):
                 print("NOTE:", e["detail"])
+    elif cmd == "ibkr-market":
+        from .market_data.ibkr_client_portal import IBKRClientPortalMarketData
+
+        sub = sys.argv[2] if len(sys.argv) > 2 else "status"
+        with IBKRClientPortalMarketData() as provider:
+            if sub == "status":
+                result = provider.session_status()
+            elif sub == "quote" and len(sys.argv) >= 4:
+                result = provider.quote_underlying(sys.argv[3])
+            elif sub == "strikes" and len(sys.argv) >= 5:
+                result = provider.available_strikes(sys.argv[3], sys.argv[4])
+            elif sub == "chain" and len(sys.argv) >= 6:
+                strikes = [float(value) for value in sys.argv[5].split(",")]
+                result = provider.option_chain(
+                    sys.argv[3], sys.argv[4], strikes
+                )
+            else:
+                raise SystemExit(
+                    "usage: stock-machine ibkr-market "
+                    "status | quote SYMBOL | strikes SYMBOL MONYY | "
+                    "chain SYMBOL MONYY STRIKE[,STRIKE...]"
+                )
+        print(result.model_dump_json(indent=2))
     elif cmd == "mlrank":
         from datetime import datetime, timezone
 

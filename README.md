@@ -36,6 +36,8 @@ Paper portfolio + invalidation monitoring + outcome scorer + KPI dashboard
 | `stock_machine/features/` | deterministic metrics + sector-profile scoring (thresholds are documented conventions) |
 | `stock_machine/bundle.py` | the per-stock, point-in-time analysis contract (incl. reverse-DCF, base rates, insiders) |
 | `stock_machine/prediction.py` | probabilistic forecaster: torch LSTM vs block-bootstrap baseline, kill criterion decides which leads |
+| `stock_machine/forecasts/` | versioned forecast distribution contract + adapters for the prediction lab and LightGBM/conformal output |
+| `stock_machine/market_data/` | provider-neutral stock/option quote contracts + read-only IBKR Client Portal adapter |
 | `stock_machine/backtest/` | walk-forward harness + embargoed ridge model, each with pre-committed kill criteria |
 | `stock_machine/paper.py` | mechanical long-ATTRACTIVE / short-UNATTRACTIVE paper book, marked daily |
 | `stock_machine/monitoring.py` | per-report invalidation rules checked every refresh — breaches flag, never auto-act |
@@ -57,8 +59,20 @@ cp .env.example .env   # fill in DATABASE_URL (Postgres), SEC_USER_AGENT, FMP_AP
 .venv/bin/alembic upgrade head
 .venv/bin/python -m stock_machine all AAPL          # ingest one ticker end-to-end
 .venv/bin/python -m uvicorn stock_machine.webapp:app --port 8642   # dashboard
-.venv/bin/python -m pytest tests/                   # 78 tests
+.venv/bin/python -m pytest tests/                   # run the test suite
 ```
+
+Read-only IBKR market data requires a running, manually authenticated Client
+Portal Gateway. The adapter has no order methods:
+
+```bash
+.venv/bin/stock-machine ibkr-market status
+.venv/bin/stock-machine ibkr-market quote SPY
+.venv/bin/stock-machine ibkr-market strikes SPY SEP26
+.venv/bin/stock-machine ibkr-market chain SPY SEP26 640,645,650
+```
+
+See `docs/PHASE_2_CONTRACTS.md` for the data contract and gateway limitations.
 
 Daily operation: `.venv/bin/python scripts/daily_refresh.py` (schedule it —
 and monitor that it actually runs; a 13-day silent freeze is documented
