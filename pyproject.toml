@@ -30,6 +30,9 @@ stock-machine = "stock_machine.__main__:main"
 testpaths = ["tests"]
 addopts = "--strict-markers"
 
+[tool.vercel]
+entrypoint = "stock_machine.webapp:app"
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
