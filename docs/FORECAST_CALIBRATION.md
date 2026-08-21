@@ -8,8 +8,9 @@ it only after passing every out-of-sample promotion gate.
 ## Validation design
 
 - Direct 5-, 10-, and 20-trading-day outcomes
-- At least five expanding walk-forward folds when sufficient history exists
+- Up to 30 expanding walk-forward folds when sufficient history exists
 - A 20-session purge between each training slice and evaluation window
+- Calibration uses older folds; all promotion metrics use untouched newer folds
 - Scaling and model fitting use training data only
 - Fixed seeds and frozen forecast horizons
 
@@ -27,13 +28,13 @@ number identifies an optimistic forecast.
 
 A drift-bearing model must pass all of these checks at 5, 10, and 20 days:
 
-- at least five walk-forward observations;
+- at least eight untouched evaluation observations;
 - lower return MAE than the zero-return forecast;
 - lower Brier score than the historical class-prior forecast;
 - balanced direction accuracy above 50%;
 - 80% interval coverage between 70% and 95%; and
-- a walk-forward isotonic probability calibrator fitted with both outcome
-  classes represented.
+- a walk-forward isotonic probability calibrator fitted on at least ten older
+  folds with both outcome classes represented.
 
 If any check fails, the result is `no forecast edge` and the drift-neutral
 bootstrap remains primary. Phase 3 option rankings consume only this primary
@@ -45,22 +46,23 @@ produces 5/10/20-day targets directly.
 
 ## Probability calibration
 
-Beta-smoothed isotonic PAVA calibration is dependency-free and is fitted from
-held-out walk-forward predictions. A Beta(2,2) prior prevents a small sample
+Beta-smoothed isotonic PAVA calibration is dependency-free. It is fitted on
+older walk-forward predictions and scored only on newer, untouched folds. A
+Beta(2,2) prior prevents a small sample
 from generating false-certainty 0% or 100% estimates. Both the raw and
 calibrated P(up) are retained.
 Only exact 5/10/20-day horizons with enough observations are marked
 `calibrated`; longer horizons remain `pending` rather than borrowing a short-
 horizon calibration curve.
 
-P50 is a median projected price, not an expected-value price. Price paths are
+P50 is a median simulated price, not an expected-value price or target. Price paths are
 reconstructed correctly from cumulative log returns:
 
 `future_price = current_price * exp(sum(log_returns))`
 
 ## Known limitations
 
-- Five or six folds are a minimum safety gate, not strong statistical proof.
+- Eight untouched evaluation folds are a safety gate, not strong statistical proof.
 - The current model is price-history-only and has no earnings calendar,
   options-implied distribution, fundamentals, or macro regime inputs.
 - Results are segmented by the stock's trailing bull/bear and high/low
@@ -70,3 +72,16 @@ reconstructed correctly from cumulative log returns:
   market regimes change.
 - No forecast should become an order signal until transaction costs, slippage,
   assignment risk, and position limits are tested separately.
+
+## Serving contract
+
+Forecast computation is side-effect-free. `scripts/predict_all.py` and the
+daily refresh worker persist completed, versioned forecast payloads in
+Postgres. `/api/predict/{ticker}` only reads that store. It returns `PENDING`
+when no completed forecast exists and `STALE` when the model version or latest
+price date has moved ahead of the stored vintage. A normal web request never
+trains a model and never writes a local cache.
+
+The canonical contract labels every horizon and distribution as `VALIDATED`,
+`DIAGNOSTIC`, or `PENDING`, and carries the calibration and evaluation sample
+counts used to make that claim.

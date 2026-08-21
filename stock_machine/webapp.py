@@ -147,18 +147,42 @@ def paper_status() -> dict:
 
 
 @app.get("/api/predict/{ticker}")
-def predict(ticker: str, force: bool = False) -> dict:
-    """Probabilistic forecast (LSTM + bootstrap baseline). First call per
-    ticker/day trains walk-forward folds — allow ~1-2 minutes."""
-    from .prediction import forecast
+def predict(ticker: str) -> dict:
+    """Return the latest completed forecast without computing or writing."""
+    from .prediction import MODEL_VERSION
+    ticker = ticker.upper()
     conn = db.connect()
     try:
-        rows = db.fetch_prices(conn, ticker.upper())
+        rows = db.fetch_prices(conn, ticker)
+        stored = db.latest_prediction_forecast(conn, ticker)
     finally:
         conn.close()
-    closes = [{"date": r["date"], "adj_close": r.get("adj_close") or r["close"]}
-              for r in rows]
-    return forecast(ticker.upper(), closes, force=force)
+    latest_price_date = rows[-1]["date"] if rows else None
+    if stored is None:
+        return {
+            "status": "PENDING",
+            "ticker": ticker,
+            "model_version": MODEL_VERSION,
+            "reason": "no precomputed forecast; run scripts/predict_all.py",
+        }
+    if stored.get("model_version") != MODEL_VERSION:
+        return {
+            "status": "STALE",
+            "ticker": ticker,
+            "model_version": MODEL_VERSION,
+            "as_of": stored.get("as_of"),
+            "reason": "stored forecast uses an older model version",
+        }
+    if latest_price_date and stored.get("as_of") != latest_price_date:
+        return {
+            "status": "STALE",
+            "ticker": ticker,
+            "model_version": MODEL_VERSION,
+            "as_of": stored.get("as_of"),
+            "latest_price_date": latest_price_date,
+            "reason": "forecast predates the latest available price",
+        }
+    return stored
 
 
 @app.get("/api/report/{ticker}")

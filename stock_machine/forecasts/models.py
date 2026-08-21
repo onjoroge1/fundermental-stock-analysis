@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 CalibrationStatus = Literal["calibrated", "pending", "uncalibrated", "unknown"]
 BaselineStatus = Literal["leads", "beats_baseline", "failed", "not_compared"]
 CentralEstimateMethod = Literal["mean", "median", "model_output"]
+ReadinessStatus = Literal["VALIDATED", "DIAGNOSTIC", "PENDING"]
 
 
 class PriceQuantiles(BaseModel):
@@ -74,7 +75,11 @@ class ForecastHorizon(BaseModel):
     return_quantiles: ReturnQuantiles
     confidence: float | None = Field(default=None, ge=0, le=1)
     calibration_status: CalibrationStatus
+    calibration_samples: int = Field(default=0, ge=0)
+    validation_samples: int = Field(default=0, ge=0)
     baseline_status: BaselineStatus
+    readiness_status: ReadinessStatus = "DIAGNOSTIC"
+    readiness_reasons: list[str] = Field(default_factory=list)
     model_name: str = Field(min_length=1)
     limitations: list[str] = Field(default_factory=list)
 
@@ -92,6 +97,8 @@ class ForecastDistribution(BaseModel):
     spot_price: float = Field(gt=0)
     source: str = Field(min_length=1)
     primary_model: str = Field(min_length=1)
+    readiness_status: ReadinessStatus = "DIAGNOSTIC"
+    readiness_reasons: list[str] = Field(default_factory=list)
     horizons: list[ForecastHorizon] = Field(min_length=1)
     methodology: dict = Field(default_factory=dict)
     limitations: list[str] = Field(default_factory=list)

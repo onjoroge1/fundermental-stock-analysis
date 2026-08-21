@@ -312,11 +312,11 @@ async function renderPredict(ticker) {
     <div class="page-head"><h1>Prediction lab</h1>
       <select id="pred-ticker" style="background:var(--surface-2);color:var(--text-1);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-family:var(--mono)">${options}</select>
       <span class="chip neutral">probabilistic · returns-based</span></div>
-    <div class="page-sub">Purged 5/10/20-day walk-forward calibration compares LSTM and historical-drift
-      bootstrap forecasts with no-change and drift-neutral baselines. A drift-bearing model leads only
-      after every promotion gate passes. Price-history-only: it knows nothing
-      about earnings or fundamentals. First run per ticker trains ~1–2 min. Not investment advice.</div>
-    <div id="pred-body"><div class="loading">Training walk-forward folds for ${sel}… (~1–2 min on first run)</div></div>`;
+    <div class="page-sub">Simulated return distributions, not price targets. Calibration is fitted on
+      older purged folds and scored on untouched newer folds. A drift-bearing model leads only after
+      every promotion gate passes. Price-history-only: it knows nothing about earnings or fundamentals.
+      Forecasts are precomputed by the refresh worker; this page never trains a model.</div>
+    <div id="pred-body"><div class="loading">Loading the latest completed forecast for ${sel}…</div></div>`;
   $("#pred-ticker").addEventListener("change", (e) => renderPredict(e.target.value));
   let r;
   try { r = await fetchJSON(`/api/predict/${sel}`); }
@@ -331,13 +331,15 @@ async function renderPredict(ticker) {
   const probRow = (label, h) => {
     if (!h) return "";
     const raw = r.models.bootstrap?.horizons?.[label];
+    const contractH = r.forecast_distribution?.horizons?.find((x) => x.horizon_days === h.days);
     return `<tr><td>${label}</td>
     <td>$${h.p10}</td><td>$${h.p25}</td><td><b>$${h.p50}</b></td><td>$${h.p75}</td><td>$${h.p90}</td>
     <td class="${h.prob_positive >= 0.5 ? "pos" : "neg"}">${(h.prob_positive * 100).toFixed(0)}%</td>
     <td>${raw ? ((raw.prob_positive_raw ?? raw.prob_positive) * 100).toFixed(0) + "%" : "—"}</td>
     <td>${(h.prob_up_10pct * 100).toFixed(0)}%</td>
     <td>${(h.prob_down_10pct * 100).toFixed(0)}%</td>
-    <td>${(h.prob_down_20pct * 100).toFixed(0)}%</td></tr>`;
+    <td>${(h.prob_down_20pct * 100).toFixed(0)}%</td>
+    <td>${contractH?.readiness_status || "DIAGNOSTIC"} · ${h.calibration_status || "pending"}${h.calibration_samples ? ` (n=${h.calibration_samples})` : ""}</td></tr>`;
   };
   const body = document.createElement("div");
   body.className = "grid";
@@ -350,10 +352,10 @@ async function renderPredict(ticker) {
   body.appendChild(chartPanel);
   const pt = document.createElement("div");
   pt.className = "panel wide";
-  pt.innerHTML = `<h3>Probability of future moves — ${r.primary_model} (primary)</h3>
+  pt.innerHTML = `<h3>Model-implied move probabilities — ${r.primary_model} (primary)</h3>
     <div class="table-wrap"><table class="scen-table"><thead><tr>
       <th>Horizon</th><th>P10</th><th>P25</th><th>Median</th><th>P75</th><th>P90</th>
-      <th>P(up) primary</th><th>P(up) raw drift</th><th>P(+10%)</th><th>P(−10%)</th><th>P(−20%)</th></tr></thead>
+      <th>P(up) primary</th><th>P(up) raw drift</th><th>P(+10%)</th><th>P(−10%)</th><th>P(−20%)</th><th>Calibration</th></tr></thead>
       <tbody>${Object.entries(primary.horizons).map(([k, h]) => probRow(k, h)).join("")}</tbody></table></div>
     ${r.drift_diagnostics ? `<div class="note"><b>Directional-bias warning</b> (pressure-tested):
       raw probabilities extrapolate historical drift of
@@ -369,6 +371,7 @@ async function renderPredict(ticker) {
   vp.innerHTML = `<h3>Validation — has this model earned trust?</h3>
     <div class="kv">
       <span class="k">Expanding walk-forward folds (5/10/20-day)</span><span class="v">${v.n_folds}</span>
+      <span class="k">Calibration / untouched evaluation folds</span><span class="v">${v.calibration_folds} / ${v.evaluation_folds}</span>
       <span class="k">Purge between train and test</span><span class="v">${v.purge_days} sessions</span>
       <span class="k">Primary signed return bias</span><span class="v">${fmtSignedPct(primaryValidation.signed_bias_pct)}</span>
       <span class="k">Primary return MAE</span><span class="v">${primaryValidation.return_mae_pct.toFixed(2)}%</span>
@@ -378,6 +381,7 @@ async function renderPredict(ticker) {
       <span class="k">Bootstrap direction hit rate</span><span class="v">${(v.bootstrap.direction_hit_rate * 100).toFixed(0)}%</span>
       <span class="k">LSTM 80%-interval coverage</span><span class="v">${v.lstm ? (v.lstm.interval_80_coverage * 100).toFixed(0) + "%" : "n/a"}</span>
       <span class="k">Bootstrap 80%-interval coverage</span><span class="v">${(v.bootstrap.interval_80_coverage * 100).toFixed(0)}%</span>
+      <span class="k">Evidence status</span><span class="v">${r.forecast_distribution?.readiness_status || "DIAGNOSTIC"}</span>
       <span class="k">Verdict</span><span class="v">${v.verdict.forecast_edge ? r.primary_model + " earned promotion" : "no forecast edge"}</span>
     </div>
     <div class="note">${v.verdict.kill_criterion}. ${v.verdict.note}. ${r.methodology.leak_controls}.
@@ -806,11 +810,11 @@ async function renderStock(ticker) {
     <div class="note">${(dq.known_limitations || []).map((l) => "· " + l).join("<br>")}</div>`;
   grid.appendChild(dqp);
 
-  // price prediction panel — async so the page never blocks on training
+  // Read the latest completed simulation; web requests never train models.
   const predP = document.createElement("div");
   predP.className = "panel wide";
-  predP.innerHTML = `<h3>Median projected-price distribution — Monte Carlo</h3>
-    <div class="loading">Loading forecast… (first run per ticker trains ~30s)</div>`;
+  predP.innerHTML = `<h3>Simulated price distribution — Monte Carlo</h3>
+    <div class="loading">Loading latest completed forecast…</div>`;
   grid.appendChild(predP);
   (async () => {
     let r;
@@ -822,7 +826,7 @@ async function renderStock(ticker) {
     }
     const prim = r.models[r.primary_model];
     const v = r.validation;
-    predP.innerHTML = `<h3>Median projected-price distribution — ${r.primary_model} (primary)
+    predP.innerHTML = `<h3>Simulated price distribution — ${r.primary_model} (primary)
       <span class="chip ${v.verdict.forecast_edge ? "good" : "neutral"}" style="margin-left:8px">
         ${v.verdict.forecast_edge ? "forecast edge" : "drift-neutral"}</span></h3>`;
     fanChart(predP, r.history_tail, prim.fan, r.last_price);

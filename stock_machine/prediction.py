@@ -20,13 +20,9 @@ All outputs are labeled: short-horizon equity returns are near-random-walk;
 honest probabilities hug 50% and honest fans are wide."""
 from __future__ import annotations
 
-import json
 import math
 import random
-from datetime import date
-from pathlib import Path
 
-from .config import DATA_DIR
 from .forecasts import from_prediction_lab
 from .forecasts.calibration import (
     apply_isotonic,
@@ -36,7 +32,6 @@ from .forecasts.calibration import (
     quantile,
 )
 
-PRED_DIR = DATA_DIR / "predictions"
 HORIZONS = {
     "5d": 5, "10d": 10, "20d": 20,
     "1m": 21, "3m": 63, "6m": 126, "12m": 252,
@@ -47,8 +42,9 @@ WINDOW = 40
 BLOCK = 21
 PURGE = 20
 SEED = 7
-MODEL_VERSION = "forecast-calibration.v1"
-MIN_CALIBRATION_SAMPLES = 5
+MODEL_VERSION = "forecast-calibration.v2"
+MIN_CALIBRATION_SAMPLES = 10
+MIN_EVALUATION_SAMPLES = 8
 
 try:
     import torch
@@ -291,7 +287,9 @@ def _fold_score(paths: list[list[float]], realized: float, days: int) -> dict:
     }
 
 
-def _summarize_validation(folds: list[dict], model: str) -> dict | None:
+def _summarize_validation(folds: list[dict], model: str,
+                          calibration_folds: list[dict] | None = None) -> dict | None:
+    """Summarize evaluation folds and fit calibrators on earlier folds only."""
     observations = [
         (int(days), scores, fold["outcomes"][days]["positive"], fold)
         for fold in folds
@@ -299,6 +297,34 @@ def _summarize_validation(folds: list[dict], model: str) -> dict | None:
     ]
     if not observations:
         return None
+
+    calibration_observations = [
+        (int(days), scores, fold["outcomes"][days]["positive"], fold)
+        for fold in (calibration_folds or [])
+        for days, scores in fold.get("models", {}).get(model, {}).items()
+    ]
+
+    calibrators = {}
+    for days in VALIDATION_HORIZONS:
+        rows = [row for row in calibration_observations if row[0] == days]
+        probabilities = [row[1]["prob_positive"] for row in rows]
+        outcomes = [row[2] for row in rows]
+        if (len(rows) >= MIN_CALIBRATION_SAMPLES
+                and len(set(outcomes)) == 2):
+            calibrators[str(days)] = fit_isotonic(probabilities, outcomes)
+
+    calibrated_observations = []
+    for days, scores, outcome, fold in observations:
+        score = dict(scores)
+        calibrator = calibrators.get(str(days))
+        if calibrator:
+            probability = apply_isotonic(score["prob_positive"], calibrator)
+            score["prob_positive_raw"] = score["prob_positive"]
+            score["prob_positive"] = probability
+            score["brier"] = (probability - float(outcome)) ** 2
+            score["direction_hit"] = (probability >= 0.5) == outcome
+        calibrated_observations.append((days, score, outcome, fold))
+    observations = calibrated_observations
 
     def summarize(rows: list[tuple[int, dict, bool]]) -> dict:
         probabilities = [row[1]["prob_positive"] for row in rows]
@@ -331,14 +357,6 @@ def _summarize_validation(folds: list[dict], model: str) -> dict | None:
         str(days): summarize([row for row in observations if row[0] == days])
         for days in VALIDATION_HORIZONS
     }
-    calibrators = {}
-    for days in VALIDATION_HORIZONS:
-        rows = [row for row in observations if row[0] == days]
-        probabilities = [row[1]["prob_positive"] for row in rows]
-        outcomes = [row[2] for row in rows]
-        if (len(rows) >= MIN_CALIBRATION_SAMPLES
-                and len(set(outcomes)) == 2):
-            calibrators[str(days)] = fit_isotonic(probabilities, outcomes)
     return {
         **summarize(observations),
         "by_horizon": by_horizon,
@@ -361,6 +379,8 @@ def _summarize_validation(folds: list[dict], model: str) -> dict | None:
             },
         },
         "probability_calibrators": calibrators,
+        "calibration_samples": len(calibration_folds or []),
+        "evaluation_samples": len(folds),
     }
 
 
@@ -370,7 +390,9 @@ def _promotion_checks(candidate: dict | None, no_change: dict) -> dict:
         model_h = (candidate or {}).get("by_horizon", {}).get(str(days), {})
         base_h = no_change["by_horizon"][str(days)]
         values = {
-            "minimum_five_folds": model_h.get("samples", 0) >= 5,
+            "minimum_eight_evaluation_folds": (
+                model_h.get("samples", 0) >= MIN_EVALUATION_SAMPLES
+            ),
             "mae_beats_no_change": (
                 model_h.get("return_mae_pct", math.inf)
                 < base_h["return_mae_pct"]
@@ -400,7 +422,7 @@ def _promotion_checks(candidate: dict | None, no_change: dict) -> dict:
             "passed": bool(checks) and all(check["passed"] for check in checks)}
 
 
-def validate(returns: list[float], n_folds: int = 6) -> dict:
+def validate(returns: list[float], n_folds: int = 30) -> dict:
     """Purged expanding-window validation at 5/10/20 trading days.
 
     A drift-bearing model may lead only when every horizon beats a no-change
@@ -410,7 +432,9 @@ def validate(returns: list[float], n_folds: int = 6) -> dict:
     folds = []
     min_train = 750
     max_horizon = max(VALIDATION_HORIZONS)
-    step = 63
+    # Forty-two sessions keeps 20-day outcomes non-overlapping while yielding
+    # enough history to separate calibration from final evaluation.
+    step = 42
     cut_positions = [len(returns) - max_horizon - i * step
                      for i in range(n_folds)]
     for fold_number, cut in enumerate(sorted(
@@ -427,16 +451,6 @@ def validate(returns: list[float], n_folds: int = 6) -> dict:
                 demeaned, max_horizon, n_paths=300, seed=SEED + fold_number
             ),
         }
-        if TORCH_OK:
-            m, s = train_stats(train)
-            vm, vs = train_stats(rolling_vol(train))
-            feats = make_features(train, m, s, vm, vs)
-            model = train_lstm(feats, epochs=8, seed=SEED + fold_number)
-            model_paths["lstm"] = lstm_paths(
-                model, feats[-WINDOW:], m, s, vm, vs, max_horizon,
-                n_paths=300, seed=SEED + fold_number,
-            )
-
         historical_vol = rolling_vol(train)
         recent_vol = historical_vol[-1]
         reference_vol = quantile(historical_vol[-252:], 0.50)
@@ -468,20 +482,31 @@ def validate(returns: list[float], n_folds: int = 6) -> dict:
                 )
         folds.append(fold)
 
+    # Calibrators see only the older folds. Metrics and promotion gates see
+    # only newer folds that did not fit the calibrator.
+    if len(folds) >= MIN_CALIBRATION_SAMPLES + MIN_EVALUATION_SAMPLES:
+        split = len(folds) - MIN_EVALUATION_SAMPLES
+        calibration_folds, evaluation_folds = folds[:split], folds[split:]
+    else:
+        calibration_folds, evaluation_folds = [], folds
     summaries = {
-        name: _summarize_validation(folds, name)
-        for name in ("no_change", "bootstrap_drift_neutral", "bootstrap", "lstm")
+        name: _summarize_validation(
+            evaluation_folds, name,
+            calibration_folds if name != "no_change" else None,
+        )
+        for name in ("no_change", "bootstrap_drift_neutral", "bootstrap")
     }
+    summaries["lstm"] = None
     for name, summary in summaries.items():
         if summary is not None:
             summary["model_name"] = name
     no_change = summaries["no_change"]
     promotion = {
         name: _promotion_checks(summaries[name], no_change)
-        for name in ("bootstrap", "lstm") if summaries[name] is not None
+        for name in ("bootstrap",) if summaries[name] is not None
     }
     promoted = next(
-        (name for name in ("lstm", "bootstrap")
+        (name for name in ("bootstrap",)
          if promotion.get(name, {}).get("passed")),
         None,
     )
@@ -489,6 +514,8 @@ def validate(returns: list[float], n_folds: int = 6) -> dict:
     return {
         "folds": folds,
         "n_folds": len(folds),
+        "calibration_folds": len(calibration_folds),
+        "evaluation_folds": len(evaluation_folds),
         "horizons_days": list(VALIDATION_HORIZONS),
         "purge_days": PURGE,
         **summaries,
@@ -496,12 +523,14 @@ def validate(returns: list[float], n_folds: int = 6) -> dict:
         "verdict": {
             "primary_model": primary,
             "forecast_edge": promoted is not None,
-            "lstm_beats_baseline": promoted == "lstm",
+            "lstm_beats_baseline": False,
             "kill_criterion": "a drift-bearing model leads only if all 5/10/20-day "
                               "walk-forward gates pass against no-change and "
                               "historical class-prior baselines",
-            "note": (f"{len(folds)} expanding-window folds with a {PURGE}-session "
-                     "purge; no forecast edge means drift-neutral leads"),
+            "note": (f"{len(calibration_folds)} calibration and "
+                     f"{len(evaluation_folds)} untouched evaluation folds with "
+                     f"a {PURGE}-session purge; no forecast edge means "
+                     "drift-neutral leads"),
         },
     }
 
@@ -510,22 +539,12 @@ def validate(returns: list[float], n_folds: int = 6) -> dict:
 
 def forecast(ticker: str, closes: list[dict],
              force: bool = False) -> dict:
-    """closes: [{date, adj_close}] ascending. Cached per (ticker, day)."""
-    PRED_DIR.mkdir(parents=True, exist_ok=True)
-    today = date.today().isoformat()
-    cache = PRED_DIR / f"{ticker}_{today}.json"
-    if cache.exists() and not force:
-        cached = json.loads(cache.read_text())
-        # a same-day cache built from OLDER prices is stale (e.g. computed
-        # before the daily refresh landed) — rebuild, never serve it
-        if (cached.get("status") == "OK" and closes
-                and cached.get("as_of") == closes[-1]["date"]
-                and cached.get("model_version") == MODEL_VERSION):
-            if "forecast_distribution" not in cached:
-                _attach_canonical_contract(cached)
-                cache.write_text(json.dumps(cached))
-            return cached
+    """Compute one forecast without filesystem or database side effects.
 
+    ``force`` remains as a compatibility argument for existing callers. The
+    worker that invokes this function owns persistence; web requests only read
+    completed forecast vintages.
+    """
     series = [c["adj_close"] for c in closes if c.get("adj_close")]
     if len(series) < 800:
         return {"status": "INSUFFICIENT_DATA",
@@ -599,10 +618,12 @@ def forecast(ticker: str, closes: list[dict],
                              f"walk-forward folds train strictly before "
                              f"each cutoff with a {PURGE}-day purge gap",
             "calibration": "5/10/20-day P(up) uses beta-smoothed isotonic "
-                           "PAVA fitted only "
-                           "to purged walk-forward predictions when at least "
-                           f"{MIN_CALIBRATION_SAMPLES} folds and both outcome "
-                           "classes are present; other horizons remain pending",
+                           "PAVA fitted only on older purged walk-forward "
+                           "folds, then scored on untouched newer folds; "
+                           f"requires {MIN_CALIBRATION_SAMPLES}+ calibration "
+                           f"and {MIN_EVALUATION_SAMPLES}+ evaluation folds "
+                           "with both outcome classes; other horizons remain "
+                           "pending",
             "limitations": "price-history-only model: knows nothing about "
                            "earnings dates, filings, or fundamentals; "
                            "calibration status is reported per horizon and "
@@ -611,5 +632,4 @@ def forecast(ticker: str, closes: list[dict],
         },
     }
     _attach_canonical_contract(payload)
-    cache.write_text(json.dumps(payload))
     return payload

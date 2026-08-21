@@ -1,5 +1,8 @@
-"""Precompute probabilistic forecasts for the whole universe (cached per
-ticker per day). Per-ticker failures are logged, never fatal."""
+"""Precompute and persist forecasts for the whole universe.
+
+Per-ticker failures are logged and never make a completed vintage disappear.
+The dashboard reads this store and never trains models inside a web request.
+"""
 from __future__ import annotations
 
 import json
@@ -28,6 +31,7 @@ def main() -> int:
                     print(json.dumps({"ticker": t, "status": r["status"],
                                       "reason": r.get("reason")}))
                     continue
+                db.save_prediction_forecast(conn, r)
                 h12 = r["models"][r["primary_model"]]["horizons"]["12m"]
                 print(json.dumps({
                     "ticker": t, "primary": r["primary_model"],

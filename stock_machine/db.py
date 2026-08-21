@@ -166,6 +166,15 @@ CREATE TABLE IF NOT EXISTS analysis_reports (
     saved_at TIMESTAMPTZ DEFAULT now(),
     report JSONB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS prediction_forecasts (
+    ticker TEXT NOT NULL,
+    as_of DATE NOT NULL,
+    model_version TEXT NOT NULL,
+    generated_at TIMESTAMPTZ DEFAULT now(),
+    status TEXT NOT NULL,
+    payload JSONB NOT NULL,
+    PRIMARY KEY (ticker, as_of, model_version)
+);
 """
 
 
@@ -510,3 +519,43 @@ def save_report(conn: psycopg.Connection, report_id: str, ticker: str,
             (report_id, ticker, as_of, Jsonb(report)),
         )
     conn.commit()
+
+
+def save_prediction_forecast(conn: psycopg.Connection, payload: dict) -> None:
+    """Persist one immutable-by-vintage forecast result.
+
+    Recomputing the same model for the same symbol/as-of date replaces only
+    that exact vintage. Older dates and older model versions remain available
+    for audit and outcome scoring.
+    """
+    ticker = str(payload.get("ticker") or "").upper()
+    as_of = payload.get("as_of")
+    model_version = str(payload.get("model_version") or "unknown")
+    status = str(payload.get("status") or "FAILED")
+    if not ticker or not as_of:
+        raise ValueError("forecast payload requires ticker and as_of")
+    with conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO prediction_forecasts
+               (ticker, as_of, model_version, status, payload)
+               VALUES (%s, %s, %s, %s, %s)
+               ON CONFLICT (ticker, as_of, model_version) DO UPDATE SET
+                   generated_at = now(), status = EXCLUDED.status,
+                   payload = EXCLUDED.payload""",
+            (ticker, str(as_of)[:10], model_version, status, Jsonb(payload)),
+        )
+    conn.commit()
+
+
+def latest_prediction_forecast(conn: psycopg.Connection,
+                               ticker: str) -> dict | None:
+    """Return the newest persisted result; never computes a forecast."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT payload FROM prediction_forecasts
+               WHERE ticker = %s
+               ORDER BY as_of DESC, generated_at DESC LIMIT 1""",
+            (ticker.upper(),),
+        )
+        row = cur.fetchone()
+    return row[0] if row else None
