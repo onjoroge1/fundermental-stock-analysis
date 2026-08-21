@@ -114,6 +114,21 @@ the historical backtest; the dashboard reads the persisted result and shows
 development versus untouched evaluation performance. See
 [`docs/STRATEGY_LAB.md`](docs/STRATEGY_LAB.md).
 
+The **Policy paper** page applies only current, non-stale `PAPER_ELIGIBLE`
+policies to stocks that pass the point-in-time data gate. Generate the
+persisted screen, review it, and then explicitly sync the separate strategy
+paper ledger:
+
+```bash
+.venv/bin/python -m stock_machine strategy-screen
+.venv/bin/python -m stock_machine strategy-paper sync
+.venv/bin/python -m stock_machine strategy-paper mark
+```
+
+This workflow cannot place IBKR orders and does not alter the existing
+classification-driven paper portfolio. See
+[`docs/PROMOTED_POLICY_PAPER.md`](docs/PROMOTED_POLICY_PAPER.md).
+
 ## Honesty infrastructure (the point of the project)
 
 - **Kill criteria everywhere**: the composite score, the ridge model, and the

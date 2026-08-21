@@ -76,3 +76,7 @@ survivorship-biased. Quarterly adjusted-close tests also omit taxes, borrow
 fees, and market impact. These limitations prevent live promotion even when a
 policy passes the paper gate. A survivorship-free universe and a forward paper
 incubation period are required before any live-capital discussion.
+
+The current-screen and isolated forward paper workflow is documented in
+[`PROMOTED_POLICY_PAPER.md`](PROMOTED_POLICY_PAPER.md). It consumes only
+`PAPER_ELIGIBLE` policies and never changes this lab's promotion verdicts.

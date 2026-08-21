@@ -232,6 +232,11 @@ function renderSidebar() {
   lab.innerHTML = `<span class="tk">Strategy lab</span><span class="score-pill">OOS</span>`;
   lab.onclick = () => go("strategy-lab");
   nav.appendChild(lab);
+  const screen = document.createElement("div");
+  screen.className = "nav-item nav-home" + (state.view === "strategy-screen" ? " active" : "");
+  screen.innerHTML = `<span class="tk">Policy paper</span><span class="score-pill">PAPER</span>`;
+  screen.onclick = () => go("strategy-screen");
+  nav.appendChild(screen);
   const dq = document.createElement("div");
   dq.className = "nav-item nav-home" + (state.view === "data-quality" ? " active" : "");
   dq.innerHTML = `<span class="tk">Data quality</span><span class="score-pill">PIT</span>`;
@@ -260,9 +265,63 @@ function go(view, ticker = null) {
   else if (view === "system") renderSystem();
   else if (view === "data-quality") renderDataQuality();
   else if (view === "strategy-lab") renderStrategyLab();
+  else if (view === "strategy-screen") renderStrategyScreen();
   else if (view === "portfolio") renderPortfolio();
   else if (view === "predict") renderPredict(ticker);
   else renderStock(ticker);
+}
+
+/* ---------------- promoted-policy screen and isolated paper book ---------------- */
+async function renderStrategyScreen() {
+  const m = $("#main");
+  m.innerHTML = `<div class="loading">Loading current policy screen…</div>`;
+  let screen, paper;
+  try {
+    [screen, paper] = await Promise.all([
+      fetchJSON("/api/strategy-screen"), fetchJSON("/api/strategy-paper"),
+    ]);
+  } catch (e) {
+    m.innerHTML = `<div class="loading">Policy paper failed: ${e.message}</div>`;
+    return;
+  }
+  if (screen.status !== "OK") {
+    m.innerHTML = `<div class="page-head"><h1>Policy paper</h1><span class="chip neutral">${screen.status}</span></div>
+      <div class="page-sub">${screen.reason || "No current screen."}</div>
+      <div class="banner">This page never falls back to rejected or stale policies.</div>`;
+    return;
+  }
+  const sections = Object.entries(screen.policies || {}).map(([name, policy]) => {
+    const rows = (policy.candidates || []).map((item) => `<tr data-t="${item.ticker}">
+      <td><span class="tk">${item.ticker}</span></td><td>${item.rank}</td>
+      <td>${fmtNum(item.score, 3)}</td><td>${(item.target_weight * 100).toFixed(1)}%</td>
+      <td>${item.price == null ? "—" : "$" + fmtNum(item.price, 2)}</td>
+      <td>${item.price_date || "—"}</td><td><span class="chip ${item.data_readiness === "READY" ? "good" : "warn"}">${item.data_readiness}</span></td>
+      <td style="text-align:left" class="mini">${Object.entries(item.signal_percentiles || {}).map(([signal, value]) => `${signal}: ${(value * 100).toFixed(0)}th`).join(" · ")}</td>
+    </tr>`).join("");
+    return `<div class="panel wide" style="margin-bottom:14px"><h3>${policy.label}</h3>
+      <div class="mini">${policy.selection_rule} · ${policy.signals.join(" + ")}</div>
+      <div class="table-wrap"><table class="coverage"><thead><tr><th>Ticker</th><th>Rank</th><th>Score</th><th>Target</th><th>Mark</th><th>Price date</th><th>Data</th><th>Why selected</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="8">Policy abstained due to signal coverage.</td></tr>`}</tbody></table></div></div>`;
+  }).join("");
+  const positions = (paper.open_positions || []).map((position) => `<tr data-t="${position.ticker}">
+    <td style="text-align:left">${position.policy}</td><td><span class="tk">${position.ticker}</span></td>
+    <td>${(position.target_weight * 100).toFixed(1)}%</td><td>${position.entry_date}</td><td>$${fmtNum(position.entry_price, 2)}</td>
+  </tr>`).join("");
+  m.innerHTML = `<div class="page-head"><h1>Promoted-policy paper portfolio</h1>
+      <span class="chip good">CURRENT SCREEN</span><span class="chip neutral">PAPER ONLY</span></div>
+    <div class="page-sub">As of ${screen.as_of}. Only Strategy Lab policies that passed untouched evaluation are applied, after each ticker passes the point-in-time data gate.</div>
+    <div class="tiles">
+      <div class="tile"><div class="lbl">Observed universe</div><div class="val">${screen.universe.observed}</div></div>
+      <div class="tile"><div class="lbl">Data eligible</div><div class="val">${screen.universe.eligible}</div></div>
+      <div class="tile"><div class="lbl">Excluded</div><div class="val">${screen.universe.excluded.length}</div></div>
+    </div>${sections}
+    <div class="panel wide"><h3>Isolated strategy paper ledger</h3>
+      <div class="table-wrap"><table class="coverage"><thead><tr><th>Policy</th><th>Ticker</th><th>Target</th><th>Entry date</th><th>Entry price</th></tr></thead>
+      <tbody>${positions || `<tr><td colspan="5">No positions. Run strategy-paper sync after reviewing the screen.</td></tr>`}</tbody></table></div>
+      <div class="note">${paper.conventions}. Sync is an explicit CLI action; this page cannot place or simulate an IBKR order.</div></div>
+    <div class="banner" style="margin-top:14px">${(screen.limitations || []).join(" ")}</div>`;
+  m.querySelectorAll("tr[data-t]").forEach((tr) =>
+    tr.addEventListener("click", () => go("stock", tr.dataset.t)));
 }
 
 /* ---------------- walk-forward strategy lab ---------------- */
