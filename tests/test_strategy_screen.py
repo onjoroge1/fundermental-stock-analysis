@@ -41,13 +41,26 @@ def test_screen_selects_only_promoted_policy_top_quintile():
 
     assert result["status"] == "OK"
     assert result["execution_status"] == "PAPER_ONLY"
+    assert result["cost_bps_per_turnover"] == 15
     assert list(result["policies"]) == ["value_quality"]
     picks = result["policies"]["value_quality"]["candidates"]
     assert [row["ticker"] for row in picks] == ["T09", "T08"]
     assert sum(row["target_weight"] for row in picks) == 1
+    assert len(result["benchmark"]) == 10
+    assert result["benchmark"][0] == {
+        "ticker": "T00", "price": 100, "price_date": "2026-08-21",
+    }
     assert picks[0]["raw_signals"] == {
         "factors.earnings_yield_pct": 9.0, "factors.roic_pct": 9.0,
     }
+
+
+def test_screen_preserves_strategy_lab_cost_contract():
+    rows = _rows()
+    lab = _lab()
+    lab["config"] = {"cost_bps_per_turnover": 35}
+    result = generate(lab, rows, _ready(rows))
+    assert result["cost_bps_per_turnover"] == 35
 
 
 def test_screen_blocks_when_no_policy_passed_evaluation():

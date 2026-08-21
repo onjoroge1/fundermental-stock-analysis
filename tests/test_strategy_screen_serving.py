@@ -27,15 +27,28 @@ def test_strategy_screen_endpoint_pending_and_read_only(monkeypatch):
 
 
 def test_strategy_screen_endpoint_rejects_stale_policy_source(monkeypatch):
-    screen = {"status": "OK", "screen_id": "s1",
+    screen = {"schema_version": "strategy_screen.v2",
+              "status": "OK", "screen_id": "s1",
               "strategy_lab_run_id": "old", "source_backtest_run_id": "bt_1"}
     _patch(monkeypatch, screen, {"run_id": "new"})
     assert webapp.strategy_screen()["status"] == "STALE"
 
 
 def test_strategy_screen_endpoint_returns_current_persisted_screen(monkeypatch):
-    screen = {"status": "OK", "strategy_lab_run_id": "lab_1",
+    screen = {"schema_version": "strategy_screen.v2",
+              "status": "OK", "strategy_lab_run_id": "lab_1",
               "source_backtest_run_id": "bt_1",
               "as_of": date.today().isoformat()}
     _patch(monkeypatch, screen, {"run_id": "lab_1"})
     assert webapp.strategy_screen() is screen
+
+
+def test_strategy_screen_endpoint_rejects_v1_without_benchmark(monkeypatch):
+    screen = {"schema_version": "strategy_screen.v1", "status": "OK",
+              "strategy_lab_run_id": "lab_1",
+              "source_backtest_run_id": "bt_1",
+              "as_of": date.today().isoformat()}
+    _patch(monkeypatch, screen, {"run_id": "lab_1"})
+    result = webapp.strategy_screen()
+    assert result["status"] == "STALE"
+    assert "older contract" in result["reason"]

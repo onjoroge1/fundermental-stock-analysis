@@ -34,6 +34,9 @@ def open_positions(conn) -> list[dict]:
 
 def sync(conn, screen: dict, screen_id: str, *, as_of: str | None = None) -> dict:
     """Rebalance a long-only paper book to one current, eligible screen."""
+    from .strategy_screen import SCHEMA_VERSION
+    if screen.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError(f"strategy paper sync requires {SCHEMA_VERSION}")
     if screen.get("status") != "OK" or screen.get("execution_status") != "PAPER_ONLY":
         raise ValueError("strategy paper sync requires an OK PAPER_ONLY screen")
     as_of = (as_of or screen.get("as_of") or date.today().isoformat())[:10]
@@ -46,17 +49,22 @@ def sync(conn, screen: dict, screen_id: str, *, as_of: str | None = None) -> dic
     if not desired:
         raise ValueError("strategy paper sync refuses an empty selection")
     current = {(p["policy"], p["ticker"]): p for p in open_positions(conn)}
-    opened, closed, retained, skipped = [], [], [], []
+    needed_prices = {item["ticker"] for item in desired.values()}
+    needed_prices.update(position["ticker"] for key, position in current.items()
+                         if key not in desired)
+    prices = {ticker: _adj_close(conn, ticker, as_of)
+              for ticker in sorted(needed_prices)}
+    missing = [ticker for ticker, price in prices.items() if price is None]
+    if missing:
+        raise ValueError("strategy paper sync requires complete prices: "
+                         + ", ".join(missing))
+    opened, closed, retained = [], [], []
 
     for key, position in current.items():
         if key in desired:
             retained.append({"policy": key[0], "ticker": key[1]})
             continue
-        px = _adj_close(conn, position["ticker"], as_of)
-        if px is None:
-            skipped.append({"policy": key[0], "ticker": key[1],
-                            "reason": "no current price to close"})
-            continue
+        px = prices[position["ticker"]]
         with conn.cursor() as cur:
             cur.execute("""UPDATE sm_strategy_paper_positions
                            SET status='closed', exit_date=%s, exit_price=%s,
@@ -74,11 +82,7 @@ def sync(conn, screen: dict, screen_id: str, *, as_of: str | None = None) -> dic
                             (item["target_weight"], screen_id,
                              current[key]["position_id"]))
             continue
-        px = _adj_close(conn, item["ticker"], as_of)
-        if px is None:
-            skipped.append({"policy": key[0], "ticker": key[1],
-                            "reason": "no current price to open"})
-            continue
+        px = prices[item["ticker"]]
         with conn.cursor() as cur:
             cur.execute("""INSERT INTO sm_strategy_paper_positions
                            (policy, ticker, screen_id, target_weight,
@@ -87,9 +91,11 @@ def sync(conn, screen: dict, screen_id: str, *, as_of: str | None = None) -> dic
                         (key[0], key[1], screen_id, item["target_weight"],
                          as_of, px))
         opened.append({"policy": key[0], "ticker": key[1], "entry": px})
+    from . import paper_incubation
+    cohorts = paper_incubation.ensure_cohorts(conn, screen, screen_id)
     conn.commit()
     return {"screen_id": screen_id, "as_of": as_of, "opened": opened,
-            "closed": closed, "retained": retained, "skipped": skipped}
+            "closed": closed, "retained": retained, "cohorts": cohorts}
 
 
 def mark(conn, *, on: str | None = None) -> dict:
@@ -120,10 +126,13 @@ def mark(conn, *, on: str | None = None) -> dict:
             rows.append({"date": on, "policy": policy, "return_pct": value,
                          "n_positions": len(details), "positions": details})
     conn.commit()
-    return {"date": on, "policies": rows}
+    from . import paper_incubation
+    return {"date": on, "policies": rows,
+            "incubation": paper_incubation.mark(conn, on=on)}
 
 
 def status(conn) -> dict:
+    from . import paper_incubation
     with conn.cursor() as cur:
         cur.execute("""SELECT date::text, policy, return_pct, n_positions, details
                        FROM sm_strategy_paper_nav ORDER BY date, policy""")
@@ -133,6 +142,7 @@ def status(conn) -> dict:
         "execution_status": "PAPER_ONLY",
         "open_positions": open_positions(conn),
         "nav": nav,
+        "incubation": paper_incubation.status(conn),
         "conventions": ("separate long-only equal-weight policy books; "
                         "adjusted-close marks; no costs, slippage, or live orders"),
     }

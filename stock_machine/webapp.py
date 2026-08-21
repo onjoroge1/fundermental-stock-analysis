@@ -250,6 +250,7 @@ def strategy_lab() -> dict:
 @app.get("/api/strategy-screen")
 def strategy_screen() -> dict:
     """Serve the latest persisted screen; never recompute current factors."""
+    from .strategy_screen import SCHEMA_VERSION
     conn = db.connect()
     try:
         screen = db.latest_strategy_screen(conn)
@@ -267,6 +268,10 @@ def strategy_screen() -> dict:
         return {"status": "STALE", "reason": (
             "screen does not use the latest Strategy Lab and backtest runs"),
                 "screen_id": screen.get("screen_id")}
+    if screen.get("schema_version") != SCHEMA_VERSION:
+        return {"status": "STALE", "reason": (
+            f"screen uses an older contract; rerun strategy-screen for "
+            f"{SCHEMA_VERSION}"), "screen_id": screen.get("screen_id")}
     if not screen.get("as_of"):
         return {"status": "STALE", "reason": "screen has no as-of date",
                 "screen_id": screen.get("screen_id")}
