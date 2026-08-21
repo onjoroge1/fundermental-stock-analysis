@@ -97,15 +97,36 @@ def _percentile_ranks(rows: list[dict], path: tuple[str, str | None]
     return ranks
 
 
-def _scores(rows: list[dict], definition: dict) -> dict[str, float] | None:
+def score_policy_rows(rows: list[dict], definition: dict) -> dict | None:
+    """Score a cross-section with the exact ranks used by the backtest.
+
+    The returned component ranks make current selections explainable.  Keeping
+    this function public prevents the production screen from drifting away
+    from the policy that earned paper eligibility.
+    """
     ranks = [_percentile_ranks(rows, path) for path in definition["signals"]]
     if any(r is None for r in ranks):
         return None
-    return {
+    scores = {
         row["ticker"]: sum(rank.get(row["ticker"], 0.5) for rank in ranks)
         / len(ranks)
         for row in rows
     }
+    labels = [".".join(x for x in path if x is not None)
+              for path in definition["signals"]]
+    return {
+        "scores": scores,
+        "signal_percentiles": {
+            ticker: {label: round(rank.get(ticker, 0.5), 6)
+                     for label, rank in zip(labels, ranks)}
+            for ticker in scores
+        },
+    }
+
+
+def _scores(rows: list[dict], definition: dict) -> dict[str, float] | None:
+    result = score_policy_rows(rows, definition)
+    return result["scores"] if result else None
 
 
 def _compound(returns_pct: list[float]) -> float:

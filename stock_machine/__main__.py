@@ -9,6 +9,8 @@ Commands:
   backtest [START]      walk-forward backtest over the universe (default 2014-01-01)
   mlrank                walk-forward ridge model on the latest backtest panel
   strategy-lab [BPS]    test fixed quarterly portfolio policies after costs
+  strategy-screen       apply promoted policies to today's quality-gated universe
+  strategy-paper ...    sync/mark the isolated strategy paper portfolio
   kpis                  compute the system KPI dashboard
   planprobe             test what the configured FMP key/plan can access
   ibkr-market ...       read-only IBKR contract and market-data commands
@@ -245,6 +247,69 @@ def main() -> None:
         }
         print(json.dumps(compact, indent=1))
         print(f"persisted {run_id} from {source_run}")
+    elif cmd == "strategy-screen":
+        from datetime import date, datetime, timezone
+
+        from . import db
+        from .strategy_screen import current_observations, generate
+
+        if len(sys.argv) > 2:
+            raise SystemExit("usage: strategy-screen (current screen only)")
+        as_of = date.today().isoformat()
+        conn = db.connect()
+        try:
+            db.init_schema(conn)
+            lab = db.latest_strategy_lab_run(conn)
+            latest_backtest = db.latest_backtest_run_id(conn)
+            if lab is None:
+                raise SystemExit("no Strategy Lab run; run strategy-lab first")
+            if lab.get("source_backtest_run_id") != latest_backtest:
+                raise SystemExit("Strategy Lab is stale; rerun strategy-lab first")
+            observations, readiness = current_observations(conn, as_of=as_of)
+            result = generate(lab, observations, readiness, as_of=as_of)
+            screen_id = ("screen_" + datetime.now(timezone.utc)
+                         .strftime("%Y%m%dT%H%M%S%fZ"))
+            db.save_strategy_screen(
+                conn, screen_id, lab["run_id"], latest_backtest, as_of, result,
+            )
+        finally:
+            conn.close()
+        print(json.dumps(result, indent=1))
+        print(f"persisted {screen_id} from {lab['run_id']}")
+    elif cmd == "strategy-paper":
+        from datetime import date
+
+        from . import db, strategy_paper
+
+        sub = sys.argv[2] if len(sys.argv) > 2 else "status"
+        conn = db.connect()
+        try:
+            db.init_schema(conn)
+            if sub == "sync":
+                screen = db.latest_strategy_screen(conn)
+                lab = db.latest_strategy_lab_run(conn)
+                latest_backtest = db.latest_backtest_run_id(conn)
+                if screen is None:
+                    raise SystemExit("no current screen; run strategy-screen first")
+                if (lab is None
+                        or screen.get("strategy_lab_run_id") != lab.get("run_id")
+                        or screen.get("source_backtest_run_id") != latest_backtest):
+                    raise SystemExit("screen is stale; rerun strategy-screen first")
+                age = (date.today() - date.fromisoformat(screen["as_of"])).days
+                if age > 7:
+                    raise SystemExit("screen is older than seven days; refresh it")
+                result = strategy_paper.sync(
+                    conn, screen, screen["screen_id"], as_of=screen["as_of"],
+                )
+            elif sub == "mark":
+                result = strategy_paper.mark(conn)
+            elif sub == "status":
+                result = strategy_paper.status(conn)
+            else:
+                raise SystemExit("usage: strategy-paper sync | mark | status")
+        finally:
+            conn.close()
+        print(json.dumps(result, indent=1))
     elif cmd == "kpis":
         from . import db
         from .kpis import compute_kpis

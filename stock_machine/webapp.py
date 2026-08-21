@@ -5,6 +5,7 @@ and saved analysis reports. It performs no ingestion and no writes."""
 from __future__ import annotations
 
 import time
+from datetime import date
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -244,6 +245,55 @@ def strategy_lab() -> dict:
             "latest_backtest_run_id": latest_backtest,
         }
     return result
+
+
+@app.get("/api/strategy-screen")
+def strategy_screen() -> dict:
+    """Serve the latest persisted screen; never recompute current factors."""
+    conn = db.connect()
+    try:
+        screen = db.latest_strategy_screen(conn)
+        lab = db.latest_strategy_lab_run(conn)
+        latest_backtest = db.latest_backtest_run_id(conn)
+    finally:
+        conn.close()
+    if screen is None:
+        return {"status": "PENDING", "reason": (
+            "no persisted current screen; run `python -m stock_machine "
+            "strategy-screen`")}
+    if (lab is None
+            or screen.get("strategy_lab_run_id") != lab.get("run_id")
+            or screen.get("source_backtest_run_id") != latest_backtest):
+        return {"status": "STALE", "reason": (
+            "screen does not use the latest Strategy Lab and backtest runs"),
+                "screen_id": screen.get("screen_id")}
+    if not screen.get("as_of"):
+        return {"status": "STALE", "reason": "screen has no as-of date",
+                "screen_id": screen.get("screen_id")}
+    try:
+        screen_age = (date.today()
+                      - date.fromisoformat(screen["as_of"])).days
+    except ValueError:
+        return {"status": "STALE", "reason": "screen has an invalid as-of date",
+                "screen_id": screen.get("screen_id")}
+    if screen_age < 0 or screen_age > 7:
+        return {"status": "STALE", "reason": (
+            "screen date is outside the current seven-day window; rerun "
+            "strategy-screen"),
+                "screen_id": screen.get("screen_id"),
+                "as_of": screen.get("as_of")}
+    return screen
+
+
+@app.get("/api/strategy-paper")
+def strategy_paper_status() -> dict:
+    """Read the isolated strategy-policy paper book without marking it."""
+    from . import strategy_paper
+    conn = db.connect()
+    try:
+        return strategy_paper.status(conn)
+    finally:
+        conn.close()
 
 
 @app.get("/")
