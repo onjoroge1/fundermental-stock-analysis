@@ -193,6 +193,46 @@ CREATE TABLE IF NOT EXISTS dataset_snapshots (
 );
 CREATE INDEX IF NOT EXISTS dataset_snapshots_latest_idx
     ON dataset_snapshots (ticker, dataset, observed_at DESC);
+CREATE TABLE IF NOT EXISTS sm_strategy_lab_runs (
+    run_id TEXT PRIMARY KEY,
+    source_backtest_run_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    config JSONB NOT NULL,
+    status TEXT NOT NULL,
+    result JSONB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sm_strategy_screens (
+    screen_id TEXT PRIMARY KEY,
+    strategy_lab_run_id TEXT NOT NULL,
+    source_backtest_run_id TEXT NOT NULL,
+    as_of DATE NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    status TEXT NOT NULL,
+    result JSONB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sm_strategy_paper_positions (
+    position_id BIGSERIAL PRIMARY KEY,
+    policy TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    screen_id TEXT NOT NULL,
+    target_weight DOUBLE PRECISION NOT NULL,
+    entry_date DATE NOT NULL,
+    entry_price DOUBLE PRECISION NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    exit_date DATE,
+    exit_price DOUBLE PRECISION,
+    exit_reason TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS sm_strategy_paper_open_idx
+    ON sm_strategy_paper_positions (policy, ticker) WHERE status = 'open';
+CREATE TABLE IF NOT EXISTS sm_strategy_paper_nav (
+    date DATE NOT NULL,
+    policy TEXT NOT NULL,
+    return_pct DOUBLE PRECISION,
+    n_positions INT NOT NULL,
+    details JSONB NOT NULL,
+    PRIMARY KEY (date, policy)
+);
 """
 
 
@@ -643,3 +683,95 @@ def fetch_dataset_snapshot(conn: psycopg.Connection,
             "content_hash", "row_count", "min_record_date",
             "max_record_date", "status", "reasons", "metrics", "payload"]
     return dict(zip(cols, row))
+
+
+def latest_backtest_panel(conn: psycopg.Connection) -> tuple[str | None,
+                                                              list[dict]]:
+    """Load the exact latest persisted point-in-time backtest panel."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT run_id FROM sm_backtest_runs ORDER BY created_at DESC LIMIT 1")
+        row = cur.fetchone()
+        if not row:
+            return None, []
+        run_id = row[0]
+        cur.execute(
+            """SELECT as_of::text, ticker, sector, composite, components,
+                      factors, forward
+               FROM backtest_observations WHERE run_id = %s
+               ORDER BY as_of, ticker""",
+            (run_id,),
+        )
+        cols = ["as_of", "ticker", "sector", "composite", "components",
+                "factors", "forward"]
+        panel = [dict(zip(cols, result)) for result in cur.fetchall()]
+    return run_id, panel
+
+
+def latest_backtest_run_id(conn: psycopg.Connection) -> str | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT run_id FROM sm_backtest_runs ORDER BY created_at DESC LIMIT 1")
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
+def save_strategy_lab_run(conn: psycopg.Connection, run_id: str,
+                          source_backtest_run_id: str, result: dict) -> None:
+    """Persist one immutable strategy evaluation."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO sm_strategy_lab_runs
+               (run_id, source_backtest_run_id, config, status, result)
+               VALUES (%s, %s, %s, %s, %s)""",
+            (run_id, source_backtest_run_id,
+             Jsonb(result.get("config") or {}), result.get("status", "FAILED"),
+             Jsonb(result)),
+        )
+    conn.commit()
+
+
+def latest_strategy_lab_run(conn: psycopg.Connection) -> dict | None:
+    """Return the latest completed Strategy Lab payload without recomputing."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT run_id, source_backtest_run_id, created_at::text, result
+               FROM sm_strategy_lab_runs ORDER BY created_at DESC LIMIT 1""")
+        row = cur.fetchone()
+    if not row:
+        return None
+    run_id, source_run, created_at, result = row
+    return {**result, "run_id": run_id,
+            "source_backtest_run_id": source_run, "created_at": created_at}
+
+
+def save_strategy_screen(conn: psycopg.Connection, screen_id: str,
+                         strategy_lab_run_id: str,
+                         source_backtest_run_id: str, as_of: str,
+                         result: dict) -> None:
+    """Persist one immutable current-policy screen."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO sm_strategy_screens
+               (screen_id, strategy_lab_run_id, source_backtest_run_id,
+                as_of, status, result)
+               VALUES (%s,%s,%s,%s,%s,%s)""",
+            (screen_id, strategy_lab_run_id, source_backtest_run_id,
+             as_of[:10], result.get("status", "FAILED"), Jsonb(result)),
+        )
+    conn.commit()
+
+
+def latest_strategy_screen(conn: psycopg.Connection) -> dict | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT screen_id, strategy_lab_run_id, source_backtest_run_id,
+                      as_of::text, created_at::text, result
+               FROM sm_strategy_screens ORDER BY created_at DESC LIMIT 1""")
+        row = cur.fetchone()
+    if not row:
+        return None
+    screen_id, lab_id, source_id, as_of, created_at, result = row
+    return {**result, "screen_id": screen_id, "strategy_lab_run_id": lab_id,
+            "source_backtest_run_id": source_id, "as_of": as_of,
+            "created_at": created_at}
