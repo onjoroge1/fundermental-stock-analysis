@@ -227,6 +227,11 @@ function renderSidebar() {
   pred.innerHTML = `<span class="tk">Prediction lab</span><span class="score-pill">MC</span>`;
   pred.onclick = () => go("predict");
   nav.appendChild(pred);
+  const lab = document.createElement("div");
+  lab.className = "nav-item nav-home" + (state.view === "strategy-lab" ? " active" : "");
+  lab.innerHTML = `<span class="tk">Strategy lab</span><span class="score-pill">OOS</span>`;
+  lab.onclick = () => go("strategy-lab");
+  nav.appendChild(lab);
   const dq = document.createElement("div");
   dq.className = "nav-item nav-home" + (state.view === "data-quality" ? " active" : "");
   dq.innerHTML = `<span class="tk">Data quality</span><span class="score-pill">PIT</span>`;
@@ -254,9 +259,73 @@ function go(view, ticker = null) {
   if (view === "home") renderHome();
   else if (view === "system") renderSystem();
   else if (view === "data-quality") renderDataQuality();
+  else if (view === "strategy-lab") renderStrategyLab();
   else if (view === "portfolio") renderPortfolio();
   else if (view === "predict") renderPredict(ticker);
   else renderStock(ticker);
+}
+
+/* ---------------- walk-forward strategy lab ---------------- */
+async function renderStrategyLab() {
+  const m = $("#main");
+  m.innerHTML = `<div class="loading">Loading latest strategy evaluation…</div>`;
+  let data;
+  try { data = await fetchJSON("/api/strategy-lab"); }
+  catch (e) { m.innerHTML = `<div class="loading">Strategy Lab failed: ${e.message}</div>`; return; }
+  if (data.status !== "OK") {
+    m.innerHTML = `<div class="page-head"><h1>Strategy lab</h1><span class="chip neutral">${data.status}</span></div>
+      <div class="page-sub">${data.reason || "No completed evaluation."}</div>`;
+    return;
+  }
+  const statusClass = (status) => ({ PAPER_ELIGIBLE: "good", REJECTED: "bad", BASELINE: "neutral" }[status] || "neutral");
+  const rows = Object.entries(data.strategies).map(([name, strategy]) => {
+    const dev = strategy.development || {};
+    const ev = strategy.evaluation || {};
+    const promotion = strategy.promotion || {};
+    const failedGates = Object.entries(promotion.gates || {})
+      .filter(([, passed]) => !passed).map(([gate]) => gate.replaceAll("_", " "));
+    return `<tr>
+      <td style="text-align:left"><span class="tk">${strategy.label}</span>
+        <div class="mini">${strategy.signals.join(" + ")}</div></td>
+      <td>${strategy.kind === "baseline" ? "single factor" : "multi-factor"}</td>
+      <td class="${cls(dev.annualized_excess_pct)}">${fmtSignedPct(dev.annualized_excess_pct)}</td>
+      <td class="${cls(ev.annualized_return_pct)}">${fmtSignedPct(ev.annualized_return_pct)}</td>
+      <td>${fmtSignedPct(ev.benchmark_annualized_return_pct)}</td>
+      <td class="${cls(ev.annualized_excess_pct)}">${fmtSignedPct(ev.annualized_excess_pct)}</td>
+      <td>${ev.outperform_share == null ? "—" : (ev.outperform_share * 100).toFixed(0) + "%"}</td>
+      <td class="${cls(ev.max_drawdown_pct)}">${fmtSignedPct(ev.max_drawdown_pct)}</td>
+      <td>${fmtNum(ev.information_ratio, 2)}</td>
+      <td><span class="chip ${statusClass(promotion.status)}" title="${failedGates.length ? "Failed: " + failedGates.join(", ") : "All paper gates passed"}">${promotion.status}</span></td>
+    </tr>`;
+  }).join("");
+  const eligible = Object.values(data.strategies)
+    .filter((s) => s.promotion?.status === "PAPER_ELIGIBLE");
+  const latestSelections = eligible.map((strategy) => {
+    const period = (strategy.evaluation_periods || []).slice(-1)[0];
+    return `<div class="panel"><h3>${strategy.label}</h3>
+      <div class="mini">Last untouched evaluation period: ${period?.as_of || "—"}</div>
+      <div style="margin-top:8px">${(period?.holdings || []).map((ticker) => `<span class="chip neutral" style="margin:2px">${ticker}</span>`).join("") || "No selection"}</div>
+      <div class="note">Historical evaluation holdings—not a current recommendation.</div></div>`;
+  }).join("");
+  m.innerHTML = `
+    <div class="page-head"><h1>Walk-forward strategy lab</h1>
+      <span class="chip neutral">${data.execution_status}</span>
+      <span class="chip ${eligible.length ? "good" : "bad"}">${eligible.length} paper-eligible</span></div>
+    <div class="page-sub">Fixed quarterly top-quintile policies, chronological development/evaluation split, and ${data.config.cost_bps_per_turnover} bps per unit of turnover. Paper eligibility is not permission for live trading.</div>
+    <div class="tiles">
+      <div class="tile"><div class="lbl">Evaluation window</div><div class="val">${data.date_split.evaluation_periods} qtrs</div><div class="sub">${data.date_split.evaluation_start} → ${data.date_split.evaluation_end}</div></div>
+      <div class="tile"><div class="lbl">Best single factor</div><div class="val">${data.best_single_factor || "—"}</div><div class="sub">${fmtSignedPct(data.best_single_factor_excess_pct)} annualized excess</div></div>
+      <div class="tile"><div class="lbl">Portfolio rule</div><div class="val">Top ${(data.config.top_fraction * 100).toFixed(0)}%</div><div class="sub">equal weight · quarterly rebalance</div></div>
+    </div>
+    <div class="panel wide" style="margin-bottom:14px"><h3>Untouched evaluation results</h3>
+      <div class="table-wrap"><table class="coverage"><thead><tr>
+        <th>Policy</th><th>Type</th><th>Dev excess</th><th>Eval return</th><th>Benchmark</th>
+        <th>Eval excess</th><th>Beat rate</th><th>Max drawdown</th><th>Info ratio</th><th>Verdict</th>
+      </tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="note">A multi-factor policy must have ≥8 evaluation quarters, beat the best single factor after costs, beat the universe in ≥55% of quarters, have a positive information ratio, and keep drawdown above −35%.</div>
+    </div>
+    ${latestSelections ? `<div class="grid">${latestSelections}</div>` : ""}
+    <div class="banner" style="margin-top:14px">${data.limitations.join(" ")}</div>`;
 }
 
 /* ---------------- point-in-time data quality ---------------- */

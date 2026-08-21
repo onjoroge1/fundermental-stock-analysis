@@ -41,6 +41,7 @@ Paper portfolio + invalidation monitoring + outcome scorer + KPI dashboard
 | `stock_machine/market_data/` | provider-neutral stock/option quote contracts + read-only IBKR Client Portal adapter |
 | `stock_machine/options/` | exact expiration payoff math + liquidity gates + forecast-aware, explainable strategy ranking |
 | `stock_machine/backtest/` | walk-forward harness + embargoed ridge model, each with pre-committed kill criteria |
+| `stock_machine/strategy_lab.py` | fixed quarterly portfolio policies, untouched evaluation window, costs, drawdown, and paper-promotion gates |
 | `stock_machine/paper.py` | mechanical long-ATTRACTIVE / short-UNATTRACTIVE paper book, marked daily |
 | `stock_machine/monitoring.py` | per-report invalidation rules checked every refresh — breaches flag, never auto-act |
 | `stock_machine/data_quality.py` | immutable dataset versions, freshness/completeness checks, and the trade-readiness gate |
@@ -106,6 +107,12 @@ content version for every ticker/dataset and blocks research when required
 fundamentals, prices, or SEC filings have no passing snapshot. Apply migration
 `0003` and run one refresh to seed it; see
 [`docs/POINT_IN_TIME_DATA_QUALITY.md`](docs/POINT_IN_TIME_DATA_QUALITY.md).
+
+The **Strategy lab** tests complete top-quintile portfolio rules rather than
+isolated factor correlations. Run `python -m stock_machine strategy-lab` after
+the historical backtest; the dashboard reads the persisted result and shows
+development versus untouched evaluation performance. See
+[`docs/STRATEGY_LAB.md`](docs/STRATEGY_LAB.md).
 
 ## Honesty infrastructure (the point of the project)
 

@@ -8,6 +8,7 @@ Commands:
   outcomes              score due forecast outcomes + print calibration summary
   backtest [START]      walk-forward backtest over the universe (default 2014-01-01)
   mlrank                walk-forward ridge model on the latest backtest panel
+  strategy-lab [BPS]    test fixed quarterly portfolio policies after costs
   kpis                  compute the system KPI dashboard
   planprobe             test what the configured FMP key/plan can access
   ibkr-market ...       read-only IBKR contract and market-data commands
@@ -215,6 +216,35 @@ def main() -> None:
         compact = {k: v for k, v in result.items() if k != "per_date"}
         print(json.dumps(compact, indent=1))
         print(f"→ {path}")
+    elif cmd == "strategy-lab":
+        from datetime import datetime, timezone
+
+        from . import db
+        from .strategy_lab import DEFAULT_COST_BPS, run
+
+        cost_bps = float(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_COST_BPS
+        conn = db.connect()
+        try:
+            db.init_schema(conn)
+            source_run, panel = db.latest_backtest_panel(conn)
+            if not source_run:
+                raise SystemExit(
+                    "no persisted backtest panel; run `python -m stock_machine "
+                    "backtest` first")
+            result = run(panel, cost_bps=cost_bps)
+            run_id = ("strategy_" + datetime.now(timezone.utc)
+                      .strftime("%Y%m%dT%H%M%S%fZ"))
+            db.save_strategy_lab_run(conn, run_id, source_run, result)
+        finally:
+            conn.close()
+        compact = {**result}
+        compact["strategies"] = {
+            name: {k: v for k, v in row.items()
+                   if k != "evaluation_periods"}
+            for name, row in result.get("strategies", {}).items()
+        }
+        print(json.dumps(compact, indent=1))
+        print(f"persisted {run_id} from {source_run}")
     elif cmd == "kpis":
         from . import db
         from .kpis import compute_kpis

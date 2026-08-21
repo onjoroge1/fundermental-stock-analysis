@@ -220,6 +220,32 @@ def data_quality_dashboard() -> dict:
         conn.close()
 
 
+@app.get("/api/strategy-lab")
+def strategy_lab() -> dict:
+    """Return the latest completed strategy evaluation; never backtests."""
+    conn = db.connect()
+    try:
+        result = db.latest_strategy_lab_run(conn)
+        latest_backtest = db.latest_backtest_run_id(conn)
+    finally:
+        conn.close()
+    if result is None:
+        return {
+            "status": "PENDING",
+            "reason": ("no persisted strategy evaluation; run `python -m "
+                       "stock_machine strategy-lab` after a backtest"),
+        }
+    if (latest_backtest
+            and result.get("source_backtest_run_id") != latest_backtest):
+        return {
+            "status": "STALE",
+            "reason": "a newer backtest panel exists; rerun strategy-lab",
+            "strategy_source_run_id": result.get("source_backtest_run_id"),
+            "latest_backtest_run_id": latest_backtest,
+        }
+    return result
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(PROJECT_ROOT / "webui" / "index.html")
