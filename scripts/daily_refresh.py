@@ -159,6 +159,11 @@ def main() -> int:
                               for r in rows]
                     r = forecast(t, closes)
                     if r["status"] == "OK":
+                        versions = db.latest_dataset_snapshots(conn, t)
+                        r["input_data_versions"] = {
+                            v["dataset"]: v["content_hash"] for v in versions
+                            if v["dataset"] == "prices"
+                        }
                         db.save_prediction_forecast(conn, r)
                     prediction_result["ok" if r["status"] == "OK"
                                       else "failed"] += 1

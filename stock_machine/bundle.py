@@ -126,6 +126,7 @@ def build_bundle(ticker: str, as_of: str | None = None) -> dict:
         from .monitoring import active_breaches
         breaches = active_breaches(conn, ticker)
         actions = db.fetch_actions(conn, ticker, as_of)
+        dataset_snapshots = db.latest_dataset_snapshots(conn, ticker)
     finally:
         conn.close()
 
@@ -421,6 +422,16 @@ def build_bundle(ticker: str, as_of: str | None = None) -> dict:
         "missing_datasets": ((["consensus_estimates"] if not consensus_available
                               else [])
                              + ["guidance", "transcripts", "macro_vintages"]),
+        "dataset_versions": {
+            s["dataset"]: {
+                "snapshot_id": s["snapshot_id"],
+                "observed_at": s["observed_at"],
+                "content_hash": s["content_hash"],
+                "status": s["status"],
+                "row_count": s["row_count"],
+            }
+            for s in dataset_snapshots
+        },
     }
 
     # progressive gate: capabilities unlock as real data accumulates

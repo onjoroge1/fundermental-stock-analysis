@@ -7,6 +7,7 @@ from .ingestion import estimates as est_ing
 from .ingestion import prices as price_ing
 from .ingestion import sec as sec_ing
 from .normalization import financial_periods as fp
+from .data_quality import assess_dataset
 
 
 def run(ticker: str) -> dict:
@@ -63,6 +64,25 @@ def run(ticker: str) -> dict:
         from .ingestion import form4
         form4_stats = form4.ingest_from_submissions(
             conn, ticker, sec_data["cik"], sub)
+        dataset_rows = {
+            "fundamentals": quarterly + annual,
+            "prices": price_rows,
+            "filings": filings,
+            "shares": shares,
+            "consensus": est["snapshots"],
+            "earnings_surprises": est["surprises"],
+            "corporate_actions": corporate_actions,
+        }
+        snapshots = []
+        for name, rows in dataset_rows.items():
+            snapshot = assess_dataset(name, rows)
+            # Preserve replayable normalized vintages where revisions matter.
+            # Price history is already row-addressable by date and would make
+            # full-history JSON copies grow quadratically.
+            if name != "prices":
+                snapshot["payload"] = rows
+            snapshots.append(snapshot)
+        db.record_dataset_snapshots(conn, ticker, snapshots)
     finally:
         conn.close()
 
@@ -77,5 +97,6 @@ def run(ticker: str) -> dict:
         "restatement_events": len(restatement_events),
         "consensus_snapshots": snap_count,
         "earnings_surprises": len(est["surprises"]),
+        "dataset_quality": {s["dataset"]: s["status"] for s in snapshots},
         **form4_stats,
     }

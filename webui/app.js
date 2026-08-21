@@ -227,6 +227,11 @@ function renderSidebar() {
   pred.innerHTML = `<span class="tk">Prediction lab</span><span class="score-pill">MC</span>`;
   pred.onclick = () => go("predict");
   nav.appendChild(pred);
+  const dq = document.createElement("div");
+  dq.className = "nav-item nav-home" + (state.view === "data-quality" ? " active" : "");
+  dq.innerHTML = `<span class="tk">Data quality</span><span class="score-pill">PIT</span>`;
+  dq.onclick = () => go("data-quality");
+  nav.appendChild(dq);
   const sys = document.createElement("div");
   sys.className = "nav-item nav-home" + (state.view === "system" ? " active" : "");
   sys.innerHTML = `<span class="tk">System</span><span class="score-pill">KPI</span>`;
@@ -248,9 +253,62 @@ function go(view, ticker = null) {
   renderSidebar();
   if (view === "home") renderHome();
   else if (view === "system") renderSystem();
+  else if (view === "data-quality") renderDataQuality();
   else if (view === "portfolio") renderPortfolio();
   else if (view === "predict") renderPredict(ticker);
   else renderStock(ticker);
+}
+
+/* ---------------- point-in-time data quality ---------------- */
+async function renderDataQuality() {
+  const m = $("#main");
+  m.innerHTML = `<div class="loading">Loading persisted data manifests…</div>`;
+  let data;
+  try { data = await fetchJSON("/api/data-quality"); }
+  catch (e) { m.innerHTML = `<div class="loading">Data-quality load failed: ${e.message}</div>`; return; }
+  const statusClass = (status) => ({
+    READY: "good", PASS: "good", CAUTION: "warn", WARN: "warn",
+    BLOCKED: "bad", FAIL: "bad", PENDING: "neutral",
+  }[status] || "neutral");
+  const datasets = ["fundamentals", "prices", "filings", "shares", "consensus"];
+  const datasetCell = (item) => item
+    ? `<span class="chip ${statusClass(item.status)}" title="${(item.reasons || []).join("; ")}">${item.status}</span>
+       <div class="mini">${item.row_count} rows · ${item.max_record_date || "no dated rows"}</div>`
+    : `<span class="chip bad">MISSING</span>`;
+  const manifestRows = data.tickers.flatMap((row) =>
+    Object.values(row.datasets).map((item) => `<tr>
+      <td>${row.ticker}</td><td style="text-align:left">${item.dataset}</td>
+      <td><span class="chip ${statusClass(item.status)}">${item.status}</span></td>
+      <td>${item.observed_at?.slice(0, 19).replace("T", " ") || "—"}</td>
+      <td>${item.max_record_date || "—"}</td><td>${item.row_count}</td>
+      <td>${item.version_count || 1}</td><td class="mini">${item.content_hash?.slice(7, 19) || "—"}</td>
+    </tr>`)).join("");
+  m.innerHTML = `
+    <div class="page-head"><h1>Point-in-time data quality</h1>
+      <span class="chip good">${data.summary.READY} ready</span>
+      <span class="chip warn">${data.summary.CAUTION} caution</span>
+      <span class="chip bad">${data.summary.BLOCKED} blocked</span></div>
+    <div class="page-sub">${data.principle} “Eligible” is a data gate, not a trade recommendation.</div>
+    <div class="panel wide" style="margin-bottom:14px"><h3>Trading-readiness matrix</h3>
+      <div class="table-wrap"><table class="coverage"><thead><tr>
+        <th>Ticker</th><th>Readiness</th>${datasets.map((d) => `<th>${d.replace("_", " ")}</th>`).join("")}
+      </tr></thead><tbody>${data.tickers.map((row) => `<tr data-t="${row.ticker}">
+        <td><span class="tk">${row.ticker}</span><div class="nm">${row.legal_name || ""}</div></td>
+        <td><span class="chip ${statusClass(row.readiness.status)}">${row.readiness.status}</span>
+          ${(row.readiness.blockers || []).length ? `<div class="mini">${row.readiness.blockers.join("; ")}</div>` : ""}
+          ${(row.readiness.warnings || []).length ? `<div class="mini">${row.readiness.warnings.join("; ")}</div>` : ""}</td>
+        ${datasets.map((d) => `<td>${datasetCell(row.datasets[d])}</td>`).join("")}
+      </tr>`).join("") || `<tr><td colspan="7">No covered tickers</td></tr>`}</tbody></table></div>
+      <div class="note">Required gates: ${data.required_datasets.join(", ")}. Optional vendor data may remain pending without blocking fundamental research.</div>
+    </div>
+    <div class="panel wide"><h3>Latest immutable manifests</h3>
+      <div class="table-wrap"><table class="scen-table"><thead><tr>
+        <th>Ticker</th><th style="text-align:left">Dataset</th><th>Status</th><th>Observed UTC</th>
+        <th>Newest record</th><th>Rows</th><th>Versions</th><th>Content hash</th>
+      </tr></thead><tbody>${manifestRows || `<tr><td colspan="8">No snapshots yet — run the ingestion pipeline after applying migration 0003.</td></tr>`}</tbody></table></div>
+    </div>`;
+  m.querySelectorAll("tr[data-t]").forEach((tr) =>
+    tr.addEventListener("click", () => go("stock", tr.dataset.t)));
 }
 
 /* ---------------- prediction lab (fan chart + probabilities) ---------------- */

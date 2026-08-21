@@ -31,6 +31,11 @@ def main() -> int:
                     print(json.dumps({"ticker": t, "status": r["status"],
                                       "reason": r.get("reason")}))
                     continue
+                versions = db.latest_dataset_snapshots(conn, t)
+                r["input_data_versions"] = {
+                    v["dataset"]: v["content_hash"] for v in versions
+                    if v["dataset"] == "prices"
+                }
                 db.save_prediction_forecast(conn, r)
                 h12 = r["models"][r["primary_model"]]["horizons"]["12m"]
                 print(json.dumps({

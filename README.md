@@ -43,6 +43,7 @@ Paper portfolio + invalidation monitoring + outcome scorer + KPI dashboard
 | `stock_machine/backtest/` | walk-forward harness + embargoed ridge model, each with pre-committed kill criteria |
 | `stock_machine/paper.py` | mechanical long-ATTRACTIVE / short-UNATTRACTIVE paper book, marked daily |
 | `stock_machine/monitoring.py` | per-report invalidation rules checked every refresh — breaches flag, never auto-act |
+| `stock_machine/data_quality.py` | immutable dataset versions, freshness/completeness checks, and the trade-readiness gate |
 | `stock_machine/outcomes.py` | grades frozen forecasts when horizons mature |
 | `stock_machine/kpis.py` | executive KPI engine: every KPI is MEASURED or PENDING, never estimated |
 | `stock_machine/mcp_server/` | MCP server for Claude Desktop (read evidence, deterministic calculators, report save) |
@@ -99,6 +100,12 @@ training inside a request. See `docs/FORECAST_CALIBRATION.md`.
 Daily operation: `.venv/bin/python scripts/daily_refresh.py` (schedule it —
 and monitor that it actually runs; a 13-day silent freeze is documented
 history, see the KPI dashboard's freshness row).
+
+The **Data quality** page is the pre-trade gate. It shows the latest immutable
+content version for every ticker/dataset and blocks research when required
+fundamentals, prices, or SEC filings have no passing snapshot. Apply migration
+`0003` and run one refresh to seed it; see
+[`docs/POINT_IN_TIME_DATA_QUALITY.md`](docs/POINT_IN_TIME_DATA_QUALITY.md).
 
 ## Honesty infrastructure (the point of the project)
 
