@@ -110,16 +110,11 @@ def test_validation_defaults_to_drift_neutral_without_proven_edge(monkeypatch):
     ]["signed_bias_pct"]
 
 
-def test_stale_same_day_cache_is_rebuilt(tmp_path, monkeypatch):
-    """A cache written today from pre-refresh prices must not be served once
-    newer prices exist (the Aug-7 staleness race)."""
-    import json
+def test_forecast_has_no_filesystem_side_effects(tmp_path, monkeypatch):
+    """Computation is worker-owned and never creates a local request cache."""
     import stock_machine.prediction as P
-    monkeypatch.setattr(P, "PRED_DIR", tmp_path)
-    from datetime import date
-    stale = {"status": "OK", "as_of": "2026-07-24", "last_price": 333.0}
-    (tmp_path / f"ZZZ_{date.today().isoformat()}.json").write_text(json.dumps(stale))
+    monkeypatch.chdir(tmp_path)
     closes = [{"date": "2026-08-07", "adj_close": 100.0}]  # newer than cache
-    r = P.forecast("ZZZ", closes)  # too little data -> INSUFFICIENT, but the
-    assert r["as_of" if r.get("status") == "OK" else "status"] != "2026-07-24"
-    assert r.get("status") == "INSUFFICIENT_DATA"  # proves cache was bypassed
+    r = P.forecast("ZZZ", closes)
+    assert r.get("status") == "INSUFFICIENT_DATA"
+    assert list(tmp_path.iterdir()) == []

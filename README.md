@@ -20,9 +20,10 @@ Neon Postgres (financial_periods, prices, consensus vintages, insiders, …)
         ↓ deterministic features (TTM, growth, quality, sector-adjusted scoring)
 Per-stock bundles (no-lookahead: only data available_at <= as_of)
         ↓                              ↓
-Analyst reports (scenarios,      Prediction lab (LSTM + block-bootstrap
-adversarial review, cited        Monte Carlo, drift-neutral fans,
-claims, frozen forecasts)        walk-forward validated)
+Analyst reports (scenarios,      Forecast worker (LSTM + block-bootstrap
+adversarial review, cited        simulations, split calibration/evaluation)
+claims, frozen forecasts)              ↓ persisted forecast vintages
+                                  Read-only Prediction Lab
         ↓
 Paper portfolio + invalidation monitoring + outcome scorer + KPI dashboard
 ```
@@ -35,7 +36,7 @@ Paper portfolio + invalidation monitoring + outcome scorer + KPI dashboard
 | `stock_machine/normalization/` | XBRL tag mapping, YTD de-cumulation, Q4 derivation, restatement logging, share-scale guards |
 | `stock_machine/features/` | deterministic metrics + sector-profile scoring (thresholds are documented conventions) |
 | `stock_machine/bundle.py` | the per-stock, point-in-time analysis contract (incl. reverse-DCF, base rates, insiders) |
-| `stock_machine/prediction.py` | probabilistic forecaster: torch LSTM vs block-bootstrap baseline, kill criterion decides which leads |
+| `stock_machine/prediction.py` | side-effect-free probabilistic simulator: torch LSTM diagnostics plus promotable block-bootstrap baseline |
 | `stock_machine/forecasts/` | versioned forecast distribution contract + adapters for the prediction lab and LightGBM/conformal output |
 | `stock_machine/market_data/` | provider-neutral stock/option quote contracts + read-only IBKR Client Portal adapter |
 | `stock_machine/options/` | exact expiration payoff math + liquidity gates + forecast-aware, explainable strategy ranking |
@@ -59,6 +60,7 @@ python3 -m venv .venv
 cp .env.example .env   # fill in DATABASE_URL (Postgres), SEC_USER_AGENT, FMP_API_KEY
 .venv/bin/alembic upgrade head
 .venv/bin/python -m stock_machine all AAPL          # ingest one ticker end-to-end
+.venv/bin/python scripts/predict_all.py             # persist completed forecasts
 .venv/bin/python -m uvicorn stock_machine.webapp:app --port 8642   # dashboard
 .venv/bin/python -m pytest tests/                   # run the test suite
 ```
@@ -87,9 +89,12 @@ non-live data by default, and labels its score as a heuristic comparison—not
 expected return or probability of profit. Add `--allow-delayed` only for
 exploratory analysis. See `docs/PHASE_3_OPTIONS_ENGINE.md`.
 
-Forecast probabilities use purged 5/10/20-day walk-forward calibration. The
-drift-neutral bootstrap leads unless a drift-bearing model beats no-change and
-class-prior baselines at every horizon. See `docs/FORECAST_CALIBRATION.md`.
+Forecast probabilities use purged 5/10/20-day walk-forward calibration. Older
+folds fit the probability calibrator; untouched newer folds decide promotion.
+The drift-neutral bootstrap leads unless a drift-bearing model beats no-change
+and class-prior baselines at every horizon. The web endpoint only reads
+persisted forecast vintages and returns `PENDING` or `STALE` rather than
+training inside a request. See `docs/FORECAST_CALIBRATION.md`.
 
 Daily operation: `.venv/bin/python scripts/daily_refresh.py` (schedule it —
 and monitor that it actually runs; a 13-day silent freeze is documented

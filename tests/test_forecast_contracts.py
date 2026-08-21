@@ -76,6 +76,8 @@ def test_prediction_lab_adapter_preserves_baseline_and_uncertainty():
     assert horizon.baseline_status == "leads"
     assert horizon.calibration_status == "calibrated"
     assert horizon.confidence is None
+    assert result.readiness_status == "DIAGNOSTIC"
+    assert horizon.readiness_status == "DIAGNOSTIC"
     assert horizon.expected_return == pytest.approx(655 / 650 - 1)
 
 
@@ -94,6 +96,7 @@ def test_stockpredictor_adapter_keeps_confidence_separate_from_calibration():
     assert horizon.horizon_days == 10
     assert horizon.confidence == 0.71
     assert horizon.calibration_status == "calibrated"
+    assert horizon.readiness_status == "DIAGNOSTIC"  # no validation n supplied
     assert "not probability calibration" in horizon.limitations[0]
 
 

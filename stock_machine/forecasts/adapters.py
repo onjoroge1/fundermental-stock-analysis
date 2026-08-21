@@ -85,6 +85,24 @@ def from_prediction_lab(payload: dict[str, Any]) -> ForecastDistribution:
                 limitations.append(
                     "P(up) and median-return direction disagree; treat direction as low confidence"
                 )
+            validation_horizon = (
+                ((payload.get("validation") or {}).get(primary) or {})
+                .get("by_horizon", {}).get(str(raw["days"]), {})
+            )
+            calibration_samples = int(raw.get("calibration_samples") or 0)
+            validation_samples = int(validation_horizon.get("samples") or 0)
+            readiness_reasons = []
+            if calibration != "calibrated":
+                readiness_reasons.append("probability calibration is pending")
+            if baseline_status != "beats_baseline":
+                readiness_reasons.append("model has not beaten every declared baseline")
+            readiness = (
+                "VALIDATED"
+                if calibration == "calibrated"
+                and baseline_status == "beats_baseline"
+                and validation_samples >= 8
+                else "PENDING" if calibration == "pending" else "DIAGNOSTIC"
+            )
             horizons.append(
                 ForecastHorizon(
                     horizon_days=int(raw["days"]),
@@ -96,7 +114,11 @@ def from_prediction_lab(payload: dict[str, Any]) -> ForecastDistribution:
                     return_quantiles=returns,
                     confidence=None,
                     calibration_status=calibration,
+                    calibration_samples=calibration_samples,
+                    validation_samples=validation_samples,
                     baseline_status=baseline_status,
+                    readiness_status=readiness,
+                    readiness_reasons=readiness_reasons,
                     model_name=primary,
                     limitations=limitations,
                 )
@@ -107,12 +129,21 @@ def from_prediction_lab(payload: dict[str, Any]) -> ForecastDistribution:
             ) from exc
 
     methodology = dict(payload.get("methodology") or {})
+    all_validated = bool(horizons) and all(
+        h.readiness_status == "VALIDATED" for h in horizons
+    )
+    distribution_readiness = "VALIDATED" if all_validated else "DIAGNOSTIC"
+    readiness_reasons = [] if all_validated else [
+        "one or more horizons lack independent calibration and baseline-beating evidence"
+    ]
     return ForecastDistribution(
         symbol=symbol,
         as_of=str(payload["as_of"])[:10],
         spot_price=spot,
         source="stock_machine.prediction_lab",
         primary_model=primary,
+        readiness_status=distribution_readiness,
+        readiness_reasons=readiness_reasons,
         horizons=horizons,
         methodology=methodology,
         limitations=[methodology.get("limitations", "")]
@@ -207,7 +238,20 @@ def from_stockpredictor(payload: dict[str, Any]) -> ForecastDistribution:
                     confidence=(float(raw["confidence"])
                                 if raw.get("confidence") is not None else None),
                     calibration_status=calibration,
+                    calibration_samples=int(raw.get("calibration_samples") or 0),
+                    validation_samples=int(raw.get("validation_samples") or 0),
                     baseline_status=baseline,
+                    readiness_status=(
+                        "VALIDATED"
+                        if calibration == "calibrated"
+                        and baseline == "beats_baseline"
+                        and int(raw.get("validation_samples") or 0) >= 8
+                        else "PENDING" if calibration == "pending" else "DIAGNOSTIC"
+                    ),
+                    readiness_reasons=([] if calibration == "calibrated"
+                                       and baseline == "beats_baseline"
+                                       and int(raw.get("validation_samples") or 0) >= 8
+                                       else ["source has not supplied sufficient validated evidence"]),
                     model_name=str(raw.get("model_name", "lightgbm_conformal")),
                     limitations=[
                         "confidence is a model score, not probability calibration"
@@ -232,6 +276,14 @@ def from_stockpredictor(payload: dict[str, Any]) -> ForecastDistribution:
         spot_price=spot,
         source="stockpredictor.lightgbm_conformal",
         primary_model=str(payload.get("primary_model", "lightgbm_conformal")),
+        readiness_status=(
+            "VALIDATED" if all(h.readiness_status == "VALIDATED" for h in horizons)
+            else "DIAGNOSTIC"
+        ),
+        readiness_reasons=(
+            [] if all(h.readiness_status == "VALIDATED" for h in horizons)
+            else ["one or more horizons lack sufficient validated evidence"]
+        ),
         horizons=horizons,
         methodology=dict(payload.get("methodology") or {}),
         limitations=list(payload.get("limitations") or []),

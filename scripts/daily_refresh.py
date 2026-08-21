@@ -145,7 +145,7 @@ def main() -> int:
     except Exception as e:
         paper_result = {"error": f"{type(e).__name__}: {e}"}
 
-    # precompute probabilistic forecasts (cached per ticker/day; ~20 min)
+    # Precompute and persist probabilistic forecasts. Web requests never train.
     prediction_result = {"ok": 0, "failed": 0}
     try:
         from stock_machine.prediction import forecast
@@ -158,10 +158,16 @@ def main() -> int:
                                "adj_close": r.get("adj_close") or r["close"]}
                               for r in rows]
                     r = forecast(t, closes)
+                    if r["status"] == "OK":
+                        db.save_prediction_forecast(conn, r)
                     prediction_result["ok" if r["status"] == "OK"
                                       else "failed"] += 1
-                except Exception:
+                except Exception as exc:
                     prediction_result["failed"] += 1
+                    prediction_result.setdefault("errors", []).append({
+                        "ticker": t,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    })
         finally:
             conn.close()
     except Exception as e:
