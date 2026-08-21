@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from uuid import uuid4
 
 import psycopg
 from psycopg.types.json import Jsonb
@@ -175,6 +176,23 @@ CREATE TABLE IF NOT EXISTS prediction_forecasts (
     payload JSONB NOT NULL,
     PRIMARY KEY (ticker, as_of, model_version)
 );
+CREATE TABLE IF NOT EXISTS dataset_snapshots (
+    snapshot_id TEXT PRIMARY KEY,
+    ticker TEXT NOT NULL,
+    dataset TEXT NOT NULL,
+    observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    content_hash TEXT NOT NULL,
+    row_count INT NOT NULL,
+    min_record_date DATE,
+    max_record_date DATE,
+    status TEXT NOT NULL,
+    reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
+    metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+    payload JSONB,
+    UNIQUE (ticker, dataset, content_hash)
+);
+CREATE INDEX IF NOT EXISTS dataset_snapshots_latest_idx
+    ON dataset_snapshots (ticker, dataset, observed_at DESC);
 """
 
 
@@ -559,3 +577,69 @@ def latest_prediction_forecast(conn: psycopg.Connection,
         )
         row = cur.fetchone()
     return row[0] if row else None
+
+
+def record_dataset_snapshots(conn: psycopg.Connection, ticker: str,
+                             snapshots: list[dict]) -> None:
+    """Append immutable manifests for the datasets observed by one run."""
+    if not snapshots:
+        return
+    with conn.cursor() as cur:
+        cur.executemany(
+            """INSERT INTO dataset_snapshots
+               (snapshot_id, ticker, dataset, content_hash, row_count,
+                min_record_date, max_record_date, status, reasons, metrics,
+                payload)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (ticker, dataset, content_hash) DO NOTHING""",
+            [(str(uuid4()), ticker.upper(), s["dataset"], s["content_hash"],
+              s["row_count"], s.get("min_record_date"),
+              s.get("max_record_date"), s["status"],
+              Jsonb(s.get("reasons") or []), Jsonb(s.get("metrics") or {}),
+              Jsonb(s["payload"]) if s.get("payload") is not None else None)
+             for s in snapshots],
+        )
+    conn.commit()
+
+
+def latest_dataset_snapshots(conn: psycopg.Connection,
+                             ticker: str | None = None) -> list[dict]:
+    """Latest completed manifest per ticker/dataset; never computes quality."""
+    sql = """SELECT DISTINCT ON (ticker, dataset)
+                    snapshot_id, ticker, dataset, observed_at::text,
+                    content_hash, row_count, min_record_date::text,
+                    max_record_date::text, status, reasons, metrics,
+                    count(*) OVER (PARTITION BY ticker, dataset) AS version_count
+             FROM dataset_snapshots"""
+    params: list[Any] = []
+    if ticker:
+        sql += " WHERE ticker = %s"
+        params.append(ticker.upper())
+    sql += " ORDER BY ticker, dataset, observed_at DESC, snapshot_id DESC"
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        cols = ["snapshot_id", "ticker", "dataset", "observed_at",
+                "content_hash", "row_count", "min_record_date",
+                "max_record_date", "status", "reasons", "metrics",
+                "version_count"]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+def fetch_dataset_snapshot(conn: psycopg.Connection,
+                           snapshot_id: str) -> dict | None:
+    """Load one exact normalized vintage for audit or offline replay."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT snapshot_id, ticker, dataset, observed_at::text,
+                      content_hash, row_count, min_record_date::text,
+                      max_record_date::text, status, reasons, metrics, payload
+               FROM dataset_snapshots WHERE snapshot_id = %s""",
+            (snapshot_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    cols = ["snapshot_id", "ticker", "dataset", "observed_at",
+            "content_hash", "row_count", "min_record_date",
+            "max_record_date", "status", "reasons", "metrics", "payload"]
+    return dict(zip(cols, row))

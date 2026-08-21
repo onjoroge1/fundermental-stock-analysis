@@ -207,6 +207,19 @@ def kpis() -> dict:
         conn.close()
 
 
+@app.get("/api/data-quality")
+def data_quality_dashboard() -> dict:
+    """Return persisted quality manifests; never refreshes or mutates data."""
+    from .data_quality import build_report
+    conn = db.connect()
+    try:
+        companies = db.list_companies(conn)
+        snapshots = db.latest_dataset_snapshots(conn)
+        return build_report(companies, snapshots)
+    finally:
+        conn.close()
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(PROJECT_ROOT / "webui" / "index.html")
