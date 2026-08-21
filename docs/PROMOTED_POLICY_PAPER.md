@@ -60,5 +60,6 @@ non-OK, non-paper, superseded, or more-than-seven-day-old screen.
   a probability of profit and not authorization to trade.
 - IBKR integration remains read-only and is not used by this workflow.
 
-The next promotion decision should require a precommitted forward incubation
-window and comparison with the equal-weight universe after realistic costs.
+PR 10 implements the precommitted forward incubation window and comparison
+with the frozen equal-weight eligible universe after turnover costs. See
+[`FORWARD_PAPER_INCUBATION.md`](FORWARD_PAPER_INCUBATION.md).

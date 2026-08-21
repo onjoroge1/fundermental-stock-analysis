@@ -284,10 +284,29 @@ async function renderStrategyScreen() {
     m.innerHTML = `<div class="loading">Policy paper failed: ${e.message}</div>`;
     return;
   }
+  const cohortRows = (paper.incubation?.cohorts || []).map((cohort) => {
+    const ev = cohort.evaluation || {};
+    const statusClass = ev.status === "REVIEW_ELIGIBLE" ? "good"
+      : ev.status === "FAILED" ? "bad" : "neutral";
+    const failed = Object.entries(ev.gates || {}).filter(([, value]) => !value)
+      .map(([name]) => name.replaceAll("_", " ")).join(", ");
+    return `<tr><td style="text-align:left">${cohort.policy}</td>
+      <td>${cohort.start_date}</td><td>${ev.marks || 0}</td><td>${ev.calendar_days || 0}</td>
+      <td class="${cls(ev.net_return_pct)}">${fmtSignedPct(ev.net_return_pct)}</td>
+      <td>${fmtSignedPct(ev.benchmark_return_pct)}</td>
+      <td class="${cls(ev.excess_return_pct)}">${fmtSignedPct(ev.excess_return_pct)}</td>
+      <td class="${cls(ev.max_drawdown_pct)}">${fmtSignedPct(ev.max_drawdown_pct)}</td>
+      <td><span class="chip ${statusClass}" title="${failed ? "Open gates: " + failed : "All review gates passed"}">${ev.status}</span></td></tr>`;
+  }).join("");
+  const incubationHtml = `<div class="panel wide" style="margin-bottom:14px"><h3>Forward paper incubation</h3>
+    <div class="table-wrap"><table class="coverage"><thead><tr><th>Policy</th><th>Started</th><th>Marks</th><th>Days</th><th>Net</th><th>Benchmark</th><th>Excess</th><th>Drawdown</th><th>Verdict</th></tr></thead>
+    <tbody>${cohortRows || `<tr><td colspan="9">No cohort yet. Review a current screen, then run strategy-paper sync.</td></tr>`}</tbody></table></div>
+    <div class="note">Forward evidence uses frozen equal-weight eligible-universe benchmarks and turnover costs. REVIEW_ELIGIBLE permits human review only—never live execution.</div></div>`;
   if (screen.status !== "OK") {
     m.innerHTML = `<div class="page-head"><h1>Policy paper</h1><span class="chip neutral">${screen.status}</span></div>
       <div class="page-sub">${screen.reason || "No current screen."}</div>
-      <div class="banner">This page never falls back to rejected or stale policies.</div>`;
+      <div class="banner" style="margin-bottom:14px">This page never falls back to rejected or stale policies.</div>
+      ${incubationHtml}`;
     return;
   }
   const sections = Object.entries(screen.policies || {}).map(([name, policy]) => {
@@ -314,7 +333,7 @@ async function renderStrategyScreen() {
       <div class="tile"><div class="lbl">Observed universe</div><div class="val">${screen.universe.observed}</div></div>
       <div class="tile"><div class="lbl">Data eligible</div><div class="val">${screen.universe.eligible}</div></div>
       <div class="tile"><div class="lbl">Excluded</div><div class="val">${screen.universe.excluded.length}</div></div>
-    </div>${sections}
+    </div>${incubationHtml}${sections}
     <div class="panel wide"><h3>Isolated strategy paper ledger</h3>
       <div class="table-wrap"><table class="coverage"><thead><tr><th>Policy</th><th>Ticker</th><th>Target</th><th>Entry date</th><th>Entry price</th></tr></thead>
       <tbody>${positions || `<tr><td colspan="5">No positions. Run strategy-paper sync after reviewing the screen.</td></tr>`}</tbody></table></div>

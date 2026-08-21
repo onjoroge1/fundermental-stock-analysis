@@ -145,6 +145,22 @@ def main() -> int:
     except Exception as e:
         paper_result = {"error": f"{type(e).__name__}: {e}"}
 
+    # Forward strategy cohorts are marked daily but never auto-rebalanced.
+    strategy_paper_result = {}
+    try:
+        from stock_machine import strategy_paper
+        conn = db.connect()
+        try:
+            marked = strategy_paper.mark(conn)
+            strategy_paper_result = {
+                "date": marked["date"],
+                "incubation": marked["incubation"],
+            }
+        finally:
+            conn.close()
+    except Exception as e:
+        strategy_paper_result = {"error": f"{type(e).__name__}: {e}"}
+
     # Precompute and persist probabilistic forecasts. Web requests never train.
     prediction_result = {"ok": 0, "failed": 0}
     try:
@@ -198,6 +214,7 @@ def main() -> int:
         "coverage_alerts": [r["ticker"] for r in results if r.get("coverage_lost")],
         "forecast_outcomes": outcome_result,
         "paper_portfolio": paper_result,
+        "strategy_paper_incubation": strategy_paper_result,
         "prediction_precompute": prediction_result,
         "new_invalidation_breaches": [
             {"ticker": r["ticker"], **b} for r in results

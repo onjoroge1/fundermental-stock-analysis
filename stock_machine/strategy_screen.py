@@ -8,10 +8,17 @@ from typing import Any
 from . import db
 from .backtest.engine import TickerData
 from .data_quality import build_report
-from .strategy_lab import MIN_NAMES, STRATEGIES, TOP_FRACTION, _value, score_policy_rows
+from .strategy_lab import (
+    DEFAULT_COST_BPS,
+    MIN_NAMES,
+    STRATEGIES,
+    TOP_FRACTION,
+    _value,
+    score_policy_rows,
+)
 
 
-SCHEMA_VERSION = "strategy_screen.v1"
+SCHEMA_VERSION = "strategy_screen.v2"
 
 
 def current_observations(conn, *, as_of: str) -> tuple[list[dict], dict[str, dict]]:
@@ -150,8 +157,15 @@ def generate(lab: dict, observations: list[dict], readiness: dict[str, dict],
         "execution_status": "PAPER_ONLY",
         "as_of": as_of,
         "policy_source": "latest non-stale Strategy Lab run",
+        "cost_bps_per_turnover": (lab.get("config") or {}).get(
+            "cost_bps_per_turnover", DEFAULT_COST_BPS),
         "universe": {"observed": len(observations),
                      "eligible": len(eligible_rows), "excluded": excluded},
+        "benchmark": [
+            {"ticker": row["ticker"], "price": row.get("price"),
+             "price_date": row.get("price_date")}
+            for row in sorted(eligible_rows, key=lambda item: item["ticker"])
+        ],
         "policies": output,
         "limitations": [
             "Selections inherit Strategy Lab survivorship and model risk.",

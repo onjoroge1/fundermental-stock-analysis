@@ -129,6 +129,13 @@ This workflow cannot place IBKR orders and does not alter the existing
 classification-driven paper portfolio. See
 [`docs/PROMOTED_POLICY_PAPER.md`](docs/PROMOTED_POLICY_PAPER.md).
 
+Each explicit strategy-paper sync also creates an immutable forward cohort.
+Daily marks compare it with the contemporaneous equal-weight eligible universe
+after turnover costs. The dashboard cannot label a cohort `REVIEW_ELIGIBLE`
+until the precommitted time, mark-count, excess-return, hit-rate, drawdown, and
+coverage gates pass. See
+[`docs/FORWARD_PAPER_INCUBATION.md`](docs/FORWARD_PAPER_INCUBATION.md).
+
 ## Honesty infrastructure (the point of the project)
 
 - **Kill criteria everywhere**: the composite score, the ridge model, and the

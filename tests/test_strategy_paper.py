@@ -1,4 +1,4 @@
-from stock_machine import strategy_paper
+from stock_machine import paper_incubation, strategy_paper
 
 
 class _Cursor:
@@ -28,7 +28,8 @@ class _Connection:
 
 
 def _screen():
-    return {"status": "OK", "execution_status": "PAPER_ONLY",
+    return {"schema_version": "strategy_screen.v2",
+            "status": "OK", "execution_status": "PAPER_ONLY",
             "as_of": "2026-08-21", "policies": {"value_quality": {
                 "status": "PAPER_ELIGIBLE", "candidates": [
                     {"ticker": "A", "target_weight": 0.5},
@@ -44,6 +45,8 @@ def test_strategy_paper_sync_is_idempotent_for_retained_positions(monkeypatch):
     ]
     monkeypatch.setattr(strategy_paper, "open_positions", lambda c: positions)
     monkeypatch.setattr(strategy_paper, "_adj_close", lambda *args: 100)
+    monkeypatch.setattr(paper_incubation, "ensure_cohorts",
+                        lambda *args, **kwargs: [{"created": False}])
 
     result = strategy_paper.sync(conn, _screen(), "screen_1")
 
@@ -53,9 +56,27 @@ def test_strategy_paper_sync_is_idempotent_for_retained_positions(monkeypatch):
                for sql, _ in conn.calls)
 
 
+def test_strategy_paper_sync_is_atomic_when_any_price_is_missing(monkeypatch):
+    conn = _Connection()
+    monkeypatch.setattr(strategy_paper, "open_positions", lambda c: [])
+    monkeypatch.setattr(strategy_paper, "_adj_close",
+                        lambda c, ticker, on: None if ticker == "B" else 100)
+    try:
+        strategy_paper.sync(conn, _screen(), "screen_1")
+    except ValueError as exc:
+        assert "complete prices" in str(exc)
+    else:
+        raise AssertionError("partial price coverage must not partially rebalance")
+    assert conn.calls == []
+
+
 def test_strategy_paper_refuses_non_paper_screen():
     try:
-        strategy_paper.sync(_Connection(), {"status": "STALE"}, "screen_1")
+        strategy_paper.sync(
+            _Connection(),
+            {"schema_version": "strategy_screen.v2", "status": "STALE"},
+            "screen_1",
+        )
     except ValueError as exc:
         assert "PAPER_ONLY" in str(exc)
     else:
@@ -63,7 +84,8 @@ def test_strategy_paper_refuses_non_paper_screen():
 
 
 def test_strategy_paper_refuses_empty_ok_screen():
-    screen = {"status": "OK", "execution_status": "PAPER_ONLY",
+    screen = {"schema_version": "strategy_screen.v2",
+              "status": "OK", "execution_status": "PAPER_ONLY",
               "policies": {}}
     try:
         strategy_paper.sync(_Connection(), screen, "screen_1")

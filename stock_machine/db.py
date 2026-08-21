@@ -233,6 +233,33 @@ CREATE TABLE IF NOT EXISTS sm_strategy_paper_nav (
     details JSONB NOT NULL,
     PRIMARY KEY (date, policy)
 );
+CREATE TABLE IF NOT EXISTS sm_strategy_paper_cohorts (
+    cohort_id TEXT PRIMARY KEY,
+    policy TEXT NOT NULL,
+    screen_id TEXT NOT NULL,
+    start_date DATE NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    signature TEXT NOT NULL,
+    turnover DOUBLE PRECISION NOT NULL,
+    cost_bps DOUBLE PRECISION NOT NULL,
+    cost_pct DOUBLE PRECISION NOT NULL,
+    holdings JSONB NOT NULL,
+    benchmark JSONB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sm_strategy_cohorts_policy_idx
+    ON sm_strategy_paper_cohorts (policy, created_at DESC);
+CREATE TABLE IF NOT EXISTS sm_strategy_incubation_marks (
+    cohort_id TEXT NOT NULL,
+    date DATE NOT NULL,
+    status TEXT NOT NULL,
+    gross_return_pct DOUBLE PRECISION,
+    net_return_pct DOUBLE PRECISION,
+    benchmark_return_pct DOUBLE PRECISION,
+    excess_return_pct DOUBLE PRECISION,
+    coverage DOUBLE PRECISION NOT NULL,
+    details JSONB NOT NULL,
+    PRIMARY KEY (cohort_id, date)
+);
 """
 
 
