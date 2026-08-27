@@ -178,6 +178,21 @@ def main() -> int:
     except Exception as e:
         prediction_result = {"error": f"{type(e).__name__}: {e}"}
 
+    # materialise the coverage table so the UI never rebuilds it in-request
+    coverage_result = {}
+    try:
+        import subprocess
+
+        script = Path(__file__).resolve().parent / "build_coverage_snapshot.py"
+        proc = subprocess.run(
+            [sys.executable, str(script)], capture_output=True, text=True,
+            timeout=1800,
+        )
+        coverage_result = {"ok": proc.returncode == 0,
+                           "detail": (proc.stdout or proc.stderr).strip()[-200:]}
+    except Exception as e:
+        coverage_result = {"ok": False, "detail": f"{type(e).__name__}: {e}"}
+
     # grade any forecast horizons that have matured (idempotent)
     outcome_result = {"newly_scored": [], "pending_horizons": 0}
     try:
@@ -199,6 +214,7 @@ def main() -> int:
         "forecast_outcomes": outcome_result,
         "paper_portfolio": paper_result,
         "prediction_precompute": prediction_result,
+        "coverage_snapshot": coverage_result,
         "new_invalidation_breaches": [
             {"ticker": r["ticker"], **b} for r in results
             for b in r.get("invalidation_breaches", [])],

@@ -516,3 +516,23 @@ class IBKRTWSMarketData:
             options=options,
             warnings=warnings,
         )
+
+    def available_expirations(self, symbol: str) -> dict:
+        """Listed expirations for a symbol, grouped as MONYY keys for the UI."""
+        underlying = self.resolve_underlying(symbol)
+        expirations, strikes = self._sec_def_params(symbol, underlying.conid)
+        months: dict[str, list[str]] = {}
+        for e in expirations:
+            months.setdefault(self._month_key(e), []).append(e)
+        return {
+            "provider": PROVIDER,
+            "symbol": underlying.symbol,
+            "conid": underlying.conid,
+            "months": [
+                {"month": m, "expirations": sorted(v),
+                 "standard": max(v)}
+                for m, v in sorted(months.items(),
+                                   key=lambda kv: min(kv[1]))
+            ],
+            "strikes": strikes,
+        }

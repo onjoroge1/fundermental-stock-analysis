@@ -1175,20 +1175,74 @@ async function renderOptions() {
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
         <label class="mini">Ticker<br><input id="o-ticker" class="o-input" list="o-tickers" value="${st.ticker}" size="7">
           <datalist id="o-tickers">${tickerOpts}</datalist></label>
-        <label class="mini">Expiry<br><input id="o-month" class="o-input" value="${st.month}" size="6"></label>
+        <label class="mini">Expiry<br><select id="o-month" class="o-input">
+          <option value="${st.month}">${st.month}</option></select></label>
         <label class="mini">Strategy<br><select id="o-strategy" class="o-input">${stratOpts}</select></label>
-        <label class="mini">Strikes (comma-separated, ascending)<br>
-          <input id="o-strikes" class="o-input" value="${st.strikes}" size="18"></label>
+        <label class="mini">Strikes (ascending)<br>
+          <span style="display:inline-flex;gap:4px;align-items:center">
+            <button id="o-down" class="o-btn" style="padding:6px 10px" title="shift all strikes down one ladder step">&minus;</button>
+            <input id="o-strikes" class="o-input" value="${st.strikes}" size="16">
+            <button id="o-up" class="o-btn" style="padding:6px 10px" title="shift all strikes up one ladder step">+</button>
+          </span></label>
         <label class="mini">Contracts<br><input id="o-qty" class="o-input" type="number" min="1" max="50" value="${st.quantity}" size="3"></label>
         <button id="o-run" class="o-btn">Simulate</button>
+        <button id="o-scan" class="o-btn" style="background:var(--series-3)" title="search every strike combination">Find best setups</button>
+        <label class="mini" style="display:flex;align-items:center;gap:5px">
+          <input type="checkbox" id="o-nourisk" ${st.noUpsideRisk ? "checked" : ""}> no upside risk</label>
       </div>
       <div class="note" style="margin-top:8px"><b>${tpl.name || ""}</b> — ${tpl.description || ""}
         ${tpl.risk_note ? `<br><span style="color:var(--status-bad)">Risk: ${tpl.risk_note}</span>` : ""}</div>
     </div>
     <div id="o-result"><div class="loading">Choose a structure and press Simulate.</div></div>`;
 
+  // load the real expiry months + strike ladder for this symbol
+  const loadLadder = async (symbol) => {
+    const sel = $("#o-month");
+    if (state.ladder && state.ladder.symbol === symbol) {
+      fillMonths(state.ladder);
+      return;
+    }
+    sel.innerHTML = `<option>${st.month}</option>`;
+    try {
+      const l = await fetchJSON(`/api/options/expirations/${symbol}`);
+      state.ladder = { symbol, months: l.months, strikes: l.strikes };
+      fillMonths(state.ladder);
+    } catch (e) {
+      sel.title = "expiry list unavailable (broker offline) — typed value used";
+    }
+  };
+  const fillMonths = (l) => {
+    const sel = $("#o-month");
+    if (!l.months.some((m) => m.month === st.month)) st.month = l.months[0]?.month || st.month;
+    sel.innerHTML = l.months.map((m) =>
+      `<option ${m.month === st.month ? "selected" : ""}>${m.month}</option>`).join("");
+  };
+  loadLadder(st.ticker);
+
+  // step every strike one rung along the REAL ladder (never a fixed $ amount:
+  // strike spacing varies by symbol and by distance from the money)
+  const stepStrikes = (dir) => {
+    const ladder = state.ladder?.strikes;
+    const current = $("#o-strikes").value.split(",").map((v) => parseFloat(v.trim()))
+      .filter((v) => !isNaN(v));
+    if (!ladder || !ladder.length || !current.length) return;
+    const moved = current.map((v) => {
+      const i = ladder.findIndex((k) => Math.abs(k - v) < 1e-6);
+      if (i < 0) return v;
+      const j = Math.min(ladder.length - 1, Math.max(0, i + dir));
+      return ladder[j];
+    });
+    $("#o-strikes").value = moved.join(",");
+    st.strikes = moved.join(",");
+  };
+  $("#o-up").addEventListener("click", (e) => { e.preventDefault(); stepStrikes(1); });
+  $("#o-down").addEventListener("click", (e) => { e.preventDefault(); stepStrikes(-1); });
+  $("#o-ticker").addEventListener("change", (e) =>
+    loadLadder(e.target.value.trim().toUpperCase()));
+
   const read = () => {
-    st.ticker = ($("#o-ticker").value || "AAPL").trim().toUpperCase(); st.month = $("#o-month").value.toUpperCase();
+    st.ticker = ($("#o-ticker").value || "AAPL").trim().toUpperCase();
+    st.noUpsideRisk = $("#o-nourisk").checked; st.month = $("#o-month").value.toUpperCase();
     st.strategy = $("#o-strategy").value; st.strikes = $("#o-strikes").value;
     st.quantity = Math.max(1, parseInt($("#o-qty").value || "1", 10));
   };
@@ -1241,5 +1295,59 @@ async function renderOptions() {
         <div class="panel wide"><div class="note">${r.disclaimer}</div></div>
       </div>`;
     payoffChart($("#o-chart"), r.payoff, r.underlying_price, s.breakevens);
+  });
+
+  $("#o-scan").addEventListener("click", async () => {
+    read();
+    const out = $("#o-result");
+    // search a window around the money using the real ladder when we have it
+    const ladder = state.ladder?.strikes || [];
+    const seed = st.strikes.split(",").map((v) => parseFloat(v)).filter((v) => !isNaN(v));
+    let window = seed;
+    if (ladder.length) {
+      const centre = seed[Math.floor(seed.length / 2)] || ladder[Math.floor(ladder.length / 2)];
+      const idx = ladder.reduce((best, k, i) =>
+        Math.abs(k - centre) < Math.abs(ladder[best] - centre) ? i : best, 0);
+      window = ladder.slice(Math.max(0, idx - 4), idx + 5);
+    }
+    out.innerHTML = `<div class="loading">Scanning ${window.length} strikes on ${st.ticker} ${st.month}…
+      this pulls every contract from IBKR and can take a minute.</div>`;
+    let r;
+    try {
+      r = await fetchJSON(`/api/options/scan/${st.ticker}?month=${st.month}` +
+        `&strategy=${st.strategy}&strikes=${encodeURIComponent(window.join(","))}` +
+        `&no_upside_risk=${st.noUpsideRisk}&top_n=8`);
+    } catch (e) {
+      out.innerHTML = `<div class="banner">Scan failed: ${e.message}</div>`;
+      return;
+    }
+    const fmtD = (v) => v == null ? "—" : (v < 0 ? "-$" : "$") +
+      Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 });
+    out.innerHTML = `<div class="panel wide">
+      <h3>Best ${r.strategy.name} setups · ${r.symbol} ${r.month}</h3>
+      <div class="page-sub" style="margin-bottom:10px">Objective: ${r.objective}.
+        Evaluated ${r.combinations_evaluated} combinations, ${r.candidates_passing} passed the filters.</div>
+      <div class="table-wrap"><table class="scen-table"><thead><tr>
+        <th>Strikes</th><th>Credit</th><th>Max loss</th><th>Return on risk</th>
+        <th>Breakeven(s)</th><th>No upside risk</th><th></th></tr></thead>
+        <tbody>${r.results.map((x) => `<tr>
+          <td>${x.strikes.map((k) => k.toFixed(0)).join(" / ")}</td>
+          <td class="pos">${fmtD(x.net_credit)}</td>
+          <td class="neg">${x.max_loss == null ? "UNBOUNDED" : fmtD(-x.max_loss)}</td>
+          <td>${x.return_on_risk == null ? "—" : (x.return_on_risk * 100).toFixed(1) + "%"}</td>
+          <td>${(x.breakevens || []).map((b) => "$" + b.toFixed(2)).join(", ")}</td>
+          <td>${x.no_upside_risk ? '<span class="chip good">yes</span>' : '<span class="chip warn">no</span>'}</td>
+          <td><button class="o-btn use-combo" data-k="${x.strikes.join(",")}" style="padding:4px 10px;font-size:11px">Load</button></td>
+        </tr>`).join("")}</tbody></table></div>
+      ${Object.keys(r.rejected_reasons).length ? `<div class="note">Rejected:
+        ${Object.entries(r.rejected_reasons).map(([k, v]) => `${v} × ${k}`).join(" · ")}</div>` : ""}
+      <div class="note" style="color:var(--status-bad)">${r.strategy.risk_note}</div>
+      <div class="note">${r.disclaimer}</div></div>`;
+    out.querySelectorAll(".use-combo").forEach((b) =>
+      b.addEventListener("click", () => {
+        $("#o-strikes").value = b.dataset.k;
+        st.strikes = b.dataset.k;
+        $("#o-run").click();
+      }));
   });
 }

@@ -4,6 +4,7 @@ Read-only over the normalized store: the UI renders bundles, derived metrics
 and saved analysis reports. It performs no ingestion and no writes."""
 from __future__ import annotations
 
+import json
 import time
 
 from fastapi import FastAPI, HTTPException
@@ -12,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import db
 from .bundle import build_bundle
-from .config import PROJECT_ROOT
+from .config import DATA_DIR, PROJECT_ROOT
 
 app = FastAPI(title="stock-machine")
 
@@ -55,8 +56,26 @@ def _signals(b: dict) -> dict:
     }
 
 
+COVERAGE_SNAPSHOT = DATA_DIR / "coverage_snapshot.json"
+
+
 @app.get("/api/companies")
-def companies() -> list[dict]:
+def companies(persisted: bool = True) -> list[dict]:
+    """Coverage rows. Serves the precomputed snapshot when one exists —
+    rebuilding 53 bundles takes minutes and must never block a page load.
+    Each row carries snapshot_generated_at so the UI can state its age."""
+    if persisted and COVERAGE_SNAPSHOT.exists():
+        try:
+            payload = json.loads(COVERAGE_SNAPSHOT.read_text())
+            for row in payload["rows"]:
+                row["snapshot_generated_at"] = payload["generated_at"]
+            return payload["rows"]
+        except Exception:
+            pass  # corrupt snapshot: fall through to a live rebuild
+    return _companies_live()
+
+
+def _companies_live() -> list[dict]:
     conn = db.connect()
     try:
         names = db.list_companies(conn)
@@ -275,6 +294,74 @@ def option_strikes(ticker: str, month: str) -> dict:
         raise HTTPException(503, f"{type(exc).__name__}: {exc}")
     finally:
         provider.close()
+
+
+@app.get("/api/options/expirations/{ticker}")
+def option_expirations(ticker: str) -> dict:
+    """Listed expiry months + the full strike ladder, for UI dropdowns."""
+    from .market_data import get_provider
+
+    provider = get_provider()
+    try:
+        if not hasattr(provider, "available_expirations"):
+            raise HTTPException(501, "provider exposes no expiration list")
+        return provider.available_expirations(ticker.upper())
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(503, f"{type(exc).__name__}: {exc}")
+    finally:
+        provider.close()
+
+
+@app.get("/api/options/scan/{ticker}")
+def option_scan(
+    ticker: str, month: str, strategy: str, strikes: str,
+    objective: str = "return_on_risk", no_upside_risk: bool = False,
+    defined_risk: bool = False, min_credit: float | None = None,
+    max_collateral: float | None = None, top_n: int = 10,
+    horizon: str = "1m",
+) -> dict:
+    """Search every strike combination for the best structures by a stated
+    objective. `strikes` is the candidate ladder to search within."""
+    import json as _json
+
+    from .config import DATA_DIR
+    from .market_data import get_provider
+    from .options.scanner import ScanPolicy, scan
+    from .options.simulator import StrategyBuildError
+
+    ladder = [float(v) for v in strikes.split(",") if v.strip()]
+    provider = get_provider()
+    try:
+        chain = provider.option_chain(ticker.upper(), month.upper(), ladder)
+    except Exception as exc:
+        raise HTTPException(503, f"market data unavailable: {exc}")
+    finally:
+        provider.close()
+
+    forecast = None
+    if objective == "expected_value":
+        from datetime import date as _date
+
+        path = (DATA_DIR / "predictions"
+                / f"{ticker.upper()}_{_date.today().isoformat()}.json")
+        if path.exists():
+            forecast = _json.loads(path.read_text())
+    try:
+        return scan(
+            chain, strategy,
+            ScanPolicy(
+                objective=objective,
+                require_no_upside_risk=no_upside_risk,
+                require_defined_risk=defined_risk,
+                min_credit=min_credit, max_collateral=max_collateral,
+                top_n=top_n,
+            ),
+            forecast=forecast, horizon=horizon,
+        )
+    except StrategyBuildError as exc:
+        raise HTTPException(400, str(exc))
 
 
 @app.get("/api/options/chain/{ticker}")
