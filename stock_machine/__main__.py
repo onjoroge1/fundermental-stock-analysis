@@ -180,10 +180,16 @@ def main() -> None:
                 result = provider.resolve_underlying(sys.argv[3])
             elif sub == "quote" and len(sys.argv) >= 4:
                 result = provider.quote_underlying(sys.argv[3])
+            elif sub == "strikes" and len(sys.argv) >= 5:
+                result = provider.available_strikes(sys.argv[3], sys.argv[4])
+            elif sub == "chain" and len(sys.argv) >= 6:
+                strikes = [float(v) for v in sys.argv[5].split(",")]
+                result = provider.option_chain(sys.argv[3], sys.argv[4], strikes)
             else:
                 raise SystemExit(
-                    "usage: stock-machine ibkr-tws "
-                    "status | resolve SYMBOL | quote SYMBOL"
+                    "usage: stock-machine ibkr-tws status | resolve SYMBOL | "
+                    "quote SYMBOL | strikes SYMBOL MONYY | "
+                    "chain SYMBOL MONYY STRIKE[,STRIKE...]"
                 )
         except IBKRTWSError as exc:
             raise SystemExit(f"TWS request failed: {exc}")

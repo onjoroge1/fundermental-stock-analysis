@@ -22,7 +22,8 @@ import os
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from datetime import date, datetime, timezone
 
 from ibapi.client import EClient
 from ibapi.contract import Contract
@@ -32,7 +33,11 @@ from ..config import PROJECT_ROOT  # noqa: F401  (import loads .env)
 from .models import (
     MarketDataAvailability,
     MarketQuote,
+    OptionChainSnapshot,
+    OptionContract,
+    OptionQuote,
     SessionStatus,
+    StrikeSet,
     UnderlyingContract,
 )
 
@@ -43,11 +48,13 @@ _LIVE_TICKS = {
     1: "bid", 2: "ask", 4: "last",
     0: "bid_size", 3: "ask_size", 5: "last_size",
     8: "volume", 6: "high", 7: "low", 9: "close", 14: "open",
+    22: "open_interest", 27: "open_interest", 28: "open_interest",
 }
 _DELAYED_TICKS = {
     66: "bid", 67: "ask", 68: "last",
     69: "bid_size", 70: "ask_size", 71: "last_size",
     74: "volume", 72: "high", 73: "low", 75: "close", 76: "open",
+    86: "open_interest",
 }
 
 # No US equity trades anywhere near 10bn shares in a session. IBKR's delayed
@@ -93,6 +100,8 @@ class _Wrapper(EWrapper):
         self.ticks: dict[int, dict] = {}
         self.delayed: dict[int, bool] = {}
         self.rejected: dict[int, list[str]] = {}
+        self.greeks: dict[int, dict] = {}
+        self.sec_def: dict[int, list[dict]] = {}
         self.errors: list[tuple[int, int, str]] = []
         self.done: dict[int, threading.Event] = {}
         self.connected_evt = threading.Event()
@@ -119,6 +128,42 @@ class _Wrapper(EWrapper):
     def contractDetailsEnd(self, reqId: int) -> None:
         if reqId in self.done:
             self.done[reqId].set()
+
+    # --- option definitions ---
+    def securityDefinitionOptionParameter(
+        self, reqId, exchange, underlyingConId, tradingClass, multiplier,
+        expirations, strikes,
+    ) -> None:
+        self.sec_def.setdefault(reqId, []).append({
+            "exchange": exchange,
+            "expirations": sorted(str(e) for e in expirations),
+            "strikes": sorted(float(s) for s in strikes),
+        })
+
+    def securityDefinitionOptionParameterEnd(self, reqId: int) -> None:
+        if reqId in self.done:
+            self.done[reqId].set()
+
+    def tickOptionComputation(
+        self, reqId, tickType, tickAttrib, impliedVol, delta, optPrice,
+        pvDividend, gamma, vega, theta, undPrice,
+    ) -> None:
+        """Model computation (13 live / 83 delayed) is the usable greek set;
+        bid/ask/last computations are noisier and only fill gaps."""
+        row = self.greeks.setdefault(reqId, {})
+        preferred = tickType in (13, 83)
+        for key, value in (("iv", impliedVol), ("delta", delta),
+                           ("gamma", gamma), ("vega", vega),
+                           ("theta", theta), ("opt_price", optPrice)):
+            if value is None:
+                continue
+            # ibapi uses sentinels for "not computed"
+            if value == -1 or value != value or abs(value) > 1e100:
+                continue
+            if preferred or key not in row:
+                row[key] = float(value)
+        if tickType in (80, 81, 82, 83):
+            self.delayed[reqId] = True
 
     # --- ticks ---
     def tickPrice(self, reqId, tickType, price, attrib) -> None:
@@ -276,5 +321,198 @@ class IBKRTWSMarketData:
             bid_size=row.get("bid_size"), ask_size=row.get("ask_size"),
             last_size=row.get("last_size"),
             volume=row.get("volume"),
+            warnings=warnings,
+        )
+
+    # --- option chain support ---
+    def _sec_def_params(self, symbol: str, conid: int) -> tuple[list[str], list[float]]:
+        req = self._next_req()
+        evt = threading.Event()
+        self._wrapper.done[req] = evt
+        self._client.reqSecDefOptParams(req, symbol.upper(), "", "STK", conid)
+        if not evt.wait(self.settings.timeout_s):
+            raise IBKRTWSError(f"option parameters for {symbol} timed out")
+        rows = self._wrapper.sec_def.get(req) or []
+        if not rows:
+            raise IBKRTWSError(f"no option parameters returned for {symbol}")
+        # prefer SMART routing when present; it carries the full strike ladder
+        row = next((r for r in rows if r["exchange"] == "SMART"), rows[0])
+        return sorted(row["expirations"]), sorted(row["strikes"])
+
+    @staticmethod
+    def _month_key(yyyymmdd: str) -> str:
+        months = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                  "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
+        return f"{months[int(yyyymmdd[4:6]) - 1]}{yyyymmdd[2:4]}"
+
+    def _expiration_for_month(self, expirations: list[str], month: str) -> str:
+        matches = [e for e in expirations if self._month_key(e) == month.upper()]
+        if not matches:
+            raise IBKRTWSError(
+                f"no expiration in {month}; available: "
+                f"{sorted({self._month_key(e) for e in expirations})}"
+            )
+        # standard monthly expiry is the third Friday — the latest in the month
+        return max(matches)
+
+    def available_strikes(self, symbol: str, month: str) -> StrikeSet:
+        underlying = self.resolve_underlying(symbol)
+        expirations, strikes = self._sec_def_params(symbol, underlying.conid)
+        self._expiration_for_month(expirations, month)  # validates the month
+        return StrikeSet(
+            provider=PROVIDER,
+            underlying=underlying,
+            month=month.upper(),
+            call_strikes=strikes,
+            put_strikes=strikes,
+        )
+
+    def _option_contract(
+        self, symbol: str, expiry: str, strike: float, right: str,
+        underlying_conid: int,
+    ) -> OptionContract:
+        c = Contract()
+        c.symbol = symbol.upper()
+        c.secType = "OPT"
+        c.currency = "USD"
+        c.exchange = "SMART"
+        c.lastTradeDateOrContractMonth = expiry
+        c.strike = float(strike)
+        c.right = right
+        c.multiplier = "100"
+        req = self._next_req()
+        evt = threading.Event()
+        self._wrapper.done[req] = evt
+        self._client.reqContractDetails(req, c)
+        if not evt.wait(self.settings.timeout_s):
+            raise IBKRTWSError(f"contract lookup timed out: {symbol} {expiry} "
+                               f"{strike}{right}")
+        details = self._wrapper.contracts.get(req) or []
+        if not details:
+            raise IBKRTWSError(
+                f"no listed contract: {symbol} {expiry} {strike}{right}")
+        con = details[0].contract
+        return OptionContract(
+            provider=PROVIDER,
+            conid=int(con.conId),
+            symbol=con.symbol,
+            underlying_conid=underlying_conid,
+            expiration=date(int(expiry[0:4]), int(expiry[4:6]), int(expiry[6:8])),
+            strike=float(con.strike),
+            right=con.right,
+            multiplier=int(con.multiplier or 100),
+            currency=con.currency or "USD",
+            exchange=con.exchange or "SMART",
+            description=getattr(details[0], "longName", None) or None,
+        )
+
+    def _option_snapshot(
+        self, contract: OptionContract
+    ) -> tuple[dict, dict, int]:
+        """Returns (tick row, greeks row, req id) for one option contract.
+
+        Uses STREAMING market data: IBKR rejects snapshot requests that carry
+        a generic tick list with error 321, and open interest / implied vol
+        are only available as generic ticks 101 / 106.
+        """
+        c = Contract()
+        c.conId = contract.conid
+        c.symbol = contract.symbol
+        c.secType = "OPT"
+        c.currency = contract.currency
+        c.exchange = contract.exchange
+        c.lastTradeDateOrContractMonth = contract.expiration.strftime("%Y%m%d")
+        c.strike = contract.strike
+        c.right = contract.right
+        c.multiplier = str(contract.multiplier)
+        req = self._next_req()
+        # 101 = option open interest; 106 = option implied volatility.
+        # snapshot MUST be False here (see docstring).
+        self._client.reqMktData(req, c, "101,106", False, False, [])
+        deadline = time.monotonic() + self.settings.timeout_s
+        while time.monotonic() < deadline:
+            row = self._wrapper.ticks.get(req, {})
+            has_price = any(k in row for k in ("bid", "ask", "last"))
+            if has_price and self._wrapper.greeks.get(req):
+                break
+            time.sleep(0.1)
+        self._client.cancelMktData(req)
+        time.sleep(0.05)  # gentle pacing; IBKR throttles bursts
+        return (self._wrapper.ticks.get(req, {}),
+                self._wrapper.greeks.get(req, {}), req)
+
+    def option_chain(
+        self, symbol: str, month: str, strikes: Sequence[float]
+    ) -> OptionChainSnapshot:
+        if not strikes:
+            raise IBKRTWSError("at least one strike is required")
+        underlying = self.resolve_underlying(symbol)
+        underlying_quote = self.quote_underlying(symbol)
+        expirations, ladder = self._sec_def_params(symbol, underlying.conid)
+        expiry = self._expiration_for_month(expirations, month)
+
+        warnings: list[str] = []
+        unlisted = [s for s in strikes if not any(abs(s - k) < 1e-6 for k in ladder)]
+        if unlisted:
+            warnings.append(
+                f"strikes not listed for {symbol} {month}: "
+                f"{', '.join(str(s) for s in unlisted)}")
+
+        options: list[OptionQuote] = []
+        for strike in strikes:
+            if strike in unlisted:
+                continue
+            for right in ("C", "P"):
+                try:
+                    contract = self._option_contract(
+                        symbol, expiry, strike, right, underlying.conid)
+                    row, greeks, tick_req = self._option_snapshot(
+                        contract)
+                except IBKRTWSError as exc:
+                    warnings.append(str(exc))
+                    continue
+                bid, ask = row.get("bid"), row.get("ask")
+                mark = ((bid + ask) / 2 if bid is not None and ask is not None
+                        else row.get("last") or greeks.get("opt_price"))
+                quote = MarketQuote(
+                    provider=PROVIDER,
+                    conid=contract.conid,
+                    symbol=contract.symbol,
+                    as_of=datetime.now(timezone.utc),
+                    availability=(MarketDataAvailability.DELAYED
+                                  if self._wrapper.delayed.get(
+                                      tick_req, True)
+                                  else MarketDataAvailability.REALTIME),
+                    bid=bid, ask=ask, last=row.get("last"), mark=mark,
+                    bid_size=row.get("bid_size"), ask_size=row.get("ask_size"),
+                    last_size=row.get("last_size"), volume=row.get("volume"),
+                )
+                options.append(OptionQuote(
+                    contract=contract,
+                    quote=quote,
+                    implied_volatility=greeks.get("iv"),
+                    delta=greeks.get("delta"),
+                    gamma=greeks.get("gamma"),
+                    theta=greeks.get("theta"),
+                    vega=greeks.get("vega"),
+                    open_interest=row.get("open_interest"),
+                ))
+        if options and not any(o.implied_volatility is not None
+                               or o.delta is not None for o in options):
+            warnings.append(
+                "greeks unavailable: IBKR does not compute model greeks on "
+                "delayed data (market data type 3). Position greeks will be "
+                "incomplete; a real-time options subscription is required."
+            )
+        if not options:
+            raise IBKRTWSError(
+                f"no option quotes returned for {symbol} {month}. "
+                + ("; ".join(warnings) if warnings else ""))
+        return OptionChainSnapshot(
+            provider=PROVIDER,
+            underlying=underlying,
+            underlying_quote=underlying_quote,
+            month=month.upper(),
+            options=options,
             warnings=warnings,
         )

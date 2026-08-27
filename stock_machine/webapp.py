@@ -220,6 +220,126 @@ def data_quality_dashboard() -> dict:
         conn.close()
 
 
+# ---------------- live market data + options (IBKR, read-only) ----------
+
+_QUOTE_TTL_S = 60
+_quote_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _live_quote(symbol: str) -> dict:
+    """Live/delayed IBKR quote, cached briefly. Never raises: a broker that
+    is offline yields status=unavailable so callers fall back to stored
+    closes rather than showing a stale price as if it were live."""
+    symbol = symbol.upper()
+    hit = _quote_cache.get(symbol)
+    if hit and time.monotonic() - hit[0] < _QUOTE_TTL_S:
+        return hit[1]
+    try:
+        from .market_data import get_provider
+
+        provider = get_provider()
+        try:
+            quote = provider.quote_underlying(symbol)
+        finally:
+            provider.close()
+        payload = {"status": "ok", **quote.model_dump(mode="json")}
+    except Exception as exc:  # broker down, not logged in, no entitlement
+        payload = {"status": "unavailable", "symbol": symbol,
+                   "reason": f"{type(exc).__name__}: {exc}"}
+    _quote_cache[symbol] = (time.monotonic(), payload)
+    return payload
+
+
+@app.get("/api/quote/{ticker}")
+def live_quote(ticker: str) -> dict:
+    return _live_quote(ticker)
+
+
+@app.get("/api/options/templates")
+def option_templates() -> list[dict]:
+    from .options.simulator import list_templates
+
+    return list_templates()
+
+
+@app.get("/api/options/strikes/{ticker}")
+def option_strikes(ticker: str, month: str) -> dict:
+    from .market_data import get_provider
+
+    provider = get_provider()
+    try:
+        return provider.available_strikes(ticker.upper(), month.upper()).model_dump(
+            mode="json"
+        )
+    except Exception as exc:
+        raise HTTPException(503, f"{type(exc).__name__}: {exc}")
+    finally:
+        provider.close()
+
+
+@app.get("/api/options/chain/{ticker}")
+def option_chain(ticker: str, month: str, strikes: str) -> dict:
+    from .market_data import get_provider
+
+    wanted = [float(v) for v in strikes.split(",") if v.strip()]
+    provider = get_provider()
+    try:
+        chain = provider.option_chain(ticker.upper(), month.upper(), wanted)
+        return chain.model_dump(mode="json")
+    except Exception as exc:
+        raise HTTPException(503, f"{type(exc).__name__}: {exc}")
+    finally:
+        provider.close()
+
+
+@app.get("/api/options/simulate/{ticker}")
+def option_simulate(
+    ticker: str, month: str, strategy: str, strikes: str, quantity: int = 1
+) -> dict:
+    """Build a named structure from a live chain and return its payoff."""
+    from .market_data import get_provider
+    from .options.simulator import StrategyBuildError, simulate
+
+    wanted = [float(v) for v in strikes.split(",") if v.strip()]
+    provider = get_provider()
+    try:
+        chain = provider.option_chain(ticker.upper(), month.upper(), wanted)
+    except Exception as exc:
+        raise HTTPException(503, f"market data unavailable: {exc}")
+    finally:
+        provider.close()
+    try:
+        return simulate(chain, strategy, wanted, quantity)
+    except StrategyBuildError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.get("/api/options/generate/{ticker}")
+def option_generate(
+    ticker: str, month: str, strikes: str,
+    capital: float | None = None, allow_delayed: bool = True,
+) -> dict:
+    """Rank bounded candidates using the forecast-aware generator."""
+    from .market_data import get_provider
+    from .options import (GenerationPolicy, generate_strategies,
+                          load_latest_forecast)
+
+    wanted = [float(v) for v in strikes.split(",") if v.strip()]
+    provider = get_provider()
+    try:
+        chain = provider.option_chain(ticker.upper(), month.upper(), wanted)
+    except Exception as exc:
+        raise HTTPException(503, f"market data unavailable: {exc}")
+    finally:
+        provider.close()
+    result = generate_strategies(
+        chain,
+        load_latest_forecast(ticker.upper()),
+        GenerationPolicy(capital_limit=capital, allow_delayed=allow_delayed),
+    )
+    return result.model_dump(mode="json")
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(PROJECT_ROOT / "webui" / "index.html")

@@ -227,6 +227,11 @@ function renderSidebar() {
   pred.innerHTML = `<span class="tk">Prediction lab</span><span class="score-pill">MC</span>`;
   pred.onclick = () => go("predict");
   nav.appendChild(pred);
+  const opt = document.createElement("div");
+  opt.className = "nav-item nav-home" + (state.view === "options" ? " active" : "");
+  opt.innerHTML = `<span class="tk">Options lab</span><span class="score-pill">P&L</span>`;
+  opt.onclick = () => go("options");
+  nav.appendChild(opt);
   const dq = document.createElement("div");
   dq.className = "nav-item nav-home" + (state.view === "data-quality" ? " active" : "");
   dq.innerHTML = `<span class="tk">Data quality</span><span class="score-pill">PIT</span>`;
@@ -256,6 +261,7 @@ function go(view, ticker = null) {
   else if (view === "data-quality") renderDataQuality();
   else if (view === "portfolio") renderPortfolio();
   else if (view === "predict") renderPredict(ticker);
+  else if (view === "options") renderOptions();
   else renderStock(ticker);
 }
 
@@ -662,6 +668,24 @@ async function renderStock(ticker) {
     .map(([l, v, s]) => `<div class="tile"><div class="lbl">${l}</div><div class="val">${v}</div><div class="sub">${s || ""}</div></div>`)
     .join("");
 
+  // live broker quote — async; the stored close stays authoritative until the
+  // broker answers, and the source is always labeled rather than implied
+  (async () => {
+    let q;
+    try { q = await fetchJSON(`/api/quote/${ticker}`); } catch (e) { return; }
+    const tile = document.querySelector("#tiles .tile");
+    if (!tile) return;
+    if (q.status !== "ok" || q.last == null) {
+      tile.querySelector(".sub").innerHTML += ' <span class="mini">· broker offline</span>';
+      return;
+    }
+    const drift = ms.price ? (q.last / ms.price - 1) * 100 : null;
+    tile.querySelector(".lbl").textContent = "Price (live)";
+    tile.querySelector(".val").textContent = "$" + q.last.toFixed(2);
+    tile.querySelector(".sub").innerHTML = `IBKR ${q.availability}` +
+      (drift != null ? ` · <span class="${cls(drift)}">${fmtSignedPct(drift)}</span> vs ${ms.price_date} close` : "");
+  })();
+
   const grid = $("#grid");
 
   // charts (left)
@@ -1038,12 +1062,184 @@ function renderQuarterlyTable(root, periods) {
 
 /* ---------------- boot ---------------- */
 (async function boot() {
+  // Navigation renders immediately: the coverage list rebuilds 53 bundles and
+  // can take minutes, and tools like the Options lab must not wait on it.
+  state.companies = [];
+  renderSidebar();
+  $("#main").innerHTML = '<div class="loading">Loading coverage… ' +
+    'other sections in the sidebar are usable now.</div>';
   try {
     state.companies = await fetchJSON("/api/companies");
   } catch (e) {
-    $("#main").innerHTML = `<div class="loading">Failed to reach API: ${e.message}</div>`;
+    if (state.view === "home") {
+      $("#main").innerHTML = `<div class="loading">Failed to reach API: ${e.message}</div>`;
+    }
     return;
   }
   renderSidebar();
-  renderHome();
+  if (state.view === "home") renderHome();
 })();
+
+/* ---------------- options lab: payoff simulator ---------------- */
+function payoffChart(container, points, spot, breakevens) {
+  const W = 660, H = 260, P = { t: 14, r: 16, b: 26, l: 62 };
+  const xs = points.map((p) => p.underlying_price);
+  const ys = points.map((p) => p.profit_loss);
+  const xLo = Math.min(...xs), xHi = Math.max(...xs);
+  const yScale = niceScale(Math.min(...ys, 0), Math.max(...ys, 0));
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img" });
+  const xAt = (v) => P.l + (W - P.l - P.r) * (v - xLo) / (xHi - xLo || 1);
+  const yAt = (v) => P.t + (H - P.t - P.b) *
+    (1 - (v - yScale.lo) / (yScale.hi - yScale.lo || 1));
+
+  for (const t of yScale.ticks) {
+    const y = yAt(t);
+    svg.appendChild(svgEl("line", { x1: P.l, x2: W - P.r, y1: y, y2: y,
+      stroke: t === 0 ? "#52514e" : "#32322f", "stroke-width": t === 0 ? 1.5 : 1 }));
+    const lbl = svgEl("text", { x: P.l - 6, y: y + 3, "text-anchor": "end",
+      fill: "#8a897f", "font-size": 10, "font-family": "ui-monospace, monospace" });
+    lbl.textContent = (t >= 0 ? "$" : "-$") + Math.abs(Math.round(t)).toLocaleString();
+    svg.appendChild(lbl);
+  }
+  // profit / loss shading split at zero
+  const zeroY = yAt(0);
+  const areaPath = (sign) => {
+    let d = "";
+    points.forEach((pt, i) => {
+      const y = yAt(sign > 0 ? Math.max(pt.profit_loss, 0) : Math.min(pt.profit_loss, 0));
+      d += (i ? "L" : "M") + xAt(pt.underlying_price).toFixed(1) + "," + y.toFixed(1);
+    });
+    d += `L${xAt(xHi).toFixed(1)},${zeroY.toFixed(1)}L${xAt(xLo).toFixed(1)},${zeroY.toFixed(1)}Z`;
+    return d;
+  };
+  svg.appendChild(svgEl("path", { d: areaPath(1), fill: "#199e70", opacity: 0.22 }));
+  svg.appendChild(svgEl("path", { d: areaPath(-1), fill: "#e66767", opacity: 0.22 }));
+
+  let line = "";
+  points.forEach((pt, i) => {
+    line += (i ? "L" : "M") + xAt(pt.underlying_price).toFixed(1) + "," +
+      yAt(pt.profit_loss).toFixed(1);
+  });
+  svg.appendChild(svgEl("path", { d: line, fill: "none", stroke: "#3987e5",
+    "stroke-width": 2, "stroke-linejoin": "round" }));
+
+  for (const be of breakevens || []) {
+    if (be < xLo || be > xHi) continue;
+    svg.appendChild(svgEl("line", { x1: xAt(be), x2: xAt(be), y1: P.t, y2: H - P.b,
+      stroke: "#c98500", "stroke-width": 1, "stroke-dasharray": "4,3" }));
+  }
+  if (spot >= xLo && spot <= xHi) {
+    svg.appendChild(svgEl("line", { x1: xAt(spot), x2: xAt(spot), y1: P.t, y2: H - P.b,
+      stroke: "#c3c2b7", "stroke-width": 1.5 }));
+    const t = svgEl("text", { x: xAt(spot), y: P.t + 10, "text-anchor": "middle",
+      fill: "#c3c2b7", "font-size": 9.5, "font-family": "ui-monospace, monospace" });
+    t.textContent = "spot " + spot.toFixed(2);
+    svg.appendChild(t);
+  }
+  for (let i = 0; i <= 5; i++) {
+    const v = xLo + (xHi - xLo) * i / 5;
+    const t = svgEl("text", { x: xAt(v), y: H - 8, "text-anchor": "middle",
+      fill: "#8a897f", "font-size": 9.5, "font-family": "ui-monospace, monospace" });
+    t.textContent = "$" + v.toFixed(0);
+    svg.appendChild(t);
+  }
+  container.appendChild(svg);
+}
+
+async function renderOptions() {
+  const m = $("#main");
+  const st = state.optionsForm || (state.optionsForm = {
+    ticker: "AAPL", month: "SEP26", strategy: "jade_lizard",
+    strikes: "300,320,330", quantity: 1,
+  });
+  let templates = state.optionTemplates;
+  if (!templates) {
+    try { templates = state.optionTemplates = await fetchJSON("/api/options/templates"); }
+    catch (e) { templates = []; }
+  }
+  const tpl = templates.find((t) => t.key === st.strategy) || templates[0] || {};
+  // free-text with autocomplete: the Options lab must work before (or without)
+  // the coverage list loading, and IBKR can quote symbols we do not cover
+  const tickerOpts = state.companies.map((c) => `<option value="${c.ticker}">`).join("");
+  const stratOpts = templates.map((t) =>
+    `<option value="${t.key}" ${t.key === st.strategy ? "selected" : ""}>${t.name} (${t.strikes_required} strike${t.strikes_required > 1 ? "s" : ""})</option>`).join("");
+
+  m.innerHTML = `
+    <div class="page-head"><h1>Options lab</h1>
+      <span class="chip neutral">live IBKR chain</span>
+      <span class="chip neutral">expiration payoff</span></div>
+    <div class="page-sub">Builds a named structure from a real option chain and computes its exact
+      piecewise-linear payoff at expiration. Requires IB Gateway/TWS running. Analysis tooling —
+      not investment advice, and no orders are ever placed.</div>
+    <div class="panel wide" style="margin-bottom:14px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <label class="mini">Ticker<br><input id="o-ticker" class="o-input" list="o-tickers" value="${st.ticker}" size="7">
+          <datalist id="o-tickers">${tickerOpts}</datalist></label>
+        <label class="mini">Expiry<br><input id="o-month" class="o-input" value="${st.month}" size="6"></label>
+        <label class="mini">Strategy<br><select id="o-strategy" class="o-input">${stratOpts}</select></label>
+        <label class="mini">Strikes (comma-separated, ascending)<br>
+          <input id="o-strikes" class="o-input" value="${st.strikes}" size="18"></label>
+        <label class="mini">Contracts<br><input id="o-qty" class="o-input" type="number" min="1" max="50" value="${st.quantity}" size="3"></label>
+        <button id="o-run" class="o-btn">Simulate</button>
+      </div>
+      <div class="note" style="margin-top:8px"><b>${tpl.name || ""}</b> — ${tpl.description || ""}
+        ${tpl.risk_note ? `<br><span style="color:var(--status-bad)">Risk: ${tpl.risk_note}</span>` : ""}</div>
+    </div>
+    <div id="o-result"><div class="loading">Choose a structure and press Simulate.</div></div>`;
+
+  const read = () => {
+    st.ticker = ($("#o-ticker").value || "AAPL").trim().toUpperCase(); st.month = $("#o-month").value.toUpperCase();
+    st.strategy = $("#o-strategy").value; st.strikes = $("#o-strikes").value;
+    st.quantity = Math.max(1, parseInt($("#o-qty").value || "1", 10));
+  };
+  $("#o-strategy").addEventListener("change", () => { read(); renderOptions(); });
+  $("#o-run").addEventListener("click", async () => {
+    read();
+    const out = $("#o-result");
+    out.innerHTML = `<div class="loading">Pulling ${st.ticker} ${st.month} chain from IBKR…</div>`;
+    let r;
+    try {
+      r = await fetchJSON(`/api/options/simulate/${st.ticker}?month=${st.month}` +
+        `&strategy=${st.strategy}&strikes=${encodeURIComponent(st.strikes)}&quantity=${st.quantity}`);
+    } catch (e) {
+      out.innerHTML = `<div class="banner">Simulation failed: ${e.message}<br>
+        <span class="mini">If this says market data unavailable, start IB Gateway and check the API port.</span></div>`;
+      return;
+    }
+    const s = r.summary;
+    const fmtD = (v) => v == null ? "—" : (v < 0 ? "-$" : "$") + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 });
+    out.innerHTML = `
+      <div class="grid">
+        <div class="panel wide"><h3>${r.strategy.name} · ${r.symbol} ${r.month} · ${r.quantity} contract${r.quantity > 1 ? "s" : ""}</h3>
+          <div id="o-chart" class="chart"></div>
+          <div class="legend"><span class="li"><span class="sw" style="background:#3987e5"></span>P&L at expiration</span>
+            <span class="li"><span class="sw" style="background:#c3c2b7"></span>spot ${r.underlying_price.toFixed(2)}</span>
+            <span class="li"><span class="sw" style="background:#c98500"></span>breakeven</span></div>
+        </div>
+        <div class="panel"><h3>Risk</h3><div class="kv">
+          <span class="k">Net credit / (debit)</span><span class="v ${s.net_credit >= 0 ? "pos" : "neg"}">${fmtD(s.net_credit)}</span>
+          <span class="k">Max profit</span><span class="v pos">${fmtD(s.max_profit)}</span>
+          <span class="k">Max loss</span><span class="v neg">${s.max_loss == null ? "UNBOUNDED" : fmtD(-s.max_loss)}</span>
+          <span class="k">Return on risk</span><span class="v">${s.return_on_risk == null ? "—" : (s.return_on_risk * 100).toFixed(1) + "%"}</span>
+          <span class="k">Breakeven(s)</span><span class="v">${(s.breakevens || []).map((b) => "$" + b.toFixed(2)).join(", ") || "—"}</span>
+          <span class="k">Collateral estimate</span><span class="v">${fmtD(s.collateral_estimate)}</span>
+          <span class="k">Defined risk</span><span class="v">${s.defined_risk ? "yes" : "NO"}</span>
+          <span class="k">P&L if unchanged</span><span class="v ${r.pnl_at_spot >= 0 ? "pos" : "neg"}">${fmtD(r.pnl_at_spot)}</span>
+        </div></div>
+        <div class="panel"><h3>Legs</h3>
+          <div class="table-wrap"><table class="scen-table"><thead><tr>
+            <th>Action</th><th>Strike</th><th>Right</th><th>Qty</th><th>Price</th><th>Basis</th></tr></thead>
+            <tbody>${r.legs.map((l) => `<tr>
+              <td class="${l.action === "sell" ? "neg" : "pos"}">${l.action}</td>
+              <td>$${l.strike.toFixed(2)}</td><td>${l.right}</td><td>${l.quantity}</td>
+              <td>$${l.entry_price.toFixed(2)}</td><td class="mini">${l.price_basis}</td></tr>`).join("")}
+            </tbody></table></div>
+          <div class="note">${r.strategy.thesis}</div>
+        </div>
+        ${r.warnings.length ? `<div class="panel wide"><h3>Warnings</h3>
+          <ul style="margin-left:18px;font-size:12.5px">${r.warnings.map((w) => `<li>${w}</li>`).join("")}</ul></div>` : ""}
+        <div class="panel wide"><div class="note">${r.disclaimer}</div></div>
+      </div>`;
+    payoffChart($("#o-chart"), r.payoff, r.underlying_price, s.breakevens);
+  });
+}

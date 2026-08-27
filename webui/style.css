@@ -172,3 +172,10 @@ details.qtable summary { cursor: pointer; color: var(--text-2); font-size: 13px;
   background: var(--surface-1); border: 1px solid var(--line); border-left: 3px solid var(--status-warn);
   border-radius: 10px; padding: 10px 14px; font-size: 12.5px; margin-bottom: 16px;
 }
+
+/* options lab controls */
+.o-input { background: var(--surface-2); color: var(--text-1); border: 1px solid var(--line);
+  border-radius: 7px; padding: 6px 9px; font-family: var(--mono); font-size: 12.5px; }
+.o-btn { background: var(--series-1); color: #fff; border: none; border-radius: 7px;
+  padding: 8px 16px; font-weight: 600; font-size: 13px; cursor: pointer; }
+.o-btn:hover { filter: brightness(1.1); }
