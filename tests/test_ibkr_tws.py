@@ -74,3 +74,34 @@ def test_client_exposes_no_order_methods():
 def test_availability_enum_values_exist():
     for name in ("REALTIME", "DELAYED", "UNKNOWN"):
         assert hasattr(MarketDataAvailability, name)
+
+
+def test_implausible_volume_dropped_and_reported():
+    """IBKR's delayed volume tick (74) has been observed returning ~3e13 for
+    AAPL. Publishing that would be fabricated data; it must be dropped and
+    surfaced as a warning."""
+    w = _Wrapper()
+    w.tickSize(5, 74, 31_513_038_148_431)
+    assert "volume" not in w.ticks.get(5, {})
+    assert w.rejected[5] and "provider anomaly" in w.rejected[5][0]
+
+
+def test_plausible_volume_kept():
+    w = _Wrapper()
+    w.tickSize(6, 74, 52_000_000)      # ~AAPL daily volume
+    assert w.ticks[6]["volume"] == 52_000_000
+    assert 6 not in w.rejected
+
+
+def test_delayed_size_and_ohlc_ticks_mapped():
+    """Ticks 69-73/75/76 were silently discarded before."""
+    w = _Wrapper()
+    for tick, value in ((71, 60), (69, 3), (70, 4)):
+        w.tickSize(7, tick, value)
+    for tick, value in ((72, 315.4), (73, 309.4), (75, 313.45), (76, 310.5)):
+        w.tickPrice(7, tick, value, None)
+    row = w.ticks[7]
+    assert row["last_size"] == 60 and row["bid_size"] == 3 and row["ask_size"] == 4
+    assert row["high"] == 315.4 and row["low"] == 309.4
+    assert row["close"] == 313.45 and row["open"] == 310.5
+    assert w.delayed[7] is True

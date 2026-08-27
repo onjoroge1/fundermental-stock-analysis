@@ -28,6 +28,7 @@ from ibapi.client import EClient
 from ibapi.contract import Contract
 from ibapi.wrapper import EWrapper
 
+from ..config import PROJECT_ROOT  # noqa: F401  (import loads .env)
 from .models import (
     MarketDataAvailability,
     MarketQuote,
@@ -38,18 +39,27 @@ from .models import (
 PROVIDER = "ibkr_tws"
 
 # ibapi tick type ids we consume (delayed variants included)
-TICK_BID, TICK_ASK, TICK_LAST = 1, 2, 4
-TICK_VOLUME = 8
-TICK_DELAYED_BID, TICK_DELAYED_ASK, TICK_DELAYED_LAST = 66, 67, 68
-TICK_DELAYED_VOLUME = 74
+_LIVE_TICKS = {
+    1: "bid", 2: "ask", 4: "last",
+    0: "bid_size", 3: "ask_size", 5: "last_size",
+    8: "volume", 6: "high", 7: "low", 9: "close", 14: "open",
+}
+_DELAYED_TICKS = {
+    66: "bid", 67: "ask", 68: "last",
+    69: "bid_size", 70: "ask_size", 71: "last_size",
+    74: "volume", 72: "high", 73: "low", 75: "close", 76: "open",
+}
 
-_LIVE_TICKS = {TICK_BID: "bid", TICK_ASK: "ask", TICK_LAST: "last",
-               TICK_VOLUME: "volume"}
-_DELAYED_TICKS = {TICK_DELAYED_BID: "bid", TICK_DELAYED_ASK: "ask",
-                  TICK_DELAYED_LAST: "last", TICK_DELAYED_VOLUME: "volume"}
+# No US equity trades anywhere near 10bn shares in a session. IBKR's delayed
+# volume tick (74) has been observed returning values ~1e13 for liquid names;
+# a wrong volume is worse than none, so implausible values are dropped and
+# reported rather than published.
+MAX_PLAUSIBLE_VOLUME = 1e10
 
 # market data type: 1 live, 2 frozen, 3 delayed, 4 delayed-frozen
-MARKET_DATA_TYPE = int(os.environ.get("IBKR_TWS_MARKET_DATA_TYPE", "3"))
+def _market_data_type() -> int:
+    """Read at call time so .env is always in effect."""
+    return int(os.environ.get("IBKR_TWS_MARKET_DATA_TYPE", "3"))
 
 
 class IBKRTWSError(RuntimeError):
@@ -82,6 +92,7 @@ class _Wrapper(EWrapper):
         self.contracts: dict[int, list] = {}
         self.ticks: dict[int, dict] = {}
         self.delayed: dict[int, bool] = {}
+        self.rejected: dict[int, list[str]] = {}
         self.errors: list[tuple[int, int, str]] = []
         self.done: dict[int, threading.Event] = {}
         self.connected_evt = threading.Event()
@@ -119,11 +130,22 @@ class _Wrapper(EWrapper):
     def _store(self, reqId: int, tickType: int, value: float) -> None:
         if value is None or value < 0:
             return  # -1 means "no data" in ibapi
-        row = self.ticks.setdefault(reqId, {})
-        if tickType in _LIVE_TICKS:
-            row[_LIVE_TICKS[tickType]] = value
-        elif tickType in _DELAYED_TICKS:
-            row[_DELAYED_TICKS[tickType]] = value
+        field = _LIVE_TICKS.get(tickType)
+        delayed = False
+        if field is None:
+            field = _DELAYED_TICKS.get(tickType)
+            delayed = field is not None
+        if field is None:
+            return
+        if field == "volume" and value > MAX_PLAUSIBLE_VOLUME:
+            # provider-side anomaly: record it, never publish it
+            self.rejected.setdefault(reqId, []).append(
+                f"volume {value:.0f} exceeds plausible maximum "
+                f"{MAX_PLAUSIBLE_VOLUME:.0f}; dropped as a provider anomaly"
+            )
+            return
+        self.ticks.setdefault(reqId, {})[field] = value
+        if delayed:
             self.delayed[reqId] = True
 
 
@@ -151,7 +173,7 @@ class IBKRTWSMarketData:
                 "Socket Clients' enabled, and is the port correct "
                 "(7497 TWS paper / 7496 live / 4002 Gateway paper / 4001 live)?"
             )
-        self._client.reqMarketDataType(MARKET_DATA_TYPE)
+        self._client.reqMarketDataType(_market_data_type())
 
     def close(self) -> None:
         try:
@@ -178,8 +200,8 @@ class IBKRTWSMarketData:
             connected=connected,
             authenticated=connected and self._wrapper.next_id is not None,
             message=(f"TWS socket {self.settings.host}:{self.settings.port}, "
-                     f"market data type {MARKET_DATA_TYPE} "
-                     f"({'delayed' if MARKET_DATA_TYPE in (3, 4) else 'live'})"),
+                     f"market data type {_market_data_type()} "
+                     f"({'delayed' if _market_data_type() in (3, 4) else 'live'})"),
         )
 
     @staticmethod
@@ -243,6 +265,7 @@ class IBKRTWSMarketData:
             errs = [m for r, code, m in self._wrapper.errors
                     if r == req and code not in (2104, 2106, 2107, 2158, 2119)]
             warnings.append("no ticks returned" + (f": {errs[0]}" if errs else ""))
+        warnings.extend(self._wrapper.rejected.get(req, []))
         return MarketQuote(
             provider=PROVIDER,
             conid=contract.conid,
@@ -250,6 +273,8 @@ class IBKRTWSMarketData:
             as_of=datetime.now(timezone.utc),
             availability=availability,
             bid=bid, ask=ask, last=row.get("last"), mark=mark,
+            bid_size=row.get("bid_size"), ask_size=row.get("ask_size"),
+            last_size=row.get("last_size"),
             volume=row.get("volume"),
             warnings=warnings,
         )
