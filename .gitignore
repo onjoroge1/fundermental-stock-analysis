@@ -10,3 +10,7 @@ data/
 htmlcov/
 dist/
 build/
+
+# IBKR TWS API download + extraction (10MB binary; install via site-packages)
+twsapi_macunix*.zip
+.twsapi_extract/

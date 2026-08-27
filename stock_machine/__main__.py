@@ -11,6 +11,7 @@ Commands:
   kpis                  compute the system KPI dashboard
   planprobe             test what the configured FMP key/plan can access
   ibkr-market ...       read-only IBKR contract and market-data commands
+  ibkr-tws ...          read-only TWS/IB Gateway socket market data
   options generate ...  rank bounded strategies from read-only IBKR data
 """
 from __future__ import annotations
@@ -162,6 +163,32 @@ def main() -> None:
                     "status | quote SYMBOL | strikes SYMBOL MONYY | "
                     "chain SYMBOL MONYY STRIKE[,STRIKE...]"
                 )
+        print(result.model_dump_json(indent=2))
+    elif cmd == "ibkr-tws":
+        from .market_data.ibkr_tws import IBKRTWSError, IBKRTWSMarketData
+
+        sub = sys.argv[2] if len(sys.argv) > 2 else "status"
+        provider = IBKRTWSMarketData()
+        try:
+            provider.connect()
+        except IBKRTWSError as exc:
+            raise SystemExit(f"TWS not reachable: {exc}")
+        try:
+            if sub == "status":
+                result = provider.session_status()
+            elif sub == "resolve" and len(sys.argv) >= 4:
+                result = provider.resolve_underlying(sys.argv[3])
+            elif sub == "quote" and len(sys.argv) >= 4:
+                result = provider.quote_underlying(sys.argv[3])
+            else:
+                raise SystemExit(
+                    "usage: stock-machine ibkr-tws "
+                    "status | resolve SYMBOL | quote SYMBOL"
+                )
+        except IBKRTWSError as exc:
+            raise SystemExit(f"TWS request failed: {exc}")
+        finally:
+            provider.close()
         print(result.model_dump_json(indent=2))
     elif cmd == "options":
         from .market_data.ibkr_client_portal import IBKRClientPortalMarketData

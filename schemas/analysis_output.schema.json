@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AnalysisOutput",
+  "type": "object",
+  "required": ["analysis_schema_version", "ticker", "as_of",
+               "data_sufficiency", "fundamental_trend", "scenarios",
+               "investment_thesis", "adversarial_review", "conclusion",
+               "claims"],
+  "properties": {
+    "analysis_schema_version": {"const": "1.0.0"},
+    "analysis_id": {"type": "string"},
+    "ticker": {"type": "string"},
+    "as_of": {"type": "string"},
+    "data_sufficiency": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["PASS", "WARN", "FAIL"]},
+        "missing_information": {"type": "array"},
+        "limitations": {"type": "array"}
+      }
+    },
+    "business_assessment": {"type": "object"},
+    "fundamental_scores": {"type": "object"},
+    "fundamental_trend": {
+      "type": "object",
+      "properties": {
+        "direction": {"enum": ["IMPROVING", "STABLE", "DETERIORATING", "MIXED"]},
+        "strength": {"enum": ["WEAK", "MODERATE", "STRONG"]}
+      }
+    },
+    "forecasts": {"type": "object"},
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "probability", "fair_value"],
+        "properties": {
+          "name": {"type": "string"},
+          "probability": {"type": "number", "minimum": 0, "maximum": 1},
+          "fair_value": {"type": "number"}
+        }
+      }
+    },
+    "investment_thesis": {
+      "type": "object",
+      "required": ["summary", "risks", "invalidation_conditions"]
+    },
+    "adversarial_review": {
+      "type": "object",
+      "required": ["strongest_bear_case", "fragile_assumptions"]
+    },
+    "conclusion": {
+      "type": "object",
+      "required": ["classification"],
+      "properties": {
+        "classification": {
+          "enum": ["ATTRACTIVE", "WATCH", "UNATTRACTIVE", "INSUFFICIENT_DATA"]
+        },
+        "conviction": {"enum": ["LOW", "MEDIUM", "HIGH"]}
+      }
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claim", "classification", "source_ids"],
+        "properties": {
+          "classification": {"enum": ["FACT", "INFERENCE", "FORECAST"]},
+          "source_ids": {"type": "array"}
+        }
+      }
+    }
+  }
+}

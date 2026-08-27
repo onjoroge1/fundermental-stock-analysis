@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/obadiah/Documents/stock-analyzer-2026/scripts/session_commit.sh",
+            "timeout": 120,
+            "statusMessage": "Committing and pushing session work…"
+          }
+        ]
+      }
+    ]
+  }
+}
