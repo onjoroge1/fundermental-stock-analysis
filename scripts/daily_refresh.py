@@ -149,32 +149,37 @@ def main() -> int:
     prediction_result = {"ok": 0, "failed": 0}
     try:
         from stock_machine.prediction import forecast
-        conn = db.connect()
-        try:
-            for t in tickers:
-                try:
+
+        # A connection must NEVER be held across model training: each forecast
+        # burns ~30s of CPU, and a connection left idle-in-transaction that
+        # long is killed by the server (Neon), taking every later ticker with
+        # it. Read and write in short-lived connections around the compute.
+        for t in tickers:
+            try:
+                with db.connect() as conn:
                     rows = db.fetch_prices(conn, t)
-                    closes = [{"date": r["date"],
-                               "adj_close": r.get("adj_close") or r["close"]}
-                              for r in rows]
-                    r = forecast(t, closes)
-                    if r["status"] == "OK":
-                        versions = db.latest_dataset_snapshots(conn, t)
-                        r["input_data_versions"] = {
-                            v["dataset"]: v["content_hash"] for v in versions
-                            if v["dataset"] == "prices"
-                        }
+                    versions = db.latest_dataset_snapshots(conn, t)
+                closes = [{"date": r["date"],
+                           "adj_close": r.get("adj_close") or r["close"]}
+                          for r in rows]
+
+                r = forecast(t, closes)          # no connection held here
+
+                if r["status"] == "OK":
+                    r["input_data_versions"] = {
+                        v["dataset"]: v["content_hash"] for v in versions
+                        if v["dataset"] == "prices"
+                    }
+                    with db.connect() as conn:
                         db.save_prediction_forecast(conn, r)
-                    prediction_result["ok" if r["status"] == "OK"
-                                      else "failed"] += 1
-                except Exception as exc:
-                    prediction_result["failed"] += 1
-                    prediction_result.setdefault("errors", []).append({
-                        "ticker": t,
-                        "error": f"{type(exc).__name__}: {exc}",
-                    })
-        finally:
-            conn.close()
+                prediction_result["ok" if r["status"] == "OK"
+                                  else "failed"] += 1
+            except Exception as exc:
+                prediction_result["failed"] += 1
+                prediction_result.setdefault("errors", []).append({
+                    "ticker": t,
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
     except Exception as e:
         prediction_result = {"error": f"{type(e).__name__}: {e}"}
 
