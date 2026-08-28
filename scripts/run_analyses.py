@@ -1206,7 +1206,9 @@ SPECS.update(SPECS_EXTRA)
 SPECS.update(SPECS_EXTRA2)
 SPECS.update(SPECS_EXTRA3)
 from specs_repass1 import REPASS               # noqa: E402
+from specs_repass2 import REPASS2              # noqa: E402
 SPECS.update(REPASS)  # 2026-08-07 re-passes override earlier specs
+SPECS.update(REPASS2)  # 2026-08-28 re-passes override all earlier
 
 
 if __name__ == "__main__":
