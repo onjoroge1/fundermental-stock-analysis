@@ -53,11 +53,42 @@ def _prediction_horizon(
     return {}
 
 
-# Route functions are defined in api_v1 and resolve this global at request
-# time, so replacing it here makes the mounted router compatible without
-# duplicating the endpoint implementation.
+def bearish_asymmetry_score(
+    *,
+    expected_return_pct: float | None,
+    bear_downside_pct: float | None,
+    bull_upside_pct: float | None,
+    quality_score: float | None,
+    classification: str | None,
+) -> float | None:
+    """Harden the base score so missing bull data never earns upside credit."""
+    if expected_return_pct is None or bear_downside_pct is None:
+        return None
+
+    negative_er = _base._clamp((-float(expected_return_pct)) / 40.0) * 40.0
+    downside = _base._clamp((-float(bear_downside_pct)) / 60.0) * 30.0
+    bull_ceiling = 0.0
+    if bull_upside_pct is not None:
+        bull_ceiling = _base._clamp((25.0 - float(bull_upside_pct)) / 25.0) * 20.0
+
+    quality = 70.0 if quality_score is None else float(quality_score)
+    fragility = _base._clamp((70.0 - quality) / 40.0) * 5.0
+    label = 5.0 if str(classification or "").upper() == "UNATTRACTIVE" else 0.0
+    return round(
+        _base._clamp(
+            negative_er + downside + bull_ceiling + fragility + label,
+            0.0,
+            100.0,
+        ),
+        1,
+    )
+
+
+# Route functions are defined in api_v1 and resolve these globals at request
+# time, so replacing them here keeps the mounted router compatible without
+# duplicating endpoint implementations.
 _base._prediction_horizon = _prediction_horizon
+_base.bearish_asymmetry_score = bearish_asymmetry_score
 
 router = _base.router
-bearish_asymmetry_score = _base.bearish_asymmetry_score
 bear_strategy_guidance = _base.bear_strategy_guidance
