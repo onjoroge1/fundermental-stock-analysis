@@ -1,20 +1,57 @@
 """Bridge extended option structures into P2 trade-expression review.
 
-Covered calls have exact expiration max-loss math and can therefore compete
-with the stock control today. Mixed-expiration structures remain analysis-only
-until P2 has a path/assignment-aware capital-at-risk contract; their scenario
-worst case is deliberately not treated as exact max loss.
+Covered calls use exact expiration max-loss math. Calendars and diagonals may
+enter automated comparison only after the P2-D path-risk contract clears a
+conservative economic-loss bound, transient assignment-notional gate, event
+screen, and liquidity requirements.
+
+This module remains review-only: it never places an order or changes a P2-A
+portfolio target weight.
 """
 from __future__ import annotations
 
 from math import fabs
 
+from ..options.path_risk import PathRiskPolicy, assess_mixed_path_risk
 from .expression import ExpressionPolicy, _stock_score
+
+MIXED_LONG = {"call_calendar", "call_diagonal"}
+MIXED_SHORT = {"put_calendar", "put_diagonal"}
+MIXED_ALL = MIXED_LONG | MIXED_SHORT
+
+
+def _mixed_score(candidate: dict, risk: dict, direction: int,
+                 budget: float, path_policy: PathRiskPolicy) -> float:
+    """Transparent 0-100 comparison heuristic; never expected return."""
+    liq = float(candidate.get("liquidity_score") or 0.0)
+    economic = float(risk.get("conservative_economic_max_loss") or budget)
+    assignment_multiple = float(risk.get("assignment_notional_multiple_of_budget") or 99.0)
+    economic_efficiency = max(0.0, 1.0 - economic / max(budget, 1.0))
+    assignment_efficiency = max(
+        0.0,
+        1.0 - assignment_multiple / max(path_policy.max_assignment_notional_multiple_of_budget, 1e-9),
+    )
+    spot = float(candidate.get("spot_price") or 0.0)
+    best_underlying = float(candidate.get("scenario_best_underlying") or spot)
+    scenario_alignment = 1.0 if (
+        (direction > 0 and best_underlying >= spot)
+        or (direction < 0 and best_underlying <= spot)
+    ) else 0.0
+    return round(100.0 * (
+        0.40 * liq
+        + 0.30 * economic_efficiency
+        + 0.15 * assignment_efficiency
+        + 0.15 * scenario_alignment
+    ), 3)
 
 
 def compare_extended(position: dict, extended_candidates: list[dict],
-                     policy: ExpressionPolicy | None = None) -> dict:
+                     policy: ExpressionPolicy | None = None,
+                     *, event_screens: dict[str, dict] | None = None,
+                     path_policy: PathRiskPolicy | None = None) -> dict:
     policy = policy or ExpressionPolicy()
+    path_policy = path_policy or PathRiskPolicy()
+    event_screens = event_screens or {}
     ticker = position.get("ticker")
     weight = float(position.get("weight") or 0.0)
     direction = 1 if weight > 0 else -1 if weight < 0 else 0
@@ -34,15 +71,39 @@ def compare_extended(position: dict, extended_candidates: list[dict],
             rejected.append({"strategy_type": strategy,
                              "reasons": candidate.get("rejection_reasons") or ["extended valuation rejected"]})
             continue
-        if strategy in {"call_calendar", "put_calendar", "call_diagonal", "put_diagonal"}:
-            analysis_only.append({
-                "strategy_type": strategy,
-                "valuation_mode": candidate.get("valuation_mode"),
-                "scenario_best_pnl": candidate.get("scenario_best_pnl"),
-                "scenario_worst_pnl": candidate.get("scenario_worst_pnl"),
-                "reason": "mixed-expiration scenario loss is not an exact capital-at-risk bound",
+
+        if strategy in MIXED_ALL:
+            if (direction > 0 and strategy not in MIXED_LONG) or (
+                direction < 0 and strategy not in MIXED_SHORT
+            ):
+                rejected.append({
+                    "strategy_type": strategy,
+                    "reasons": ["mixed-expiration structure direction does not match portfolio target"],
+                })
+                continue
+            risk = assess_mixed_path_risk(
+                candidate,
+                budget,
+                event_screen=event_screens.get(strategy),
+                policy=path_policy,
+            )
+            if not risk["automation_eligible"]:
+                analysis_only.append({
+                    "strategy_type": strategy,
+                    "valuation_mode": candidate.get("valuation_mode"),
+                    "scenario_best_pnl": candidate.get("scenario_best_pnl"),
+                    "scenario_worst_pnl": candidate.get("scenario_worst_pnl"),
+                    "path_risk": risk,
+                    "reason": "mixed-expiration structure remains analysis-only because a path-risk gate failed",
+                })
+                continue
+            accepted.append({
+                "candidate": candidate,
+                "score": _mixed_score(candidate, risk, direction, budget, path_policy),
+                "path_risk": risk,
             })
             continue
+
         if strategy != "covered_call":
             rejected.append({"strategy_type": strategy, "reasons": ["unsupported extended strategy"]})
             continue
@@ -69,7 +130,7 @@ def compare_extended(position: dict, extended_candidates: list[dict],
         premium_yield = min(1.0, credit / max(1.0, spot * 100.0) / 0.05)
         upside_room = min(1.0, max(0.0, strike / max(spot, 1e-9) - 1.0) / 0.15)
         score = round(100.0 * (0.45 * liq + 0.30 * premium_yield + 0.25 * upside_room), 3)
-        accepted.append({"candidate": candidate, "score": score})
+        accepted.append({"candidate": candidate, "score": score, "path_risk": None})
 
     accepted.sort(key=lambda x: x["score"], reverse=True)
     if not accepted:
@@ -78,7 +139,7 @@ def compare_extended(position: dict, extended_candidates: list[dict],
             "ticker": ticker,
             "expression": "stock",
             "stock_control_score": stock_score,
-            "reason": "no extended structure cleared exact-risk and liquidity gates",
+            "reason": "no extended structure cleared direction, risk, liquidity and event gates",
             "analysis_only": analysis_only,
             "rejected": rejected,
         }
@@ -94,19 +155,29 @@ def compare_extended(position: dict, extended_candidates: list[dict],
         }
 
     c = best["candidate"]
+    selected = {
+        "strategy_type": c["strategy_type"],
+        "front_expiration": c.get("front_expiration") or c.get("near_expiration"),
+        "far_expiration": c.get("far_expiration"),
+        "max_profit": c.get("max_profit"),
+        "max_loss": c.get("max_loss"),
+        "breakeven": c.get("breakeven"),
+        "scenario_best_pnl": c.get("scenario_best_pnl"),
+        "scenario_worst_pnl": c.get("scenario_worst_pnl"),
+        "path_risk": best.get("path_risk"),
+    }
+    reason = (
+        "mixed-expiration structure cleared conservative economic-loss, assignment-notional, event and liquidity gates and beat stock control"
+        if c["strategy_type"] in MIXED_ALL
+        else "covered call has exact risk math, cleared liquidity/capital gates, and beat stock control"
+    )
     return {
         "status": "OK", "ticker": ticker, "expression": "option_overlay",
         "stock_control_score": stock_score,
         "best_extended_score": best["score"],
-        "selected": {
-            "strategy_type": c["strategy_type"],
-            "front_expiration": c.get("front_expiration"),
-            "max_profit": c.get("max_profit"),
-            "max_loss": c.get("max_loss"),
-            "breakeven": c.get("breakeven"),
-        },
-        "reason": "covered call has exact risk math, cleared liquidity/capital gates, and beat stock control",
+        "selected": selected,
+        "reason": reason,
         "analysis_only": analysis_only,
         "rejected": rejected,
-        "methodology": "heuristic expression comparison; not expected return, probability of profit, or order advice",
+        "methodology": "heuristic expression comparison after hard risk gates; not expected return, probability of profit, broker margin, or order advice",
     }
