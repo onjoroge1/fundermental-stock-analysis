@@ -27,7 +27,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install package
-        run: python -m pip install --upgrade pip && python -m pip install -e '.[dev]'
+        run: python -m pip install --upgrade pip && python -m pip install -e '.[dev,p1]'
       - name: Verify dependencies
         run: python -m pip check
       - name: Compile package
