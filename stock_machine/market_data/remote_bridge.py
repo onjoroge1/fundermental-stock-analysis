@@ -85,7 +85,6 @@ class RemoteBridgeMarketData:
             verify=self.settings.verify_ssl,
             headers={
                 "Accept": "application/json",
-                "Authorization": f"Bearer {self.settings.token}",
                 "User-Agent": "stock-machine/0.1 remote-market-data",
             },
         )
@@ -101,8 +100,21 @@ class RemoteBridgeMarketData:
         self.close()
 
     def _json(self, method: str, path: str, **kwargs):
+        # Authentication is applied at request time rather than only on the
+        # default client. This guarantees every bridge call is authenticated,
+        # including tests or callers that inject a custom httpx.Client.
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {self.settings.token}",
+            "User-Agent": "stock-machine/0.1 remote-market-data",
+        }
+        supplied_headers = kwargs.pop("headers", None)
+        if supplied_headers:
+            headers.update(supplied_headers)
         try:
-            response = self._client.request(method, path, **kwargs)
+            response = self._client.request(
+                method, path, headers=headers, **kwargs
+            )
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as exc:
