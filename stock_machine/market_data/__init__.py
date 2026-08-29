@@ -28,28 +28,55 @@ from .models import (
 DEFAULT_PROVIDER = "tws"
 
 
-def get_provider(name: str | None = None) -> MarketDataProvider:
-    """Return a connected read-only provider. Caller owns closing it."""
-    choice = (name or os.environ.get("IBKR_PROVIDER", DEFAULT_PROVIDER)).lower()
-    if choice in ("tws", "gateway", "ibkr_tws"):
-        from .ibkr_tws import IBKRTWSMarketData
+class MarketDataUnavailable(RuntimeError):
+    """Raised when the configured market-data provider cannot be initialized.
 
-        provider = IBKRTWSMarketData()
-        provider.connect()
-        return provider
-    if choice in ("client_portal", "cp", "ibkr_client_portal"):
+    This is an operational availability condition, not a malformed request.
+    Web/API callers can therefore translate it into a structured HTTP 503
+    instead of leaking an import/socket error as an Internal Server Error.
+    """
+
+
+def get_provider(name: str | None = None) -> MarketDataProvider:
+    """Return a connected read-only provider. Caller owns closing it.
+
+    Provider import, configuration and connection failures are normalized to
+    ``MarketDataUnavailable`` so every caller gets the same explicit failure
+    contract. An unknown provider name remains a configuration ``ValueError``.
+    """
+    choice = (name or os.environ.get("IBKR_PROVIDER", DEFAULT_PROVIDER)).lower()
+    if choice not in (
+        "tws", "gateway", "ibkr_tws",
+        "client_portal", "cp", "ibkr_client_portal",
+    ):
+        raise ValueError(
+            f"unknown market-data provider {choice!r}; use 'tws' or 'client_portal'"
+        )
+
+    try:
+        if choice in ("tws", "gateway", "ibkr_tws"):
+            from .ibkr_tws import IBKRTWSMarketData
+
+            provider = IBKRTWSMarketData()
+            provider.connect()
+            return provider
+
         from .ibkr_client_portal import IBKRClientPortalMarketData
 
         return IBKRClientPortalMarketData()
-    raise ValueError(
-        f"unknown market-data provider {choice!r}; use 'tws' or 'client_portal'"
-    )
+    except MarketDataUnavailable:
+        raise
+    except Exception as exc:
+        raise MarketDataUnavailable(
+            f"{choice} provider unavailable: {type(exc).__name__}: {exc}"
+        ) from exc
 
 
 __all__ = [
     "DEFAULT_PROVIDER",
     "MarketDataAvailability",
     "MarketDataProvider",
+    "MarketDataUnavailable",
     "MarketQuote",
     "OptionChainSnapshot",
     "OptionContract",
