@@ -15,6 +15,7 @@ from .extended import (
     covered_call,
     mixed_expiration,
 )
+from .path_risk import PathRiskPolicy, assess_mixed_path_risk
 from .payoff import expiration_pnl, payoff_points, summarize_payoff
 
 __all__ = [
@@ -23,9 +24,11 @@ __all__ = [
     "GenerationPolicy",
     "OptionAction",
     "OptionLeg",
+    "PathRiskPolicy",
     "StrategyCandidate",
     "StrategyGenerationResult",
     "StrategyType",
+    "assess_mixed_path_risk",
     "covered_call",
     "expiration_pnl",
     "generate_strategies",
