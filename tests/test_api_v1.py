@@ -1,4 +1,4 @@
-from stock_machine.api_v1 import (
+from stock_machine.api_v1_compat import (
     _prediction_horizon,
     bearish_asymmetry_score,
     bear_strategy_guidance,
