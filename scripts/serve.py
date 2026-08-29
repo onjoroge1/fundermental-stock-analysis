@@ -16,7 +16,7 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(
-        "stock_machine.webapp:app",
+        "stock_machine.webapp_ops:app",
         host=os.environ.get("HOST", "127.0.0.1"),
         port=int(os.environ.get("PORT", "8642")),
         log_level=os.environ.get("LOG_LEVEL", "info"),
