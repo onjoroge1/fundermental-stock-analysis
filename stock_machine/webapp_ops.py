@@ -5,14 +5,35 @@ read persisted research state or compute lightweight current-state features.
 """
 from __future__ import annotations
 
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
 from . import db
 from .api_v1_compat import router as api_v1_router
 from .backtest.shadow import MODEL_ID
 from .backtest.shadow_store import latest
+from .market_data import MarketDataUnavailable
 from .webapp import app
 
 # Production/Vercel entrypoint mounts the stable read-optimized agent contract.
 app.include_router(api_v1_router)
+
+
+@app.exception_handler(MarketDataUnavailable)
+async def market_data_unavailable_handler(
+    request: Request, exc: MarketDataUnavailable
+) -> JSONResponse:
+    """Expose broker/option-provider outages as an explicit service condition."""
+    return JSONResponse(
+        status_code=503,
+        content={
+            "status": "unavailable",
+            "service": "market_data",
+            "reason": str(exc),
+            "retryable": True,
+            "path": request.url.path,
+        },
+    )
 
 
 @app.get("/api/alpha-shadow")
