@@ -10,8 +10,9 @@ Honesty constraints stamped into every run:
   not immune.
 - Scoring thresholds were hand-set in 2026 with knowledge of these companies'
   histories — results have an in-sample flavor and are indicative, not proof.
-- No historical consensus exists, so the expectations component is absent and
-  weights renormalize (matches how the engine would have run).
+- Expectations features are present ONLY where this system actually stored a
+  point-in-time consensus vintage or a dated earnings surprise. Missing old
+  history stays missing; no current estimate is carried backward.
 - Sector labels are today's; P/E-history percentile is excluded from the
   historical valuation score (split-adjustment inconsistency); market cap uses
   contemporaneous unadjusted close × contemporaneous cover-page share count.
@@ -24,18 +25,21 @@ from datetime import date, timedelta
 from .. import db
 from ..features import metrics
 from ..features.scoring import score_all
+from ..prediction_inputs import fetch_consensus_history, fetch_surprise_history
+from .panel_expectations import expectations_as_of
 
-FRESHNESS_DAYS = 200   # latest known quarter must end within this window
+FRESHNESS_DAYS = 200
 MIN_QUARTERS = 8
 HORIZONS = {"fwd_3m_pct": 91, "fwd_6m_pct": 182, "fwd_12m_pct": 365}
 
 CAVEATS = [
-    "Universe is today's 43 names: survivorship-biased; absolute returns "
+    "Universe is today's coverage list: survivorship-biased; absolute returns "
     "inflated, cross-sectional results indicative only.",
     "Thresholds hand-set in 2026 knowing these histories (in-sample flavor).",
-    "Expectations component absent historically; weights renormalized.",
-    "Sector labels are current-day; pe_5y_percentile excluded from "
-    "historical valuation scoring.",
+    "Expectations are point-in-time only where stored vintages/events exist; "
+    "older missing history is never backfilled from current estimates.",
+    "Sector labels are current-day; pe_5y_percentile excluded from historical "
+    "valuation scoring.",
 ]
 
 
@@ -58,6 +62,8 @@ class TickerData:
         self.periods = db.fetch_periods(conn, ticker, "quarter")
         self.prices = db.fetch_prices(conn, ticker)
         self.shares = db.fetch_shares(conn, ticker)
+        self.consensus_history = fetch_consensus_history(conn, ticker)
+        self.surprise_history = fetch_surprise_history(conn, ticker)
         self._dates = [p["date"] for p in self.prices]
 
     def _price(self, d: str, field: str) -> float | None:
@@ -66,7 +72,7 @@ class TickerData:
             return None
         row = self.prices[i]
         if (date.fromisoformat(d) - date.fromisoformat(row["date"])).days > 10:
-            return None  # stale lookup — no price near this date
+            return None
         return row.get(field) or row["close"]
 
     def observe(self, as_of: str) -> dict | None:
@@ -100,10 +106,8 @@ class TickerData:
             "profitability": metrics.profitability_metrics(ttm, prior_ttm),
             "earnings_quality": metrics.earnings_quality_metrics(ttm, qs),
             "financial_health": metrics.financial_health_metrics(latest, ttm),
-            "capital_allocation": metrics.capital_allocation_metrics(
-                ttm, qs, market_cap),
-            "valuation": metrics.valuation_metrics(
-                ttm, price, market_cap, ev),  # no pe-percentile history
+            "capital_allocation": metrics.capital_allocation_metrics(ttm, qs, market_cap),
+            "valuation": metrics.valuation_metrics(ttm, price, market_cap, ev),
         }
         scores = score_all(derived, None, self.sector)
         if scores["composite_score"] is None:
@@ -117,6 +121,10 @@ class TickerData:
             adj_fwd = self._price(target, "adj_close")
             forward[key] = (round((adj_fwd / adj_now - 1) * 100, 2)
                             if adj_fwd else None)
+
+        expectations = expectations_as_of(
+            self.consensus_history, self.surprise_history, as_of
+        )
         return {
             "ticker": self.ticker,
             "sector": self.sector,
@@ -131,14 +139,13 @@ class TickerData:
                 "momentum_12m_pct": (round((adj_now / adj_prior - 1) * 100, 2)
                                      if adj_prior else None),
             },
+            "expectations": expectations,
             "forward": forward,
         }
 
 
 def run(conn, start: str = "2014-01-01", end: str | None = None,
-        tickers: list[str] | None = None,
-        progress=None) -> tuple[list[dict], list[str]]:
-    """Returns (observations, grid)."""
+        tickers: list[str] | None = None, progress=None) -> tuple[list[dict], list[str]]:
     if end is None:
         end = (date.today() - timedelta(days=85)).isoformat()
     grid = quarterly_grid(start, end)
