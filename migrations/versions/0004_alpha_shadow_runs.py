@@ -1,14 +1,14 @@
 """add alpha shadow runs
 
 Revision ID: 0004_alpha_shadow_runs
-Revises: 0003_dataset_snapshots
+Revises: 0003
 """
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision = "0004_alpha_shadow_runs"
-down_revision = "0003_dataset_snapshots"
+down_revision = "0003"
 branch_labels = None
 depends_on = None
 
