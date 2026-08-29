@@ -1,7 +1,15 @@
-"""Read-only P1 decision-intelligence payload for the Prediction Lab."""
+"""Read-only P1 decision-intelligence payload for the Prediction Lab.
+
+The P1 page must remain usable even when newly introduced optional research
+tables have not yet been migrated or populated in production. Core company,
+price and forecast reads remain required; macro/options/research/calibration
+reads degrade to explicit PENDING states instead of turning the whole endpoint
+into HTTP 500.
+"""
 from __future__ import annotations
 
 from math import erf, log, sqrt
+from typing import Callable, TypeVar
 
 from . import db
 from .macro import SERIES, features_as_of as macro_features_as_of, load_series
@@ -9,6 +17,8 @@ from .regime import RegimeFeatureProvider, sector_etf
 from .options.surface_store import history as option_history
 from .backtest.p1_store import latest as latest_p1_run
 from .alpha_calibration import summary as calibration_summary
+
+T = TypeVar("T")
 
 
 def _price_rows(rows: list[dict]) -> list[dict]:
@@ -42,9 +52,36 @@ def _alpha_horizon(alpha: dict, days: int) -> dict | None:
     }
 
 
+def _optional_read(conn, label: str, fn: Callable[[], T], fallback: T,
+                   warnings: list[dict]) -> T:
+    """Run an optional DB read and recover the connection after failure.
+
+    PostgreSQL marks a transaction failed after errors such as UndefinedTable.
+    Rolling back here is required before any later optional query can proceed.
+    Only optional P1 enrichment reads use this helper; required core reads are
+    deliberately allowed to raise.
+    """
+    try:
+        return fn()
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        warnings.append({
+            "component": label,
+            "status": "PENDING",
+            "reason": f"{type(exc).__name__}: {exc}",
+        })
+        return fallback
+
+
 def decision_summary(ticker: str) -> dict:
     ticker = ticker.upper()
+    warnings: list[dict] = []
     with db.connect() as conn:
+        # Required, long-lived production data. If these fail the endpoint
+        # should fail because there is no meaningful P1 payload to return.
         company = db.fetch_company(conn, ticker) or {}
         stock = _price_rows(db.fetch_prices(conn, ticker))
         spy = _price_rows(db.fetch_prices(conn, "SPY"))
@@ -52,13 +89,48 @@ def decision_summary(ticker: str) -> dict:
         sector_symbol = sector_etf(company.get("sector"))
         sector = _price_rows(db.fetch_prices(conn, sector_symbol)) if sector_symbol else []
         stored = db.latest_prediction_forecast(conn, ticker)
-        macro_series = {sid: load_series(conn, sid) for sid in SERIES}
-        option_rows = option_history(conn, ticker, limit=1)
-        research = latest_p1_run(conn)
-        calibration = calibration_summary(conn)
+
+        # Optional P1 tables may lag a code deployment. Do not take down the
+        # Prediction Lab just because one research dataset is not migrated yet.
+        macro_series = _optional_read(
+            conn,
+            "macro_series",
+            lambda: {sid: load_series(conn, sid) for sid in SERIES},
+            {sid: [] for sid in SERIES},
+            warnings,
+        )
+        option_rows = _optional_read(
+            conn,
+            "option_surface_snapshots",
+            lambda: option_history(conn, ticker, limit=1),
+            [],
+            warnings,
+        )
+        research = _optional_read(
+            conn,
+            "p1_research_runs",
+            lambda: latest_p1_run(conn),
+            None,
+            warnings,
+        )
+        calibration = _optional_read(
+            conn,
+            "alpha_probability_outcomes",
+            lambda: calibration_summary(conn),
+            {
+                "status": "PENDING",
+                "n": 0,
+                "by_horizon": {},
+                "by_regime": {},
+                "note": "Calibration storage is not available or populated yet.",
+            },
+            warnings,
+        )
 
     if not stock:
-        return {"status": "PENDING", "ticker": ticker, "reason": "no stored price history"}
+        return {"status": "PENDING", "ticker": ticker,
+                "reason": "no stored price history", "warnings": warnings}
+
     as_of = stock[-1]["date"]
     regime = RegimeFeatureProvider(spy_rows=spy, qqq_rows=qqq,
                                    sector_rows=sector).features_as_of(as_of)
@@ -84,6 +156,7 @@ def decision_summary(ticker: str) -> dict:
         "sector": company.get("sector"),
         "sector_proxy": sector_symbol,
         "confidence": confidence,
+        "warnings": warnings,
         "alpha": {
             "status": alpha.get("status", "PENDING"),
             "model": alpha.get("model"),
@@ -96,6 +169,7 @@ def decision_summary(ticker: str) -> dict:
         "macro": macro,
         "options_implied": {
             "available": latest_option is not None,
+            "status": "OK" if latest_option is not None else "PENDING",
             "as_of": latest_option.get("as_of") if latest_option else None,
             "features": (latest_option.get("features") if latest_option else {}),
         },
@@ -115,6 +189,7 @@ def decision_summary(ticker: str) -> dict:
             "Every displayed research model remains non-primary until its out-of-sample kill criterion passes.",
             "Option features are observed surfaces only; missing history is not backfilled.",
             "Probability calibration is scored only after each forecast horizon matures and is never used to rewrite frozen historical forecasts.",
+            "Optional P1 research storage degrades to PENDING rather than failing the entire endpoint while migrations/data population catch up.",
             "The 10% downside statistic is probability of underperforming the benchmark by 10 percentage points under the residual normal approximation, not probability of a 10% stock drawdown.",
         ],
     }
