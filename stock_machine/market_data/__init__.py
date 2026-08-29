@@ -1,13 +1,13 @@
 """Market-data providers.
 
-Two read-only IBKR paths are available; `get_provider` picks one so callers
-(CLI, web API, options engine) do not hard-code a vendor:
+Three read-only IBKR paths are available; `get_provider` picks one so callers
+(CLI, web API, options engine) do not hard-code a transport:
 
-  tws            TWS / IB Gateway socket API (ibapi). No web gateway needed;
-                 serves delayed data without a subscription.
+  tws            TWS / IB Gateway socket API (ibapi) on the local machine.
   client_portal  Client Portal REST gateway.
+  remote_bridge  Authenticated HTTPS bridge to TWS / IBGW on another machine.
 
-Select with IBKR_PROVIDER=tws|client_portal (default: tws).
+Select with IBKR_PROVIDER=tws|client_portal|remote_bridge (default: tws).
 """
 from __future__ import annotations
 
@@ -38,19 +38,22 @@ class MarketDataUnavailable(RuntimeError):
 
 
 def get_provider(name: str | None = None) -> MarketDataProvider:
-    """Return a connected read-only provider. Caller owns closing it.
+    """Return a read-only provider. Caller owns closing it.
 
-    Provider import, configuration and connection failures are normalized to
+    Provider import/configuration/connection failures are normalized to
     ``MarketDataUnavailable`` so every caller gets the same explicit failure
     contract. An unknown provider name remains a configuration ``ValueError``.
     """
     choice = (name or os.environ.get("IBKR_PROVIDER", DEFAULT_PROVIDER)).lower()
-    if choice not in (
+    allowed = (
         "tws", "gateway", "ibkr_tws",
         "client_portal", "cp", "ibkr_client_portal",
-    ):
+        "remote_bridge", "bridge", "ibkr_bridge",
+    )
+    if choice not in allowed:
         raise ValueError(
-            f"unknown market-data provider {choice!r}; use 'tws' or 'client_portal'"
+            f"unknown market-data provider {choice!r}; use 'tws', "
+            "'client_portal', or 'remote_bridge'"
         )
 
     try:
@@ -61,9 +64,14 @@ def get_provider(name: str | None = None) -> MarketDataProvider:
             provider.connect()
             return provider
 
-        from .ibkr_client_portal import IBKRClientPortalMarketData
+        if choice in ("client_portal", "cp", "ibkr_client_portal"):
+            from .ibkr_client_portal import IBKRClientPortalMarketData
 
-        return IBKRClientPortalMarketData()
+            return IBKRClientPortalMarketData()
+
+        from .remote_bridge import RemoteBridgeMarketData
+
+        return RemoteBridgeMarketData()
     except MarketDataUnavailable:
         raise
     except Exception as exc:
