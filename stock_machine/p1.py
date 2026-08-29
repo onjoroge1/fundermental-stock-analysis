@@ -8,6 +8,7 @@ from .macro import SERIES, features_as_of as macro_features_as_of, load_series
 from .regime import RegimeFeatureProvider, sector_etf
 from .options.surface_store import history as option_history
 from .backtest.p1_store import latest as latest_p1_run
+from .alpha_calibration import summary as calibration_summary
 
 
 def _price_rows(rows: list[dict]) -> list[dict]:
@@ -54,6 +55,7 @@ def decision_summary(ticker: str) -> dict:
         macro_series = {sid: load_series(conn, sid) for sid in SERIES}
         option_rows = option_history(conn, ticker, limit=1)
         research = latest_p1_run(conn)
+        calibration = calibration_summary(conn)
 
     if not stock:
         return {"status": "PENDING", "ticker": ticker, "reason": "no stored price history"}
@@ -97,6 +99,7 @@ def decision_summary(ticker: str) -> dict:
             "as_of": latest_option.get("as_of") if latest_option else None,
             "features": (latest_option.get("features") if latest_option else {}),
         },
+        "calibration": calibration,
         "p1_research": ({
             "run_id": research["run_id"],
             "created_at": research["created_at"],
@@ -111,6 +114,7 @@ def decision_summary(ticker: str) -> dict:
             "Expected returns are benchmark-relative, not absolute price targets.",
             "Every displayed research model remains non-primary until its out-of-sample kill criterion passes.",
             "Option features are observed surfaces only; missing history is not backfilled.",
+            "Probability calibration is scored only after each forecast horizon matures and is never used to rewrite frozen historical forecasts.",
             "The 10% downside statistic is probability of underperforming the benchmark by 10 percentage points under the residual normal approximation, not probability of a 10% stock drawdown.",
         ],
     }
