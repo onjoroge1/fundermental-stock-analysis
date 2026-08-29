@@ -1,0 +1,1 @@
+Market-data provider initialization failures are operational availability failures and must surface as HTTP 503, not HTTP 500.
