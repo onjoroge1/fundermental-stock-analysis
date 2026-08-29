@@ -6,7 +6,7 @@ read persisted research state or compute lightweight current-state features.
 from __future__ import annotations
 
 from . import db
-from .api_v1 import router as api_v1_router
+from .api_v1_compat import router as api_v1_router
 from .backtest.shadow import MODEL_ID
 from .backtest.shadow_store import latest
 from .webapp import app
