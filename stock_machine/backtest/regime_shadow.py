@@ -13,6 +13,7 @@ MIN_BREADTH_COVERAGE = 0.60
 
 def coverage(observations: list[dict]) -> dict:
     total = len(observations)
+    tickers = {row["ticker"] for row in observations}
     ok = 0
     qqq = sector = breadth = 0
     classifications = Counter()
@@ -28,6 +29,7 @@ def coverage(observations: list[dict]) -> dict:
     div = total or 1
     return {
         "observations": total,
+        "tickers": len(tickers),
         "regime_ok_coverage": round(ok / div, 4),
         "qqq_coverage": round(qqq / div, 4),
         "sector_proxy_coverage": round(sector / div, 4),
