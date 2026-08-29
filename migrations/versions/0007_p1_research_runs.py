@@ -1,37 +1,35 @@
-"""add alpha shadow runs
+"""add p1 research runs
 
-Revision ID: 0004_alpha_shadow_runs
-Revises: 0003
+Revision ID: 0007_p1_research_runs
+Revises: 0006_option_surface_snapshots
 """
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision = "0004_alpha_shadow_runs"
-down_revision = "0003"
+revision = "0007_p1_research_runs"
+down_revision = "0006_option_surface_snapshots"
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
     op.create_table(
-        "alpha_shadow_runs",
+        "p1_research_runs",
         sa.Column("run_id", sa.Text(), primary_key=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False,
                   server_default=sa.text("now()")),
-        sa.Column("model_id", sa.Text(), nullable=False),
         sa.Column("panel_start", sa.Date()),
         sa.Column("panel_end", sa.Date()),
         sa.Column("observation_count", sa.Integer(), nullable=False),
-        sa.Column("ticker_count", sa.Integer(), nullable=False),
-        sa.Column("expectations_coverage", sa.Float(), nullable=False),
+        sa.Column("option_surface_coverage", sa.Float(), nullable=False),
         sa.Column("decision", sa.Text(), nullable=False),
         sa.Column("result", postgresql.JSONB(), nullable=False),
     )
-    op.create_index("alpha_shadow_runs_created_idx", "alpha_shadow_runs",
+    op.create_index("p1_research_runs_created_idx", "p1_research_runs",
                     [sa.text("created_at DESC")])
 
 
 def downgrade() -> None:
-    op.drop_index("alpha_shadow_runs_created_idx", table_name="alpha_shadow_runs")
-    op.drop_table("alpha_shadow_runs")
+    op.drop_index("p1_research_runs_created_idx", table_name="p1_research_runs")
+    op.drop_table("p1_research_runs")

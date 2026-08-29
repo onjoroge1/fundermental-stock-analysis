@@ -1,8 +1,7 @@
 """Operational API additions layered over the existing dashboard app.
 
-Keeping this module thin avoids coupling long-running research jobs to web
-requests. The endpoint below is read-only and only exposes the latest persisted
-shadow run created by scripts/run_shadow_alpha.py.
+Long-running research jobs remain outside web requests. Endpoints here only
+read persisted research state or compute lightweight current-state features.
 """
 from __future__ import annotations
 
@@ -37,3 +36,11 @@ def alpha_shadow_status() -> dict:
         "promotion": result.get("promotion") or {},
         "panel": result.get("panel") or {},
     }
+
+
+@app.get("/api/p1/{ticker}")
+def p1_decision_intelligence(ticker: str) -> dict:
+    """Current P1 decision card plus the latest persisted research verdict."""
+    from .p1 import decision_summary
+
+    return decision_summary(ticker)

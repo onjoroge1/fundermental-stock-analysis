@@ -1,0 +1,45 @@
+name: P1 Completion Shadow
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "45 12 * * 6"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p1-completion-shadow
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install P1 research dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e '.[p1]'
+      - name: Require production database secret
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL GitHub Actions secret is required." >&2
+            exit 1
+          fi
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: alembic upgrade head
+      - name: Score matured alpha probabilities
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python scripts/score_alpha_probabilities.py
+      - name: Run full P1 shadow evaluation
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python scripts/run_p1_completion.py
