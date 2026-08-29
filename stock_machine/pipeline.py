@@ -1,6 +1,8 @@
 """End-to-end pipeline for one ticker: ingest raw → normalize → load Postgres."""
 from __future__ import annotations
 
+import os
+
 from . import db
 from .config import ensure_dirs
 from .ingestion import estimates as est_ing
@@ -10,12 +12,48 @@ from .normalization import financial_periods as fp
 from .data_quality import assess_dataset
 
 
+PRICE_SOURCE = os.environ.get("PRICE_SOURCE", "auto").lower()
+
+
+def _fetch_prices(ticker: str) -> tuple[list[dict], list[dict], str, list[dict]]:
+    """Daily prices, preferring the broker and falling back to Yahoo.
+
+    IB Gateway is a desktop application that must be running and logged in,
+    and IBKR forces a daily logout — so a hard dependency on it would break
+    the scheduled refresh on any morning it happens to be closed. The source
+    actually used is returned and recorded, so a series is never silently
+    mixed or silently downgraded.
+
+    PRICE_SOURCE=tws forces the broker (raising if unavailable), =yahoo forces
+    Yahoo, =auto (default) tries the broker then falls back.
+    """
+    events: list[dict] = []
+    if PRICE_SOURCE in ("tws", "auto"):
+        try:
+            from .ingestion import prices_tws
+
+            rows, actions = prices_tws.fetch_daily(ticker)
+            return rows, actions, "ibkr_tws", events
+        except Exception as exc:
+            if PRICE_SOURCE == "tws":
+                raise
+            events.append({
+                "event": "PRICE_SOURCE_FALLBACK",
+                "dataset": "prices",
+                "detail": (f"IBKR TWS unavailable ({type(exc).__name__}: "
+                           f"{exc}); fell back to Yahoo for the full series"),
+            })
+    rows, actions = price_ing.fetch_daily(ticker)
+    return rows, actions, "yahoo", events
+
+
 def run(ticker: str) -> dict:
     ticker = ticker.upper()
     ensure_dirs()
 
     sec_data = sec_ing.ingest(ticker)
-    price_rows, corporate_actions = price_ing.fetch_daily(ticker)
+    price_rows, corporate_actions, price_source, price_events = _fetch_prices(
+        ticker)
     est = est_ing.fetch_estimates(ticker)
 
     quarterly, annual, restatement_events = fp.build_periods(
@@ -54,13 +92,26 @@ def run(ticker: str) -> dict:
         db.replace_filings(conn, ticker, filings)
         db.replace_periods(conn, ticker, quarterly, annual)
         db.replace_prices(conn, ticker, price_rows)
-        db.replace_actions(conn, ticker, corporate_actions)
+        # Only replace corporate actions when the source actually supplied
+        # them. IBKR historical bars carry no split/dividend events, so an
+        # unconditional replace would DELETE the action history that share-
+        # count split adjustment depends on.
+        if corporate_actions:
+            db.replace_actions(conn, ticker, corporate_actions)
+        elif price_source != "yahoo":
+            price_events.append({
+                "event": "CORPORATE_ACTIONS_RETAINED",
+                "dataset": "corporate_actions",
+                "detail": (f"{price_source} supplies no corporate actions; "
+                           "existing split/dividend history retained"),
+            })
         db.replace_shares(conn, ticker, shares)
         from datetime import date
         snap_count = db.insert_consensus_snapshots(
             conn, ticker, date.today().isoformat(), est["snapshots"])
         db.upsert_surprises(conn, ticker, est["surprises"])
-        db.record_events(conn, ticker, restatement_events + est["events"])
+        db.record_events(conn, ticker,
+                         restatement_events + est["events"] + price_events)
         from .ingestion import form4
         form4_stats = form4.ingest_from_submissions(
             conn, ticker, sec_data["cik"], sub)
@@ -92,6 +143,7 @@ def run(ticker: str) -> dict:
         "quarters": len(quarterly),
         "annual_periods": len(annual),
         "price_rows": len(price_rows),
+        "price_source": price_source,
         "corporate_actions": len(corporate_actions),
         "filings": len(filings),
         "restatement_events": len(restatement_events),
