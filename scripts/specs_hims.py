@@ -1,8 +1,9 @@
 """Analyst specification for HIMS, based on the 2026-Q2 filing/release.
 
 Scenario fair values are precomputed from an EV/revenue framework because
-current GAAP EPS/FCF is not a stable valuation denominator. The report keeps
-these assumptions explicit so an LLM never invents the arithmetic.
+current GAAP EPS/FCF is not a stable valuation denominator. The equity bridge
+includes convertible notes plus deferred acquisition/earn-out obligations,
+net of principal liquidity, so acquisition financing is not ignored.
 """
 from __future__ import annotations
 
@@ -43,31 +44,31 @@ HIMS_SPEC = {
         {
             "name": "bear",
             "probability": 0.30,
-            "fair_value": 19.8,
-            "valuation_method": "2027 revenue x EV/sales less net debt",
+            "fair_value": 16.1,
+            "valuation_method": "2027 revenue x EV/sales less net financial/acquisition obligations",
             "revenue_2027_b": 3.80,
             "ev_sales_multiple": 1.35,
-            "net_debt_b": 0.524,
+            "net_obligations_b": 1.390,
             "diluted_shares_m": 233.0,
         },
         {
             "name": "base",
             "probability": 0.50,
-            "fair_value": 36.1,
-            "valuation_method": "2027 revenue x EV/sales less net debt",
+            "fair_value": 32.3,
+            "valuation_method": "2027 revenue x EV/sales less net financial/acquisition obligations",
             "revenue_2027_b": 4.25,
             "ev_sales_multiple": 2.10,
-            "net_debt_b": 0.524,
+            "net_obligations_b": 1.390,
             "diluted_shares_m": 233.0,
         },
         {
             "name": "bull",
             "probability": 0.20,
-            "fair_value": 55.6,
-            "valuation_method": "2027 revenue x EV/sales less net debt",
+            "fair_value": 51.9,
+            "valuation_method": "2027 revenue x EV/sales less net financial/acquisition obligations",
             "revenue_2027_b": 4.65,
             "ev_sales_multiple": 2.90,
-            "net_debt_b": 0.524,
+            "net_obligations_b": 1.390,
             "diluted_shares_m": 233.0,
         },
     ],
@@ -84,7 +85,7 @@ HIMS_SPEC = {
         "why_market_may_be_wrong": [
             "Q3 revenue guidance is materially above the run-rate implied by Q2 and FY2026 revenue guidance was raised",
             "Subscriber growth plus higher revenue per subscriber can create substantial operating leverage if product costs normalize",
-            "At around 2x FY2026 sales, the equity does not require a software-like revenue multiple to generate upside if margins recover",
+            "The late-August share price already reflects substantial compression from prior highs, so modest margin recovery can support upside without a software-like multiple",
         ],
         "what_is_already_priced_in": [
             "A meaningful recovery in profitability: current cash earnings do not support the equity valuation on their own",
@@ -98,7 +99,7 @@ HIMS_SPEC = {
         "risks": [
             "Gross-margin compression can overwhelm revenue growth if branded pharmaceutical/product costs remain structurally higher",
             "Acquisition-driven international growth can mask weaker organic U.S. momentum",
-            "Convertible debt, legal contingencies and regulatory actions increase downside convexity",
+            "Convertible notes, deferred acquisition payments, earn-outs, legal contingencies and regulatory actions increase downside convexity",
             "A broad bear market could compress the multiple before margin recovery becomes visible",
         ],
         "invalidation_conditions": [
@@ -113,13 +114,14 @@ HIMS_SPEC = {
             "The 38% headline growth rate overstates underlying momentum: U.S. "
             "revenue grew 16%, international growth was acquisition-heavy, gross "
             "margin fell 12 points, EBITDA declined and free cash flow remained "
-            "negative. If those economics are structural rather than transitional, "
-            "HIMS is a lower-margin healthcare distributor/platform being valued "
-            "for future operating leverage that may not arrive."
+            "negative. The balance sheet also contains substantial deferred "
+            "acquisition and earn-out obligations. If those economics are "
+            "structural rather than transitional, HIMS is a lower-margin healthcare "
+            "distributor/platform being valued for operating leverage that may not arrive."
         ),
         "fragile_assumptions": [
             "Base case assumes 2027 revenue around $4.25B and a recovery toward a 2.1x EV/sales multiple",
-            "Net-debt treatment assumes convertible principal is economically debt-like while available liquidity remains usable",
+            "Equity bridge treats convertibles, deferred acquisition payables and recorded earn-outs as debt-like obligations net of principal liquidity",
             "International acquisitions are assumed to add durable revenue without proportionate ongoing integration costs",
         ],
         "accounting_concerns": [
@@ -129,6 +131,7 @@ HIMS_SPEC = {
         "valuation_concerns": [
             "Current profitability is weak: FY2026 adjusted EBITDA guidance midpoint is only about $300M on roughly $3.2B revenue",
             "Current/near-term free-cash-flow yield is low, so valuation support depends on future margin expansion",
+            "Acquisition-related obligations materially reduce equity value relative to a simple market-cap or EV/sales screen",
         ],
         "unresolved_questions": [
             "Organic revenue growth excluding acquired international businesses",
@@ -139,7 +142,7 @@ HIMS_SPEC = {
     "conclusion": {
         "classification": "WATCH",
         "conviction": "MEDIUM",
-        "risk_reward_score": 60,
+        "risk_reward_score": 55,
     },
     "claims": [
         {
@@ -158,12 +161,17 @@ HIMS_SPEC = {
             "source_ids": ["SEC:ACCESSION:0001773751-26-000163"],
         },
         {
+            "claim": "June 2026 liquidity was about $841M versus $1.365B net carrying value of convertible notes, plus roughly $703M deferred acquisition payables and $163M recorded earn-out consideration.",
+            "classification": "FACT",
+            "source_ids": ["SEC:ACCESSION:0001773751-26-000163"],
+        },
+        {
             "claim": "The principal upside thesis requires margin and free-cash-flow recovery rather than revenue growth alone.",
             "classification": "INFERENCE",
             "source_ids": ["SEC:ACCESSION:0001773751-26-000163"],
         },
         {
-            "claim": "The 30/50/20 bear/base/bull scenario set implies a probability-weighted value above the late-August 2026 market price, but scenario probabilities are uncalibrated.",
+            "claim": "The 30/50/20 bear/base/bull scenario set implies only modest probability-weighted upside from the late-August 2026 market price after acquisition obligations are included; probabilities are uncalibrated.",
             "classification": "FORECAST",
             "source_ids": [],
         },
