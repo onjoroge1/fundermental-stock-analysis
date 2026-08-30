@@ -213,25 +213,27 @@ def forward_paper_v2_status() -> dict:
 
 @app.get("/api/v1/universe")
 def research_universe() -> dict:
-    """Fast read index for agents; falls back to live companies if not populated."""
+    """Return the full universe with sparse indexed research overlaid."""
     from .control_plane import research_index
+    from .control_plane_bootstrap import merge_research_universe
+
     conn = db.connect()
     try:
+        companies = db.list_companies(conn)
         try:
             rows = research_index(conn)
         except Exception:
             conn.rollback()
             rows = []
-        if not rows:
-            companies = db.list_companies(conn)
-            return {
-                "status": "PENDING_INDEX", "count": len(companies),
-                "companies": companies,
-                "reason": "research index has not been populated; ticker research endpoints remain available",
-            }
     finally:
         conn.close()
-    return {"status": "OK", "count": len(rows), "stocks": rows}
+    result = merge_research_universe(companies, rows)
+    if result["indexed_count"] == 0:
+        result["status"] = "PENDING_INDEX"
+        result["reason"] = (
+            "research index has not been populated; ticker research endpoints remain available"
+        )
+    return result
 
 
 @app.post("/api/admin/jobs")
@@ -309,3 +311,16 @@ def process_control_job(
     _require_processor(authorization)
     from .control_plane import process_one
     return process_one()
+
+
+@app.post("/api/admin/migrate")
+def migrate_database_to_head(
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """Apply only the checked-in Alembic chain to `head`; no arbitrary target input."""
+    _require_admin(authorization)
+    from .control_plane_bootstrap import migrate_to_head
+    try:
+        return migrate_to_head()
+    except Exception as exc:
+        raise HTTPException(500, f"database migration failed: {type(exc).__name__}: {exc}")
