@@ -17,7 +17,6 @@ from .backtest.shadow_store import latest
 from .market_data import MarketDataUnavailable
 from .webapp import app
 
-# Production/Vercel entrypoint mounts the stable read-optimized agent contract.
 app.include_router(api_v1_router)
 
 
@@ -25,15 +24,11 @@ app.include_router(api_v1_router)
 async def market_data_unavailable_handler(
     request: Request, exc: MarketDataUnavailable
 ) -> JSONResponse:
-    """Expose broker/option-provider outages as an explicit service condition."""
     return JSONResponse(
         status_code=503,
         content={
-            "status": "unavailable",
-            "service": "market_data",
-            "reason": str(exc),
-            "retryable": True,
-            "path": request.url.path,
+            "status": "unavailable", "service": "market_data",
+            "reason": str(exc), "retryable": True, "path": request.url.path,
         },
     )
 
@@ -47,15 +42,12 @@ def alpha_shadow_status() -> dict:
         conn.close()
     if row is None:
         return {
-            "status": "PENDING",
-            "model_id": MODEL_ID,
+            "status": "PENDING", "model_id": MODEL_ID,
             "reason": "no persisted shadow evaluation yet; run scripts/run_shadow_alpha.py",
         }
-
     result = row["result"]
     return {
-        "status": "OK",
-        "run_id": row["run_id"],
+        "status": "OK", "run_id": row["run_id"],
         "created_at": row["created_at"],
         "model_id": result.get("model_id", MODEL_ID),
         "coverage": result.get("coverage") or {},
@@ -67,17 +59,13 @@ def alpha_shadow_status() -> dict:
 
 @app.get("/api/p1/{ticker}")
 def p1_decision_intelligence(ticker: str) -> dict:
-    """Current P1 decision card plus the latest persisted research verdict."""
     from .p1 import decision_summary
-
     return decision_summary(ticker)
 
 
 @app.get("/api/events/{ticker}")
 def company_events(ticker: str, days: int = 370) -> dict:
-    """Read the latest point-in-time event snapshots and coverage state."""
     from .events.store import current_event_state
-
     horizon = max(1, min(int(days), 730))
     start = date.today()
     end = start + timedelta(days=horizon)
@@ -90,8 +78,7 @@ def company_events(ticker: str, days: int = 370) -> dict:
         except Exception as exc:
             conn.rollback()
             return {
-                "status": "PENDING",
-                "ticker": ticker.upper(),
+                "status": "PENDING", "ticker": ticker.upper(),
                 "automation_clear": False,
                 "reason": f"event intelligence unavailable: {type(exc).__name__}: {exc}",
             }
@@ -106,9 +93,7 @@ def company_event_screen(
     ticker: str, strategy_type: str, front_expiration: str,
     far_expiration: str,
 ) -> dict:
-    """Candidate-specific P2-E event/assignment gate for calendars/diagonals."""
     from .events.screen import build_event_screen
-
     conn = db.connect()
     try:
         try:
@@ -119,8 +104,7 @@ def company_event_screen(
         except Exception as exc:
             conn.rollback()
             return {
-                "status": "BLOCK",
-                "ticker": ticker.upper(),
+                "status": "BLOCK", "ticker": ticker.upper(),
                 "strategy_type": strategy_type,
                 "reasons": [
                     f"event intelligence unavailable: {type(exc).__name__}: {exc}"
@@ -133,9 +117,7 @@ def company_event_screen(
 
 @app.get("/api/strategy-lab-v2")
 def strategy_lab_v2_status() -> dict:
-    """Latest immutable Strategy Lab v2 run; never computes a backtest in-request."""
     from .strategy_lab_v2_store import latest as latest_strategy_lab
-
     conn = db.connect()
     try:
         try:
@@ -154,10 +136,46 @@ def strategy_lab_v2_status() -> dict:
             "reason": "no Strategy Lab v2 run exists; run scripts/run_strategy_lab_v2.py",
         }
     return {
-        "status": "OK",
-        "run_id": row["run_id"],
-        "as_of": row["as_of"],
-        "panel_hash": row["panel_hash"],
-        "created_at": row["created_at"],
+        "status": "OK", "run_id": row["run_id"], "as_of": row["as_of"],
+        "panel_hash": row["panel_hash"], "created_at": row["created_at"],
         "result": row["result"],
+    }
+
+
+@app.get("/api/forward-paper-v2")
+def forward_paper_v2_status() -> dict:
+    """Return every frozen cohort and its current incubation status."""
+    from .forward_paper_v2 import list_cohorts, marks, status
+    conn = db.connect()
+    try:
+        try:
+            cohorts = list_cohorts(conn)
+            rows = []
+            for cohort in cohorts:
+                cohort_marks = marks(conn, cohort["cohort_id"])
+                rows.append({
+                    "cohort_id": cohort["cohort_id"],
+                    "lab_run_id": cohort["lab_run_id"],
+                    "policy_name": cohort["policy_name"],
+                    "mode": cohort["mode"],
+                    "entry_market_date": cohort["entry_market_date"],
+                    "created_at": cohort["created_at"],
+                    "longs": cohort["contract"].get("longs") or [],
+                    "shorts": cohort["contract"].get("shorts") or [],
+                    "control": cohort["contract"].get("control"),
+                    "incubation": status(cohort, cohort_marks),
+                })
+        except Exception as exc:
+            conn.rollback()
+            return {
+                "status": "PENDING",
+                "reason": f"Forward Paper v2 storage unavailable: {type(exc).__name__}: {exc}",
+            }
+    finally:
+        conn.close()
+    return {
+        "status": "OK" if rows else "PENDING",
+        "cohort_count": len(rows),
+        "cohorts": rows,
+        "creation_policy": "explicit sync only; scheduled jobs may mark but never rebalance/create cohorts",
     }
