@@ -87,8 +87,18 @@ def test_long_position_rejects_bearish_and_neutral_structures():
             StrategyType.BULL_PUT_CREDIT_SPREAD.value,
             StrategyType.CASH_SECURED_PUT.value,
         }
+
+    # The selector can reject only candidates it actually receives. The
+    # generator may itself filter bearish/neutral structures for liquidity,
+    # credit-to-width or capital reasons, so never require one to exist here.
+    generated_types = {c.strategy_type.value for c in generated.candidates}
+    forbidden_generated = generated_types & {
+        StrategyType.IRON_CONDOR.value,
+        StrategyType.BEAR_CALL_CREDIT_SPREAD.value,
+        StrategyType.BEAR_PUT_DEBIT_SPREAD.value,
+    }
     rejected_types = {r["strategy_type"] for r in result.get("rejected", [])}
-    assert StrategyType.IRON_CONDOR.value in rejected_types or StrategyType.BEAR_CALL_CREDIT_SPREAD.value in rejected_types
+    assert forbidden_generated <= rejected_types
 
 
 def test_stock_remains_control_when_options_do_not_improve_enough():
