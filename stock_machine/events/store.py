@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
-from datetime import date
 from typing import Any
 
 from psycopg.types.json import Jsonb
@@ -110,20 +108,21 @@ def latest_coverage(conn, ticker: str, event_type: str,
 def events_in_window(conn, ticker: str, event_type: str,
                      start_date: str, end_date: str,
                      as_of: str | None = None) -> list[dict]:
-    """Read the latest available event vintage, not a blend of snapshot days."""
+    """Read one coherent latest provider vintage, never blend sources/days."""
     coverage = latest_coverage(conn, ticker, event_type, as_of)
     if not coverage:
         return []
     observed_on = coverage["observed_on"]
+    source = coverage["source"]
     with conn.cursor() as cur:
         cur.execute(
             """SELECT event_snapshot_id,event_type,event_date::text,observed_on::text,
                       source,status,metadata
                FROM company_event_snapshots
-               WHERE ticker=%s AND event_type=%s AND observed_on=%s
+               WHERE ticker=%s AND event_type=%s AND observed_on=%s AND source=%s
                  AND event_date BETWEEN %s AND %s
                ORDER BY event_date""",
-            (ticker.upper(), event_type.upper(), observed_on,
+            (ticker.upper(), event_type.upper(), observed_on, source,
              start_date[:10], end_date[:10]),
         )
         cols = ["event_snapshot_id", "event_type", "event_date", "observed_on",
