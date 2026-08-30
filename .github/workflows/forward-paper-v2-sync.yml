@@ -1,0 +1,57 @@
+name: Forward Paper v2 Sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Optional mode: long_only or long_short; blank = all eligible"
+        required: false
+        default: ""
+      policy:
+        description: "Optional Strategy Lab v2 policy name; blank = all eligible"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forward-paper-v2-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install stock machine
+        run: python -m pip install --upgrade pip && python -m pip install -e .
+      - name: Require production database secret
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL GitHub Actions secret is required." >&2
+            exit 1
+          fi
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: alembic upgrade head
+      - name: Freeze eligible policy cohorts
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          MODE: ${{ inputs.mode }}
+          POLICY: ${{ inputs.policy }}
+        run: |
+          if [ -n "$MODE" ] && [ -n "$POLICY" ]; then
+            python scripts/sync_forward_paper_v2.py "$MODE" "$POLICY"
+          elif [ -n "$MODE" ]; then
+            python scripts/sync_forward_paper_v2.py "$MODE"
+          else
+            python scripts/sync_forward_paper_v2.py
+          fi
