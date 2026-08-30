@@ -301,7 +301,7 @@ def control_job(
     return row
 
 
-@app.api_route("/api/admin/jobs/process", methods=["GET", "POST"])
+@app.api_route("/api/admin/process", methods=["GET", "POST"])
 def process_control_job(
     authorization: str | None = Header(default=None)
 ) -> dict:
