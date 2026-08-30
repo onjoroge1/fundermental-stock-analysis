@@ -14,6 +14,7 @@ SIC_RANGES: list[tuple[int, int, str]] = [
     (3711, 3716, "Automobiles"),
     (7370, 7389, "Software & Internet"),
     (7800, 7899, "Software & Internet"),   # streaming/media services (NFLX)
+    (8000, 8099, "Healthcare Services"),   # physician/health services (HIMS)
     (6000, 6299, "Banks & Consumer Finance"),
     (4500, 4599, "Airlines"),
     (4800, 4899, "Telecom & Cable"),
@@ -38,8 +39,8 @@ def classify(sic: str | int | None) -> str:
     return "Other"
 
 
-# Phase-1 coverage universe: liquid US filers in software, semis, hardware,
-# consumer, autos. No banks, insurers, biotech, or pre-revenue companies.
+# Coverage universe. Specialized sectors are allowed, but their data-quality
+# and model-suitability gates determine whether a stock can be scored/traded.
 UNIVERSE = [
     # software & internet
     "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA",  # existing
@@ -51,6 +52,8 @@ UNIVERSE = [
     "CSCO", "DELL", "HPQ",
     # consumer & retail
     "WMT", "COST", "HD", "NKE", "SBUX", "MCD", "TGT", "LOW", "CMG",
+    # healthcare services
+    "HIMS",
     # automobiles
     "F", "GM", "RIVN",
     # telecom & cable
