@@ -1,14 +1,12 @@
-"""Operational API additions layered over the existing dashboard app.
-
-Long-running research jobs remain outside web requests. Endpoints here only
-read persisted research state or compute lightweight current-state features.
-"""
+"""Operational API additions layered over the existing dashboard app."""
 from __future__ import annotations
 
+import hmac
 from datetime import date, timedelta
 
-from fastapi import Request
+from fastapi import Header, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from . import db
 from .api_v1_compat import router as api_v1_router
@@ -18,6 +16,38 @@ from .market_data import MarketDataUnavailable
 from .webapp import app
 
 app.include_router(api_v1_router)
+
+
+class ControlJobRequest(BaseModel):
+    job_type: str
+    ticker: str | None = None
+    payload: dict = Field(default_factory=dict)
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=200)
+    max_attempts: int = Field(default=3, ge=1, le=5)
+
+
+def _bearer(authorization: str | None) -> str:
+    prefix = "Bearer "
+    return authorization[len(prefix):] if authorization and authorization.startswith(prefix) else ""
+
+
+def _require_admin(authorization: str | None = Header(default=None)) -> None:
+    from .control_plane import admin_token
+    expected = admin_token()
+    if len(expected) < 24:
+        raise HTTPException(503, "STOCK_MACHINE_ADMIN_TOKEN is not configured")
+    if not hmac.compare_digest(_bearer(authorization), expected):
+        raise HTTPException(401, "invalid admin credentials")
+
+
+def _require_processor(authorization: str | None = Header(default=None)) -> None:
+    from .control_plane import admin_token, cron_token
+    supplied = _bearer(authorization)
+    allowed = [x for x in (admin_token(), cron_token()) if len(x) >= 24]
+    if not allowed:
+        raise HTTPException(503, "processor auth is not configured")
+    if not any(hmac.compare_digest(supplied, expected) for expected in allowed):
+        raise HTTPException(401, "invalid processor credentials")
 
 
 @app.exception_handler(MarketDataUnavailable)
@@ -133,7 +163,7 @@ def strategy_lab_v2_status() -> dict:
     if not row:
         return {
             "status": "PENDING",
-            "reason": "no Strategy Lab v2 run exists; run scripts/run_strategy_lab_v2.py",
+            "reason": "no Strategy Lab v2 run exists; enqueue strategy_lab_v2",
         }
     return {
         "status": "OK", "run_id": row["run_id"], "as_of": row["as_of"],
@@ -144,7 +174,6 @@ def strategy_lab_v2_status() -> dict:
 
 @app.get("/api/forward-paper-v2")
 def forward_paper_v2_status() -> dict:
-    """Return every frozen cohort and its current incubation status."""
     from .forward_paper_v2 import list_cohorts, marks, status
     conn = db.connect()
     try:
@@ -175,7 +204,108 @@ def forward_paper_v2_status() -> dict:
         conn.close()
     return {
         "status": "OK" if rows else "PENDING",
-        "cohort_count": len(rows),
-        "cohorts": rows,
+        "cohort_count": len(rows), "cohorts": rows,
         "creation_policy": "explicit sync only; scheduled jobs may mark but never rebalance/create cohorts",
     }
+
+
+# ---------- PR32: DB-backed API control plane ----------
+
+@app.get("/api/v1/universe")
+def research_universe() -> dict:
+    """Fast read index for agents; falls back to live companies if not populated."""
+    from .control_plane import research_index
+    conn = db.connect()
+    try:
+        try:
+            rows = research_index(conn)
+        except Exception:
+            conn.rollback()
+            rows = []
+        if not rows:
+            companies = db.list_companies(conn)
+            return {
+                "status": "PENDING_INDEX", "count": len(companies),
+                "companies": companies,
+                "reason": "research index has not been populated; ticker research endpoints remain available",
+            }
+    finally:
+        conn.close()
+    return {"status": "OK", "count": len(rows), "stocks": rows}
+
+
+@app.post("/api/admin/jobs")
+def create_control_job(
+    request: ControlJobRequest,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization)
+    from .control_plane import enqueue
+    conn = db.connect()
+    try:
+        return enqueue(
+            conn, request.job_type, ticker=request.ticker,
+            payload=request.payload, idempotency_key=request.idempotency_key,
+            max_attempts=request.max_attempts,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    finally:
+        conn.close()
+
+
+@app.post("/api/admin/tickers/{ticker}/refresh")
+def enqueue_ticker_refresh(
+    ticker: str, authorization: str | None = Header(default=None)
+) -> dict:
+    _require_admin(authorization)
+    from .control_plane import enqueue
+    conn = db.connect()
+    try:
+        try:
+            return enqueue(conn, "ticker_refresh", ticker=ticker)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+    finally:
+        conn.close()
+
+
+@app.get("/api/admin/jobs")
+def control_jobs(
+    status: str | None = None, limit: int = 25,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization)
+    from .control_plane import list_jobs
+    conn = db.connect()
+    try:
+        rows = list_jobs(conn, status=status, limit=limit)
+    finally:
+        conn.close()
+    return {"status": "OK", "count": len(rows), "jobs": rows}
+
+
+@app.get("/api/admin/jobs/{job_id}")
+def control_job(
+    job_id: str, authorization: str | None = Header(default=None)
+) -> dict:
+    _require_admin(authorization)
+    from .control_plane import get_job
+    conn = db.connect()
+    try:
+        row = get_job(conn, job_id)
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(404, "job not found")
+    return row
+
+
+@app.api_route("/api/admin/process", methods=["GET", "POST"])
+def process_control_job(
+    authorization: str | None = Header(default=None)
+) -> dict:
+    """Claim and execute at most one leased job; suitable for manual or Vercel Cron calls."""
+    _require_processor(authorization)
+    from .control_plane import process_one
+    return process_one()
