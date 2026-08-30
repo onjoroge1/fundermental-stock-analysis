@@ -93,7 +93,7 @@ The queue is DB-backed. A processor call claims at most one job with a lease:
 ```bash
 curl -X POST \
   -H "Authorization: Bearer $STOCK_MACHINE_ADMIN_TOKEN" \
-  https://fundermental-stock-analysis.vercel.app/api/admin/jobs/process
+  https://fundermental-stock-analysis.vercel.app/api/admin/process
 ```
 
 The same path accepts `CRON_SECRET`, so a Vercel Cron may call it without
