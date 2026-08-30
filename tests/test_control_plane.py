@@ -57,8 +57,20 @@ def test_processor_accepts_cron_secret_without_admin_secret(monkeypatch):
     from stock_machine.webapp_ops import app
     client = TestClient(app, raise_server_exceptions=False)
     response = client.get(
-        "/api/admin/jobs/process",
+        "/api/admin/process",
         headers={"Authorization": "Bearer abcdef0123456789abcdef0123456789"},
     )
     assert response.status_code == 200
     assert response.json()["status"] == "IDLE"
+
+
+def test_process_path_cannot_be_confused_with_job_id(monkeypatch):
+    monkeypatch.setenv("CRON_SECRET", "abcdef0123456789abcdef0123456789")
+    monkeypatch.setattr(cp, "process_one", lambda: {"status": "IDLE"})
+    from stock_machine.webapp_ops import app
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.get(
+        "/api/admin/process",
+        headers={"Authorization": "Bearer abcdef0123456789abcdef0123456789"},
+    )
+    assert response.status_code == 200
