@@ -1,12 +1,10 @@
 """Authenticated, DB-backed orchestration for Vercel-hosted stock-machine jobs.
 
-The control plane deliberately separates *requesting* work from *executing*
-work. POST handlers enqueue an idempotent job and return immediately. A manual
-or cron processor claims one job with a DB lease, runs it, then records the
-result. This keeps database credentials server-side in Vercel and avoids
-putting DATABASE_URL into external clients.
+POST handlers enqueue idempotent work and return immediately. A manual or cron
+processor claims one job with a DB lease, executes it, then persists the
+result. Production database credentials remain server-side in Vercel.
 
-No order placement exists here.
+No arbitrary SQL, shell, broker order, or account-mutation surface exists here.
 """
 from __future__ import annotations
 
@@ -28,9 +26,45 @@ JOB_TYPES = {
     "forward_paper_sync",
     "forward_paper_mark",
 }
-TERMINAL = {"SUCCEEDED", "FAILED"}
 TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,14}$")
 LEASE_MINUTES = 15
+
+CONTROL_SCHEMA = """
+CREATE TABLE IF NOT EXISTS orchestration_jobs (
+    job_id TEXT PRIMARY KEY,
+    job_type TEXT NOT NULL,
+    ticker TEXT,
+    status TEXT NOT NULL,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    result JSONB,
+    last_error TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    lease_until TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS orchestration_jobs_queue_idx
+    ON orchestration_jobs (status, created_at);
+CREATE TABLE IF NOT EXISTS stock_research_index (
+    ticker TEXT PRIMARY KEY,
+    as_of DATE NOT NULL,
+    snapshot JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS stock_research_index_updated_idx
+    ON stock_research_index (updated_at DESC);
+"""
+
+
+def ensure_schema(conn) -> None:
+    """Bootstrap PR32 tables without requiring an external migration runner."""
+    with conn.cursor() as cur:
+        cur.execute(CONTROL_SCHEMA)
+    conn.commit()
 
 
 def normalize_ticker(value: str | None) -> str | None:
@@ -70,6 +104,7 @@ def _row(row) -> dict | None:
 def enqueue(conn, job_type: str, *, ticker: str | None = None,
             payload: dict | None = None, idempotency_key: str | None = None,
             max_attempts: int = 3) -> dict:
+    ensure_schema(conn)
     kind = job_type.strip().lower()
     if kind not in JOB_TYPES:
         raise ValueError(f"unsupported job_type {kind!r}")
@@ -107,6 +142,7 @@ def enqueue(conn, job_type: str, *, ticker: str | None = None,
 
 
 def get_job(conn, job_id: str) -> dict | None:
+    ensure_schema(conn)
     with conn.cursor() as cur:
         cur.execute(
             """SELECT job_id,job_type,ticker,status,payload,result,last_error,
@@ -119,6 +155,7 @@ def get_job(conn, job_id: str) -> dict | None:
 
 
 def list_jobs(conn, *, status: str | None = None, limit: int = 25) -> list[dict]:
+    ensure_schema(conn)
     limit = max(1, min(int(limit), 100))
     params: list[Any] = []
     where = ""
@@ -139,10 +176,20 @@ def list_jobs(conn, *, status: str | None = None, limit: int = 25) -> list[dict]
 
 
 def claim_next(conn) -> dict | None:
-    """Atomically claim one pending or expired leased job."""
+    """Atomically claim one pending/expired job and fail exhausted leases."""
+    ensure_schema(conn)
     now = datetime.now(timezone.utc)
     lease = now + timedelta(minutes=LEASE_MINUTES)
     with conn.cursor() as cur:
+        # A function that timed out on its final allowed attempt must not remain
+        # RUNNING forever after its lease expires.
+        cur.execute(
+            """UPDATE orchestration_jobs
+               SET status='FAILED',last_error=COALESCE(last_error,'job lease expired after final attempt'),
+                   lease_until=NULL,finished_at=now(),updated_at=now()
+               WHERE status='RUNNING' AND lease_until IS NOT NULL
+                 AND lease_until < now() AND attempts >= max_attempts"""
+        )
         cur.execute(
             """SELECT job_id FROM orchestration_jobs
                WHERE (status='PENDING'
@@ -212,7 +259,6 @@ def _price_rows(rows: list[dict]) -> list[dict]:
 
 
 def _forecast_one(ticker: str) -> dict:
-    """Persist one probabilistic forecast; degrade explicitly if history is short."""
     from .prediction import forecast
     with db.connect() as conn:
         prices = _price_rows(db.fetch_prices(conn, ticker))
@@ -271,6 +317,7 @@ def build_index_row(ticker: str) -> dict:
 
 
 def save_index_row(conn, ticker: str, row: dict) -> None:
+    ensure_schema(conn)
     with conn.cursor() as cur:
         cur.execute(
             """INSERT INTO stock_research_index (ticker,as_of,snapshot)
@@ -283,6 +330,7 @@ def save_index_row(conn, ticker: str, row: dict) -> None:
 
 
 def research_index(conn) -> list[dict]:
+    ensure_schema(conn)
     with conn.cursor() as cur:
         cur.execute("SELECT snapshot FROM stock_research_index ORDER BY ticker")
         return [row[0] for row in cur.fetchall()]
@@ -315,7 +363,9 @@ def _strategy_lab(payload: dict) -> dict:
     with db.connect() as conn:
         panel, grid = build_panel(conn)
     result = run_lab(panel, cost_bps=cost_bps)
-    result["source_panel"] = {"observations": len(panel), "grid_dates": len(grid), "caveats": CAVEATS}
+    result["source_panel"] = {
+        "observations": len(panel), "grid_dates": len(grid), "caveats": CAVEATS,
+    }
     phash = panel_hash(panel)
     with db.connect() as conn:
         run_id = save(conn, result, phash)
@@ -332,8 +382,10 @@ def _forward_sync(payload: dict) -> dict:
         if not lab:
             raise ValueError("no Strategy Lab v2 run exists")
         observations, prices = current_cross_section(conn)
-        contract = build_contract(lab, policy_name, mode, observations, prices,
-                                  cost_bps=float(payload.get("cost_bps", 15.0)))
+        contract = build_contract(
+            lab, policy_name, mode, observations, prices,
+            cost_bps=float(payload.get("cost_bps", 15.0)),
+        )
         return sync_cohort(conn, contract)
 
 
@@ -346,11 +398,15 @@ def _forward_mark() -> dict:
             try:
                 mark = build_mark(conn, cohort)
                 save_mark(conn, mark)
-                out.append({"cohort_id": cohort["cohort_id"], "status": "ok",
-                            "market_date": mark["market_date"]})
+                out.append({
+                    "cohort_id": cohort["cohort_id"], "status": "ok",
+                    "market_date": mark["market_date"],
+                })
             except Exception as exc:
-                out.append({"cohort_id": cohort["cohort_id"], "status": "skipped",
-                            "reason": f"{type(exc).__name__}: {exc}"})
+                out.append({
+                    "cohort_id": cohort["cohort_id"], "status": "skipped",
+                    "reason": f"{type(exc).__name__}: {exc}",
+                })
     return {"cohorts": out}
 
 
