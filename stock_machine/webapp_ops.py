@@ -89,9 +89,6 @@ def company_events(ticker: str, days: int = 370) -> dict:
             )
         except Exception as exc:
             conn.rollback()
-            # Vercel code may deploy before the migration/refresh worker has
-            # populated optional event storage. Keep the research API alive,
-            # but never describe missing event intelligence as clear.
             return {
                 "status": "PENDING",
                 "ticker": ticker.upper(),
@@ -132,3 +129,35 @@ def company_event_screen(
             }
     finally:
         conn.close()
+
+
+@app.get("/api/strategy-lab-v2")
+def strategy_lab_v2_status() -> dict:
+    """Latest immutable Strategy Lab v2 run; never computes a backtest in-request."""
+    from .strategy_lab_v2_store import latest as latest_strategy_lab
+
+    conn = db.connect()
+    try:
+        try:
+            row = latest_strategy_lab(conn)
+        except Exception as exc:
+            conn.rollback()
+            return {
+                "status": "PENDING",
+                "reason": f"Strategy Lab v2 storage unavailable: {type(exc).__name__}: {exc}",
+            }
+    finally:
+        conn.close()
+    if not row:
+        return {
+            "status": "PENDING",
+            "reason": "no Strategy Lab v2 run exists; run scripts/run_strategy_lab_v2.py",
+        }
+    return {
+        "status": "OK",
+        "run_id": row["run_id"],
+        "as_of": row["as_of"],
+        "panel_hash": row["panel_hash"],
+        "created_at": row["created_at"],
+        "result": row["result"],
+    }
