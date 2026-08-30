@@ -3,19 +3,34 @@
 HIMS is classified as **Healthcare Services** because the SEC reports SIC 8011
 (Services — Offices & Clinics of Doctors of Medicine).
 
-The initial analyst scenario report uses EV/revenue rather than P/E because
-current GAAP earnings and free cash flow are not stable valuation denominators.
-The three 12-month scenarios use explicit fair values derived from approximate
-2027 revenue, EV/sales and net-debt assumptions:
+The analyst scenario report uses EV/revenue rather than P/E because current
+GAAP earnings and free cash flow are not stable valuation denominators. The
+equity bridge is intentionally more conservative than a simple net-debt
+calculation: in addition to convertible notes, it treats recorded deferred
+acquisition payments and earn-out consideration as debt-like obligations, net
+of principal cash and short-term investments.
 
-| Scenario | Probability | 2027 revenue | EV/Sales | Net debt | Diluted shares | Fair value |
+Approximate June 2026 bridge inputs:
+
+- Convertible notes, net carrying value: ~$1.365B
+- Deferred acquisition payable, current + long-term: ~$0.703B
+- Recorded earn-out consideration, current + long-term: ~$0.163B
+- Cash + short-term investments: ~$0.841B
+- Net financial/acquisition obligations: ~$1.390B
+- Diluted-share assumption: ~233M
+
+The three 12-month scenarios are:
+
+| Scenario | Probability | 2027 revenue | EV/Sales | Net obligations | Diluted shares | Fair value |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Bear | 30% | $3.80B | 1.35x | $0.524B | 233M | $19.8 |
-| Base | 50% | $4.25B | 2.10x | $0.524B | 233M | $36.1 |
-| Bull | 20% | $4.65B | 2.90x | $0.524B | 233M | $55.6 |
+| Bear | 30% | $3.80B | 1.35x | $1.390B | 233M | $16.1 |
+| Base | 50% | $4.25B | 2.10x | $1.390B | 233M | $32.3 |
+| Bull | 20% | $4.65B | 2.90x | $1.390B | 233M | $51.9 |
 
-The probabilities are analyst judgment and explicitly uncalibrated. They are
-not to be confused with the quantitative model's downside probabilities.
+At a late-August reference price near $28.84, the 30/50/20 probability-weighted
+value is about $31.36, or roughly 9% upside before transaction costs. The
+probabilities are analyst judgment and explicitly uncalibrated; they are not to
+be confused with the quantitative model's downside probabilities.
 
 Key thesis distinction: Q2 2026 consolidated revenue grew 38%, but U.S. revenue
 grew 16% and Rest-of-World growth was materially acquisition-driven. Gross
