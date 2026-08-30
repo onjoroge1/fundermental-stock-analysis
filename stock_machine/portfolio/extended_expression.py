@@ -5,11 +5,16 @@ enter automated comparison only after the P2-D path-risk contract clears a
 conservative economic-loss bound, transient assignment-notional gate, event
 screen, and liquidity requirements.
 
+P2-E adds a candidate-specific event-screen factory so each calendar/diagonal
+is screened against its own front/far expirations rather than one generic
+strategy-level calendar.
+
 This module remains review-only: it never places an order or changes a P2-A
 portfolio target weight.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from math import fabs
 
 from ..options.path_risk import PathRiskPolicy, assess_mixed_path_risk
@@ -48,6 +53,7 @@ def _mixed_score(candidate: dict, risk: dict, direction: int,
 def compare_extended(position: dict, extended_candidates: list[dict],
                      policy: ExpressionPolicy | None = None,
                      *, event_screens: dict[str, dict] | None = None,
+                     event_screen_factory: Callable[[dict], dict] | None = None,
                      path_policy: PathRiskPolicy | None = None) -> dict:
     policy = policy or ExpressionPolicy()
     path_policy = path_policy or PathRiskPolicy()
@@ -81,10 +87,14 @@ def compare_extended(position: dict, extended_candidates: list[dict],
                     "reasons": ["mixed-expiration structure direction does not match portfolio target"],
                 })
                 continue
+            if event_screen_factory is not None:
+                event_screen = event_screen_factory(candidate)
+            else:
+                event_screen = event_screens.get(strategy)
             risk = assess_mixed_path_risk(
                 candidate,
                 budget,
-                event_screen=event_screens.get(strategy),
+                event_screen=event_screen,
                 policy=path_policy,
             )
             if not risk["automation_eligible"]:
@@ -93,6 +103,7 @@ def compare_extended(position: dict, extended_candidates: list[dict],
                     "valuation_mode": candidate.get("valuation_mode"),
                     "scenario_best_pnl": candidate.get("scenario_best_pnl"),
                     "scenario_worst_pnl": candidate.get("scenario_worst_pnl"),
+                    "event_screen": event_screen,
                     "path_risk": risk,
                     "reason": "mixed-expiration structure remains analysis-only because a path-risk gate failed",
                 })
@@ -100,6 +111,7 @@ def compare_extended(position: dict, extended_candidates: list[dict],
             accepted.append({
                 "candidate": candidate,
                 "score": _mixed_score(candidate, risk, direction, budget, path_policy),
+                "event_screen": event_screen,
                 "path_risk": risk,
             })
             continue
@@ -130,7 +142,8 @@ def compare_extended(position: dict, extended_candidates: list[dict],
         premium_yield = min(1.0, credit / max(1.0, spot * 100.0) / 0.05)
         upside_room = min(1.0, max(0.0, strike / max(spot, 1e-9) - 1.0) / 0.15)
         score = round(100.0 * (0.45 * liq + 0.30 * premium_yield + 0.25 * upside_room), 3)
-        accepted.append({"candidate": candidate, "score": score, "path_risk": None})
+        accepted.append({"candidate": candidate, "score": score,
+                         "event_screen": None, "path_risk": None})
 
     accepted.sort(key=lambda x: x["score"], reverse=True)
     if not accepted:
@@ -164,6 +177,7 @@ def compare_extended(position: dict, extended_candidates: list[dict],
         "breakeven": c.get("breakeven"),
         "scenario_best_pnl": c.get("scenario_best_pnl"),
         "scenario_worst_pnl": c.get("scenario_worst_pnl"),
+        "event_screen": best.get("event_screen"),
         "path_risk": best.get("path_risk"),
     }
     reason = (
