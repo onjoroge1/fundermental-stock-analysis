@@ -7,7 +7,7 @@ provider coverage is both fresh and complete across the relevant window.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 from .store import events_in_window, latest_coverage
 
@@ -87,12 +87,17 @@ def build_event_screen(conn, ticker: str, strategy_type: str,
             "warnings": [],
         }
     try:
-        if date.fromisoformat(front) < date.fromisoformat(today):
+        front_date = date.fromisoformat(front)
+        far_date = date.fromisoformat(far)
+        today_date = date.fromisoformat(today)
+        if front_date < today_date:
             reasons.append("front expiration is before event-screen as_of")
-        if date.fromisoformat(far) <= date.fromisoformat(front):
+        if far_date <= front_date:
             reasons.append("far expiration must be after front expiration")
+        after_front = (front_date + timedelta(days=1)).isoformat()
     except ValueError:
         reasons.append("invalid event-screen date")
+        after_front = front
 
     earnings_cov = latest_coverage(conn, symbol, "EARNINGS", today)
     dividend_cov = latest_coverage(conn, symbol, "EX_DIVIDEND", today)
@@ -112,9 +117,9 @@ def build_event_screen(conn, ticker: str, strategy_type: str,
     ))
 
     earnings_front = events_in_window(conn, symbol, "EARNINGS", today, front, today)
-    earnings_far = events_in_window(conn, symbol, "EARNINGS", front, far, today)
+    earnings_far = events_in_window(conn, symbol, "EARNINGS", after_front, far, today)
     dividends_front = events_in_window(conn, symbol, "EX_DIVIDEND", today, front, today)
-    dividends_far = events_in_window(conn, symbol, "EX_DIVIDEND", front, far, today)
+    dividends_far = events_in_window(conn, symbol, "EX_DIVIDEND", after_front, far, today)
     splits_far = events_in_window(conn, symbol, "SPLIT", today, far, today)
 
     if earnings_front and policy.block_earnings_through_front_expiry:
