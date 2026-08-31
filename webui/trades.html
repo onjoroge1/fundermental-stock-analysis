@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Stock Machine — Trade Dashboard</title>
+  <link rel="stylesheet" href="/ui/trade_dashboard.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">FUNDAMENTAL STOCK MACHINE</div>
+      <h1>Trade Decision Dashboard</h1>
+      <p>Persisted portfolio evidence, research opportunities, incubation status and on-demand option analysis.</p>
+    </div>
+    <div class="actions">
+      <a class="button secondary" href="/">Main dashboard</a>
+      <button class="button" id="refreshButton">Refresh</button>
+    </div>
+  </header>
+
+  <main id="app">
+    <section class="status-strip" id="statusStrip"></section>
+
+    <section class="grid four" id="summaryCards"></section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div><div class="eyebrow">P2 PORTFOLIO</div><h2>Current positions & trade expression</h2></div>
+        <span id="portfolioMeta" class="muted"></span>
+      </div>
+      <div class="table-wrap"><table><thead><tr>
+        <th>Ticker</th><th>Side</th><th>Weight</th><th>Alpha</th><th>P(outperform)</th><th>12m stock E[r]</th><th>Quality</th><th>Expression</th><th>Action</th>
+      </tr></thead><tbody id="positionsBody"></tbody></table></div>
+    </section>
+
+    <section class="split">
+      <section class="panel">
+        <div class="panel-head"><div><div class="eyebrow">OPPORTUNITIES</div><h2>Bullish research ranking</h2></div></div>
+        <div id="bullishList" class="rank-list"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><div><div class="eyebrow">OPPORTUNITIES</div><h2>Bearish research ranking</h2></div></div>
+        <div id="bearishList" class="rank-list"></div>
+      </section>
+    </section>
+
+    <section class="split">
+      <section class="panel">
+        <div class="panel-head"><div><div class="eyebrow">VALIDATION</div><h2>Strategy Lab v2</h2></div></div>
+        <div id="strategyLab"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><div><div class="eyebrow">FORWARD EVIDENCE</div><h2>Forward Paper v2</h2></div></div>
+        <div id="forwardPaper"></div>
+      </section>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><div><div class="eyebrow">THESIS CONTROL</div><h2>Invalidation conditions</h2></div></div>
+      <div id="invalidations" class="invalidation-grid"></div>
+    </section>
+
+    <section class="panel compact">
+      <div class="panel-head"><div><div class="eyebrow">SYSTEM</div><h2>Automation & research coverage</h2></div></div>
+      <pre id="automation"></pre>
+    </section>
+  </main>
+
+  <dialog id="detailDialog">
+    <div class="dialog-head"><h3 id="detailTitle"></h3><button id="closeDialog">×</button></div>
+    <div id="detailBody"></div>
+  </dialog>
+
+  <script src="/ui/trade_dashboard.js"></script>
+</body>
+</html>
