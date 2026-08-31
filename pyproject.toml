@@ -37,7 +37,7 @@ testpaths = ["tests"]
 addopts = "--strict-markers"
 
 [tool.vercel]
-entrypoint = "stock_machine.webapp_ops:app"
+entrypoint = "stock_machine.webapp_automation:app"
 
 [build-system]
 requires = ["setuptools>=68"]
