@@ -7,7 +7,10 @@ Three read-only IBKR paths are available; `get_provider` picks one so callers
   client_portal  Client Portal REST gateway.
   remote_bridge  Authenticated HTTPS bridge to TWS / IBGW on another machine.
 
-Select with IBKR_PROVIDER=tws|client_portal|remote_bridge (default: tws).
+Select explicitly with IBKR_PROVIDER=tws|client_portal|remote_bridge.
+When IBKR_PROVIDER is omitted but both IBKR_BRIDGE_BASE_URL and
+IBKR_BRIDGE_TOKEN are configured, the remote bridge is selected automatically.
+Otherwise the legacy local default remains `tws`.
 """
 from __future__ import annotations
 
@@ -37,6 +40,36 @@ class MarketDataUnavailable(RuntimeError):
     """
 
 
+def configured_provider_name(name: str | None = None) -> str:
+    """Resolve the provider without importing or connecting to a backend.
+
+    Precedence is intentionally strict:
+
+    1. An explicit function argument.
+    2. IBKR_PROVIDER when it is set and non-empty.
+    3. remote_bridge when the cloud bridge URL and token are both configured.
+    4. The legacy local TWS default.
+
+    The bridge inference makes cloud deployments resilient to a missing
+    IBKR_PROVIDER selector while still requiring the bridge's authenticated
+    endpoint configuration. An explicit provider always wins so local testing
+    and operator overrides remain deterministic.
+    """
+    if name is not None and str(name).strip():
+        return str(name).strip().lower()
+
+    env_choice = os.environ.get("IBKR_PROVIDER", "").strip().lower()
+    if env_choice:
+        return env_choice
+
+    bridge_url = os.environ.get("IBKR_BRIDGE_BASE_URL", "").strip()
+    bridge_token = os.environ.get("IBKR_BRIDGE_TOKEN", "").strip()
+    if bridge_url and bridge_token:
+        return "remote_bridge"
+
+    return DEFAULT_PROVIDER
+
+
 def get_provider(name: str | None = None) -> MarketDataProvider:
     """Return a read-only provider. Caller owns closing it.
 
@@ -44,7 +77,7 @@ def get_provider(name: str | None = None) -> MarketDataProvider:
     ``MarketDataUnavailable`` so every caller gets the same explicit failure
     contract. An unknown provider name remains a configuration ``ValueError``.
     """
-    choice = (name or os.environ.get("IBKR_PROVIDER", DEFAULT_PROVIDER)).lower()
+    choice = configured_provider_name(name)
     allowed = (
         "tws", "gateway", "ibkr_tws",
         "client_portal", "cp", "ibkr_client_portal",
@@ -92,5 +125,6 @@ __all__ = [
     "SessionStatus",
     "StrikeSet",
     "UnderlyingContract",
+    "configured_provider_name",
     "get_provider",
 ]
