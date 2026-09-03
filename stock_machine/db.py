@@ -120,6 +120,32 @@ def replace_prices(conn: psycopg.Connection, ticker: str, rows: list[dict]) -> N
     conn.commit()
 
 
+def upsert_prices(conn: psycopg.Connection, ticker: str,
+                  rows: list[dict]) -> int:
+    """Insert-or-update price rows by date, leaving the rest of the series
+    untouched.
+
+    replace_prices() deletes the whole history first, which is right for a
+    full pipeline reload but would destroy 15 years of data during a tail
+    refresh. This is the additive path: a same-day refresh updates today's
+    row in place rather than appending a duplicate.
+    """
+    if not rows:
+        return 0
+    with conn.cursor() as cur:
+        cur.executemany(
+            """INSERT INTO prices_daily VALUES (%(ticker)s, %(date)s, %(open)s,
+               %(high)s, %(low)s, %(close)s, %(adj_close)s, %(volume)s)
+               ON CONFLICT (ticker, date) DO UPDATE SET
+                   open = EXCLUDED.open, high = EXCLUDED.high,
+                   low = EXCLUDED.low, close = EXCLUDED.close,
+                   adj_close = EXCLUDED.adj_close, volume = EXCLUDED.volume""",
+            [{**r, "ticker": ticker} for r in rows],
+        )
+    conn.commit()
+    return len(rows)
+
+
 def replace_actions(conn: psycopg.Connection, ticker: str, rows: list[dict]) -> None:
     with conn.cursor() as cur:
         cur.execute("DELETE FROM corporate_actions WHERE ticker = %s", (ticker,))

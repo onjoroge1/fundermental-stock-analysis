@@ -1,5 +1,10 @@
 """Launch the dashboard on the port the environment assigns.
 
+Serves webapp_automation, not webapp: the two share one FastAPI singleton,
+but the automation module is what attaches the automation, options-
+recommendation and /trades routers to it. Importing webapp alone silently
+drops them.
+
 uvicorn does not read $PORT itself, so removing a hardcoded --port flag would
 silently fall back to 8000. This shim honours PORT (what the preview harness
 sets) and falls back to 8642 for manual runs.
@@ -16,7 +21,7 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(
-        "stock_machine.webapp_ops:app",
+        "stock_machine.webapp_automation:app",
         host=os.environ.get("HOST", "127.0.0.1"),
         port=int(os.environ.get("PORT", "8642")),
         log_level=os.environ.get("LOG_LEVEL", "info"),

@@ -226,6 +226,25 @@ def main() -> None:
             ),
         )
         print(result.model_dump_json(indent=2))
+    elif cmd == "prices":
+        from .prices_live import price_status, refresh_many, refresh_universe
+
+        sub = sys.argv[2] if len(sys.argv) > 2 else "status"
+        if sub == "status":
+            print(json.dumps(price_status(), indent=1))
+        elif sub == "refresh":
+            tickers = [t.upper() for t in sys.argv[3:] if not t.startswith("--")]
+            prefer = "tws" if "--tws" in sys.argv else "auto"
+            result = (refresh_many(tickers, prefer=prefer) if tickers
+                      else refresh_universe(prefer=prefer))
+            compact = {k: v for k, v in result.items() if k != "results"}
+            print(json.dumps(compact, indent=1))
+            for row in result["results"]:
+                if row["status"] != "ok":
+                    print(json.dumps(row))
+        else:
+            raise SystemExit(
+                "usage: stock-machine prices status | refresh [TICKER...] [--tws]")
     elif cmd == "mlrank":
         from datetime import datetime, timezone
 

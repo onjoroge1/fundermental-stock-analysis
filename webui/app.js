@@ -209,6 +209,51 @@ async function fetchJSON(url) {
   return r.json();
 }
 
+/* ---------------- price freshness ---------------- */
+/* Prices go stale between daily runs; this states the age plainly and lets a
+   refresh be triggered at any moment. Prices only — fundamentals, consensus
+   and forecasts are NOT refreshed, so a green badge here never means the
+   analysis below it is fresh. */
+async function renderPriceFreshness() {
+  const el = $("#price-freshness");
+  if (!el) return;
+  let st;
+  try {
+    st = await fetchJSON("/api/prices/status");
+  } catch (e) {
+    el.innerHTML = '<div class="freshness"><span class="fresh-dot bad"></span>' +
+      "price status unavailable</div>";
+    return;
+  }
+  const age = st.age_days;
+  const cls = st.stale ? "bad" : (age !== null && age > 1 ? "warn" : "ok");
+  const behind = st.tickers_behind_latest
+    ? ` · ${st.tickers_behind_latest} behind` : "";
+  el.innerHTML = `<div class="freshness">
+      <span class="fresh-dot ${cls}"></span>
+      <span class="fresh-text">Prices ${st.latest_price_date || "—"}${behind}</span>
+      <button class="fresh-btn" id="fresh-refresh">Refresh</button>
+    </div>`;
+  $("#fresh-refresh").onclick = async (ev) => {
+    const btn = ev.target;
+    btn.disabled = true;
+    btn.textContent = "…";
+    $(".fresh-text").textContent = "Refreshing prices (~3 min)";
+    try {
+      const r = await fetch("/api/prices/refresh", { method: "POST" });
+      if (!r.ok) throw new Error(r.status);
+      const out = await r.json();
+      if (out.failed) console.warn("price refresh failures", out.failed);
+    } catch (e) {
+      $(".fresh-text").textContent = "Refresh failed";
+      btn.disabled = false;
+      btn.textContent = "Retry";
+      return;
+    }
+    await renderPriceFreshness();
+  };
+}
+
 /* ---------------- sidebar ---------------- */
 function renderSidebar() {
   const nav = $("#nav-companies");
@@ -1086,6 +1131,7 @@ function renderQuarterlyTable(root, periods) {
   // can take minutes, and tools like the Options lab must not wait on it.
   state.companies = [];
   renderSidebar();
+  renderPriceFreshness();   // independent of coverage; never blocks it
   $("#main").innerHTML = '<div class="loading">Loading coverage… ' +
     'other sections in the sidebar are usable now.</div>';
   try {

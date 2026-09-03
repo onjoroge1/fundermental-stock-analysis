@@ -57,6 +57,31 @@ def bundle(ticker: str) -> dict:
         raise HTTPException(404, str(e))
 
 
+@app.get("/api/prices/status")
+def prices_status() -> dict:
+    """How current stored prices are — drives the UI staleness banner."""
+    from .prices_live import price_status
+
+    return price_status()
+
+
+@app.post("/api/prices/refresh")
+def prices_refresh(ticker: str | None = None, days: int = 10,
+                   prefer: str = "auto") -> dict:
+    """Bring stored prices current on demand.
+
+    Touches the recent price tail only: fundamentals, consensus, insiders and
+    bundles are untouched, so a refreshed price never implies refreshed
+    analysis. Omit `ticker` to refresh the whole universe (~3-4 minutes).
+    """
+    from .prices_live import refresh_many, refresh_universe
+
+    result = (refresh_many([ticker], days, prefer) if ticker
+              else refresh_universe(days, prefer))
+    _CACHE.clear()          # bundles cache prices; drop them after a refresh
+    return result
+
+
 @app.get("/api/prices/{ticker}")
 def prices(ticker: str, days: int = 756) -> list[dict]:
     conn = db.connect()

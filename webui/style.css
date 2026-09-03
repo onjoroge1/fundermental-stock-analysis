@@ -179,3 +179,17 @@ details.qtable summary { cursor: pointer; color: var(--text-2); font-size: 13px;
 .o-btn { background: var(--series-1); color: #fff; border: none; border-radius: 7px;
   padding: 8px 16px; font-weight: 600; font-size: 13px; cursor: pointer; }
 .o-btn:hover { filter: brightness(1.1); }
+
+/* price freshness badge */
+.freshness { display:flex; align-items:center; gap:7px; padding:8px 14px;
+  border-bottom:1px solid var(--line); font-size:11px; color:var(--text-3); }
+.fresh-dot { width:7px; height:7px; border-radius:50%; flex:0 0 auto; }
+.fresh-dot.ok { background:var(--pos, #2f9e5f); }
+.fresh-dot.warn { background:#d09a2c; }
+.fresh-dot.bad { background:var(--neg, #c0483f); }
+.fresh-text { flex:1 1 auto; }
+.fresh-btn { font:inherit; font-size:10px; padding:2px 7px; cursor:pointer;
+  color:var(--text-2); background:transparent;
+  border:1px solid var(--line); border-radius:4px; }
+.fresh-btn:hover:not(:disabled) { color:var(--text-1); border-color:var(--text-3); }
+.fresh-btn:disabled { opacity:.5; cursor:default; }
