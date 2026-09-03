@@ -35,6 +35,11 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: alembic upgrade head
+      - name: Refresh stale daily prices
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PRICE_SOURCE: yahoo
+        run: python scripts/refresh_prices.py --max-age-hours 18
       - name: Mark frozen cohorts
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
