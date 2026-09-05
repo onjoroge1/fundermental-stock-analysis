@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from .intervals import matured_before
+from .comparisons import baseline_scores, comparison_series, evidence
 from datetime import date, timedelta
 
 from .evaluate import spearman
@@ -136,12 +137,16 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         if ic is None:
             continue
         p1_ics.append(ic)
-        per_date.append({"as_of": test_date, "n": len(test_rows), "regime_ic": round(ic, 3)})
+        per_date.append({"as_of": test_date, "n": len(test_rows), "regime_ic": ic,
+                             "tickers": sorted(r["ticker"] for r in test_rows),
+                             "paired_baselines": baseline_scores(test_rows, preds, actual)})
 
     if not p1_ics:
         return {"status": "INSUFFICIENT_HISTORY"}
 
     p0 = p0_walk_forward(obs, horizon=horizon)
+    control_series = {"p0": comparison_series(p0.get("per_date", []), "unified_ic")}
+    paired = evidence(per_date, "regime_ic", horizon, control_series)
     p1_mean = sum(p1_ics) / len(p1_ics)
     p0_mean = p0.get("unified_mean_ic") if p0.get("status") == "OK" else None
     best_dumb = p0.get("verdict", {}).get("best_baseline_mean_ic_same_dates") if p0.get("status") == "OK" else None
@@ -158,7 +163,8 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         "feature_weights_final": {name: round(w, 4) for name, w in zip(FEATURE_NAMES, weights_last or [])},
         "verdict": {
             "hurdle_mean_ic": round(hurdle, 4) if hurdle is not None else None,
-            "regime_model_beats_p0_and_baseline": bool(hurdle is not None and p1_mean > hurdle),
+            "regime_model_beats_p0_and_baseline": paired["passes"],
+            "paired_evidence": paired,
             "kill_criterion": "P1 regime challenger must beat P0 unified and the strongest dumb baseline on the same embargoed panel",
         },
         "per_date": per_date,

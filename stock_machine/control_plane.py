@@ -262,7 +262,8 @@ def _forecast_one(ticker: str) -> dict:
     from .forecast_service import compute_and_save
     result = compute_and_save(ticker)
     return {"status": result.get("status"), "model_version": result.get("model_version"),
-            "alpha_status": (result.get("alpha_forecast") or {}).get("status")}
+            "alpha_status": (result.get("alpha_forecast") or {}).get("status"),
+            "forecast_id": result.get("forecast_id")}
 
 
 def _events_one(ticker: str) -> dict:

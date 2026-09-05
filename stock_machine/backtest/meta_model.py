@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from .intervals import matured_before
+from .comparisons import baseline_scores, comparison_series, evidence
 from datetime import date, timedelta
 
 from .evaluate import spearman
@@ -99,6 +100,7 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         ensemble_ics.append(ens_ic)
         per_date.append({
             "as_of": test_date,
+            "tickers": sorted(r["ticker"] for r in test_rows),
             "n": len(test_rows),
             "ridge_ic": round(ridge_ic, 3),
             "lightgbm_ic": round(tree_ic, 3),
@@ -114,6 +116,9 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
     if not ensemble_ics:
         return {"status": "INSUFFICIENT_HISTORY", "model": "rolling_p1_ensemble"}
 
+    paired = evidence(per_date, "ensemble_ic", horizon,
+                      {"ridge": comparison_series(per_date, "ridge_ic"),
+                       "lightgbm": comparison_series(per_date, "lightgbm_ic")}, include_baselines=False)
     ridge_mean = sum(r["ridge_ic"] for r in per_date) / len(per_date)
     tree_mean = sum(r["lightgbm_ic"] for r in per_date) / len(per_date)
     ensemble_mean = sum(ensemble_ics) / len(ensemble_ics)
@@ -130,7 +135,8 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         "final_weights": {k: round(v, 4) for k, v in rolling_weights(history).items()},
         "verdict": {
             "best_single_model_mean_ic": round(hurdle, 4),
-            "ensemble_beats_best_single_model": ensemble_mean > hurdle,
+            "ensemble_beats_best_single_model": paired["passes"],
+            "paired_evidence": paired,
             "kill_criterion": "rolling ensemble must beat the best constituent model on identical embargoed dates; weights use only matured OOS outcomes available before the prediction",
         },
         "per_date": per_date,

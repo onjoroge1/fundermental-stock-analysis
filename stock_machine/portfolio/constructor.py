@@ -6,6 +6,7 @@ from math import fabs
 
 from .risk import beta as estimate_beta, correlation, realized_vol
 from ..forecast_readiness import alpha_readiness
+from ..market_calendar import price_freshness
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,7 @@ def build_proposal(candidates: list[dict], benchmark_rows: list[dict],
     Long/short direction follows the sign of expected excess return.
     """
     policy = policy or PortfolioPolicy()
+    benchmark_freshness = price_freshness(benchmark_rows[-1]["date"] if benchmark_rows else None, as_of=as_of)
     scored = []
     rejected = []
     for c in candidates:
@@ -48,6 +50,9 @@ def build_proposal(candidates: list[dict], benchmark_rows: list[dict],
         readiness = alpha_readiness(c.get("forecast") or {}, policy.horizon_days,
                                     latest_price_date=prices[-1]["date"] if prices else None,
                                     data_quality=c.get("data_quality"), as_of=as_of)
+        if benchmark_freshness["status"] != "CURRENT":
+            readiness["blockers"].append("benchmark risk inputs are missing or stale")
+            readiness.update(status="BLOCKED", eligible=False)
         if not readiness["eligible"]:
             rejected.append({"ticker": c["ticker"], "readiness": readiness})
             continue

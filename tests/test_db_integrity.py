@@ -105,3 +105,43 @@ def test_surprise_rerun_does_not_backdate_or_duplicate_observation(conn):
     assert len(records) == 2
     assert all(r[1] > r[0] for r in records)
     assert sorted(r[2] for r in records) == [10.0, 20.0]
+
+
+def test_health_api_reads_migrated_store_and_refresh_requires_authentication(conn, monkeypatch):
+    from datetime import datetime, timezone
+    from fastapi.testclient import TestClient
+    from stock_machine import market_health
+    from stock_machine.webapp_automation import app
+    schema = conn.execute("SELECT current_schema()").fetchone()[0]
+    conn.execute("INSERT INTO companies(ticker,cik) VALUES ('APIHEALTH','test')")
+    conn.execute("INSERT INTO prices_daily(ticker,date,close,adj_close,volume) VALUES ('APIHEALTH','2026-09-04',100,100,10)")
+    conn.commit()
+    snapshot = assess_dataset("prices", [{"date": "2026-09-04", "close": 100, "volume": 10}])
+    db.record_dataset_snapshots(conn, "APIHEALTH", [snapshot])
+    def connect():
+        c = psycopg.connect(os.environ["TEST_DATABASE_URL"])
+        c.execute(f'SET search_path TO "{schema}"')
+        c.commit()
+        return c
+    monkeypatch.setattr(db, "connect", connect)
+    monkeypatch.setattr(market_health, "_now_utc", lambda: datetime(2026, 9, 5, 12, tzinfo=timezone.utc))
+    client = TestClient(app)
+    response = client.get("/api/v1/data-health")
+    assert response.status_code == 200
+    assert response.json()["current_count"] == 1
+    assert client.post("/api/v1/data-refresh?tickers=APIHEALTH").status_code in (401, 503)
+
+
+def test_pit_readers_filter_fiscal_basis_and_future_effective_dates(conn):
+    conn.execute("""INSERT INTO consensus_snapshots(ticker,snapshot_date,period_type,forecast_period_end,eps_mean)
+                    VALUES ('READER','2025-01-01','annual','2025-12-31',2),
+                           ('READER','2025-01-02','quarter','2025-02-15',1)""")
+    conn.execute("""INSERT INTO shares_outstanding(ticker,as_of,shares,available_at)
+                    VALUES ('READER','2025-03-01',100,'2025-01-01')""")
+    conn.commit()
+    rows = db.fetch_consensus(conn, "READER", "2025-02-01")
+    assert len(rows) == 1 and rows[0]["period_type"] == "annual"
+    assert db.fetch_consensus(conn, "READER", "2025-01-01") == []
+    assert db.fetch_shares(conn, "READER", "2025-02-01") == []
+    assert db.fetch_periods(conn, "READER", "quarter", "2025-02-01") == []
+    assert db.fetch_surprises(conn, "VINTAGE", "2025-01-25") == []

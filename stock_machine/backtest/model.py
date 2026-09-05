@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from .intervals import matured_before
+from .comparisons import baseline_scores, comparison_series, evidence
 from datetime import date, timedelta
 
 from .evaluate import spearman
@@ -148,6 +149,8 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         rev_ic = spearman([p[0] for p in rev_pairs],
                           [p[1] for p in rev_pairs])
         per_date.append({"as_of": t, "n": len(test_rows),
+                         "tickers": sorted(r["ticker"] for r in test_rows),
+                         "paired_baselines": baseline_scores(test_rows, preds, actual),
                          "ml_ic": round(ic, 3),
                          "composite_ic": round(comp, 3) if comp else None,
                          "revenue_yoy_ic": (round(rev_ic, 3)
@@ -160,6 +163,7 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
     rev_ics = [d["revenue_yoy_ic"] for d in per_date
                if d["revenue_yoy_ic"] is not None]
     rev_mean = sum(rev_ics) / len(rev_ics) if rev_ics else None
+    paired = evidence(per_date, "ml_ic", horizon)
     verdict = {
         "kill_criterion": "the learned model must beat the best dumb "
                           "baseline on the SAME test dates, else it is not "
@@ -167,7 +171,8 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         "best_baseline": "revenue_yoy",
         "baseline_mean_ic_same_dates": (round(rev_mean, 4)
                                         if rev_mean is not None else None),
-        "model_beats_baseline": (rev_mean is not None and mean > rev_mean),
+        "model_beats_baseline": paired["passes"],
+        "paired_evidence": paired,
     }
     return {
         "status": "OK",

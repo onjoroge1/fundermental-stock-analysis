@@ -67,5 +67,5 @@ def compute_and_save(ticker: str) -> dict:
     result = build_forecast(ticker)
     if result.get("status") == "OK":
         with db.connect() as conn:
-            db.save_prediction_forecast(conn, result)
+            result["forecast_id"] = db.save_prediction_forecast(conn, result)
     return result

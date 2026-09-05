@@ -280,8 +280,8 @@ def valuation_metrics(ttm: dict | None, price: float | None,
                       enterprise_value: float | None,
                       ttm_history: list[tuple[str, float | None]] | None = None,
                       price_lookup=None) -> dict:
-    """ttm_history: [(period_end, ttm_diluted_eps)] ascending, for the 5y P/E
-    percentile; price_lookup(date_str) -> close on/before that date."""
+    """ttm_history: [(available_at, ttm_diluted_eps)] on one split basis.
+    price_lookup must use the same split basis, without dividend adjustments."""
     eps = _f(ttm, "diluted_eps")
     ni = _f(ttm, "net_income")
     fcf = _f(ttm, "free_cash_flow")

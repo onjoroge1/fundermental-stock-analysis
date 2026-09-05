@@ -15,7 +15,7 @@ Honesty constraints stamped into every run:
   history stays missing; no current estimate is carried backward.
 - Sector labels are today's; P/E-history percentile is excluded from the
   historical valuation score (split-adjustment inconsistency); market cap uses
-  contemporaneous unadjusted close × contemporaneous cover-page share count.
+  original price reconstructed from split events × contemporaneous share count.
 """
 from __future__ import annotations
 

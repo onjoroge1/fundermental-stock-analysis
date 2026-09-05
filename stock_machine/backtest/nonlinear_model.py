@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from .intervals import matured_before
+from .comparisons import baseline_scores, comparison_series, evidence
 from datetime import date, timedelta
 
 from .evaluate import spearman
@@ -81,13 +82,18 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         if ic is None:
             continue
         ics.append(ic)
-        per_date.append({"as_of": test_date, "n": len(test_rows), "lightgbm_ic": round(ic, 3)})
+        per_date.append({"as_of": test_date, "n": len(test_rows), "lightgbm_ic": ic,
+                             "tickers": sorted(r["ticker"] for r in test_rows),
+                             "paired_baselines": baseline_scores(test_rows, pred, actual)})
         importances = list(model.feature_importances_)
 
     if not ics:
         return {"status": "INSUFFICIENT_HISTORY", "model": MODEL_NAME}
 
     linear = options_model.walk_forward(obs, horizon=horizon)
+    control_series = {**linear.get("control_series", {}),
+                      "options": comparison_series(linear.get("per_date", []), "options_ic")}
+    paired = evidence(per_date, "lightgbm_ic", horizon, control_series)
     nonlinear_mean = sum(ics) / len(ics)
     controls = [
         linear.get("options_mean_ic") if linear.get("status") == "OK" else None,
@@ -117,7 +123,8 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         "feature_importance_final": importance_map,
         "verdict": {
             "hurdle_mean_ic": round(hurdle, 4) if hurdle is not None else None,
-            "lightgbm_beats_all_controls": bool(hurdle is not None and nonlinear_mean > hurdle),
+            "lightgbm_beats_all_controls": paired["passes"],
+            "paired_evidence": paired,
             "kill_criterion": "LightGBM must beat the strongest linear P1/P0/baseline control on identical embargoed dates",
         },
         "per_date": per_date,

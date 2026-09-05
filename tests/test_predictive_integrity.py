@@ -242,3 +242,31 @@ def test_macro_revision_cannot_rewrite_earlier_information_set():
     revised = {**early, "available_at": "2026-02-01", "value": 40}
     assert features_as_of({"VIXCLS": [early, revised]}, "2026-01-15")["features"]["vix_level"] == 15
     assert features_as_of({"VIXCLS": [early, revised]}, "2026-02-02")["features"]["vix_level"] == 40
+
+
+def test_baseline_comparison_uses_identical_names_when_a_factor_is_missing():
+    from stock_machine.backtest.comparisons import baseline_scores
+    rows = [{"factors": {"revenue_yoy_pct": i if i < 10 else None}} for i in range(11)]
+    predictions = [*range(10), -1000]
+    result = baseline_scores(rows, predictions, list(range(11)))["revenue_yoy"]
+    assert result == {"n": 10, "model_ic": 1.0, "baseline_ic": 1.0}
+
+
+def test_challenger_comparison_rejects_different_name_sets():
+    from stock_machine.backtest.comparisons import evidence
+    rows = [{"as_of": f"2000-{i:03}", "tickers": ["A", "B"], "ic": 0.3+(i%3)*0.02} for i in range(40)]
+    other = [{**r, "ic": 0.0} for r in rows]
+    matched = evidence(rows, "ic", "fwd_12m_pct", {"control": other}, include_baselines=False)
+    assert matched["passes"] is True
+    mismatched = [{**r, "tickers": ["A", "C"]} for r in other]
+    failed = evidence(rows, "ic", "fwd_12m_pct", {"control": mismatched}, include_baselines=False)
+    assert failed["comparisons"]["control"]["n"] == 0
+    assert failed["passes"] is False
+
+
+def test_historical_valuation_price_uses_the_asof_share_basis():
+    from stock_machine.bundle import _price_lookup_on_share_basis
+    prices = [{"date": "2020-01-02", "close": 25, "adj_close": 20}]
+    splits = [{"date": "2022-01-03", "action_type": "split", "value": 4}]
+    assert _price_lookup_on_share_basis(prices, splits, "2020-02-01")("2020-01-02") == 100
+    assert _price_lookup_on_share_basis(prices, splits, "2023-02-01")("2020-01-02") == 25

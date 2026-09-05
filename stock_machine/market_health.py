@@ -124,14 +124,13 @@ def refresh_prices(
         if ticker and ticker not in seen:
             wanted.append(ticker)
             seen.add(ticker)
-    if limit is not None:
-        wanted = wanted[: max(0, int(limit))]
-
     before = health(conn, max_age_hours=max_age_hours)
     stale = set(before["stale_tickers"])
     known = {r["ticker"] for r in before["tickers"]}
     if only_if_stale:
         wanted = [t for t in wanted if t in stale or t not in known]
+    if limit is not None:
+        wanted = wanted[: max(0, int(limit))]
 
     results = []
     failures = []

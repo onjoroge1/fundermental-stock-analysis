@@ -196,11 +196,11 @@ def upsert_surprises(conn: psycopg.Connection, ticker: str,
 
 def fetch_consensus(conn: psycopg.Connection, ticker: str,
                     as_of: str | None = None) -> list[dict]:
-    """Latest vintage on/before as_of, all forecast periods."""
+    """Latest fiscal-period vintage known before a date-only information set."""
     params: list[Any] = [ticker]
     date_filter = ""
     if as_of:
-        date_filter = "AND snapshot_date <= %s"
+        date_filter = "AND snapshot_date < %s"
         params.append(as_of[:10])
     with conn.cursor() as cur:
         cur.execute(f"""
@@ -209,9 +209,11 @@ def fetch_consensus(conn: psycopg.Connection, ticker: str,
                    eps_mean, eps_high, eps_low, analyst_count
             FROM consensus_snapshots
             WHERE ticker = %s {date_filter}
+              AND (period_type='annual' OR period_basis='fiscal')
               AND snapshot_date = (
                 SELECT max(snapshot_date) FROM consensus_snapshots
-                WHERE ticker = %s {date_filter})
+                WHERE ticker = %s {date_filter}
+                  AND (period_type='annual' OR period_basis='fiscal'))
             ORDER BY forecast_period_end""",
             params + params)
         cols = ["snapshot_date", "period_type", "forecast_period_end",
@@ -230,6 +232,10 @@ def consensus_vintage_span_days(conn: psycopg.Connection, ticker: str) -> int:
 
 def fetch_surprises(conn: psycopg.Connection, ticker: str,
                     as_of: str | None = None) -> list[dict]:
+    if as_of:
+        from .prediction_inputs import fetch_surprise_history
+        from .expectations import known_surprises
+        return known_surprises(fetch_surprise_history(conn, ticker), as_of)
     sql = """SELECT date::text, actual_eps, estimated_eps, surprise_pct
              FROM earnings_surprises WHERE ticker = %s"""
     params: list[Any] = [ticker]
@@ -266,8 +272,8 @@ def fetch_periods(conn: psycopg.Connection, ticker: str, duration_type: str,
              WHERE ticker = %s AND duration_type = %s"""
     params: list[Any] = [ticker, duration_type]
     if as_of:
-        sql += " AND available_at <= %s"
-        params.append(as_of[:10])
+        sql += " AND available_at <= %s AND period_end <= %s"
+        params.extend([as_of[:10], as_of[:10]])
     sql += " ORDER BY period_end"
     with conn.cursor() as cur:
         cur.execute(sql, params)
@@ -313,8 +319,8 @@ def fetch_shares(conn: psycopg.Connection, ticker: str,
              FROM shares_outstanding WHERE ticker = %s"""
     params: list[Any] = [ticker]
     if as_of:
-        sql += " AND available_at <= %s"
-        params.append(as_of[:10])
+        sql += " AND available_at <= %s AND as_of <= %s"
+        params.extend([as_of[:10], as_of[:10]])
     sql += " ORDER BY as_of"
     with conn.cursor() as cur:
         cur.execute(sql, params)
@@ -391,7 +397,7 @@ def save_report(conn: psycopg.Connection, report_id: str, ticker: str,
     conn.commit()
 
 
-def save_prediction_forecast(conn: psycopg.Connection, payload: dict) -> None:
+def save_prediction_forecast(conn: psycopg.Connection, payload: dict) -> str:
     """Persist one immutable-by-vintage forecast result.
 
     Identical outputs are idempotent. Changed inputs or results create a new
@@ -422,6 +428,7 @@ def save_prediction_forecast(conn: psycopg.Connection, payload: dict) -> None:
             (ticker, str(as_of)[:10], model_version, status, Jsonb(payload), identity),
         )
     conn.commit()
+    return identity
 
 
 def latest_prediction_forecast(conn: psycopg.Connection,
