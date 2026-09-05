@@ -1,17 +1,19 @@
 """Leakage-safe rolling ensemble for the P1 cross-sectional models.
 
 Each test date blends ridge and LightGBM predictions using only model ICs from
-*earlier* test dates.  Current-date outcomes never influence the weights used
-on that date.  Until enough history exists, the blend is equal-weighted.
+earlier forecasts whose target intervals have fully matured. Until enough
+observable outcome history exists, the blend is equal-weighted.
 """
 from __future__ import annotations
 
 from collections import defaultdict
+from .intervals import matured_before
 from datetime import date, timedelta
 
 from .evaluate import spearman
 from .model import ridge_fit
 from . import options_model, nonlinear_model
+from .engine import HORIZONS
 
 EMBARGO_DAYS = 370
 MIN_TRAIN_DATES = 8
@@ -43,7 +45,7 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         return {"status": "DEPENDENCY_MISSING", "model": "rolling_p1_ensemble"}
 
     usable = [o for o in obs if o.get("forward", {}).get(horizon) is not None]
-    z = options_model._zscore_by_date(usable)
+    z = options_model._zscore_by_date(obs)
     by_date = defaultdict(list)
     for row in usable:
         by_date[row["as_of"]].append(row)
@@ -52,14 +54,21 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
              for d, rows in by_date.items()}
 
     history = {"ridge": [], "lightgbm": []}
+    pending_scores = []
     ensemble_ics = []
     per_date = []
     for test_date in dates:
+        matured = [s for s in pending_scores if s["available_at"] < test_date]
+        pending_scores = [s for s in pending_scores if s["available_at"] >= test_date]
+        for score in matured:
+            for model in history:
+                history[model].append(score[model])
         test_rows = by_date[test_date]
         if len(test_rows) < MIN_TEST_NAMES:
             continue
         cutoff = (date.fromisoformat(test_date) - timedelta(days=EMBARGO_DAYS)).isoformat()
-        train_dates = [d for d in dates if d <= cutoff]
+        train_dates = [d for d in dates if d <= cutoff
+                       and all(matured_before(r, horizon, test_date) for r in by_date[d])]
         if len(train_dates) < MIN_TRAIN_DATES:
             continue
         x_train = [z[(d, r["ticker"])] for d in train_dates for r in by_date[d]]
@@ -86,7 +95,7 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         if ens_ic is None or ridge_ic is None or tree_ic is None:
             continue
 
-        # Update only AFTER scoring the current date, preserving causality.
+        # Record for evaluation now; weighting waits until the target matures.
         ensemble_ics.append(ens_ic)
         per_date.append({
             "as_of": test_date,
@@ -96,14 +105,17 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
             "ensemble_ic": round(ens_ic, 3),
             "weights": {k: round(v, 4) for k, v in weights.items()},
         })
-        history["ridge"].append(ridge_ic)
-        history["lightgbm"].append(tree_ic)
+        target_end = max((r.get("forward_target_dates") or {}).get(horizon)
+                         or (date.fromisoformat(test_date) + timedelta(days=HORIZONS[horizon])).isoformat()
+                         for r in test_rows)
+        pending_scores.append({"available_at": target_end,
+                               "ridge": ridge_ic, "lightgbm": tree_ic})
 
     if not ensemble_ics:
         return {"status": "INSUFFICIENT_HISTORY", "model": "rolling_p1_ensemble"}
 
-    ridge_mean = sum(history["ridge"]) / len(history["ridge"])
-    tree_mean = sum(history["lightgbm"]) / len(history["lightgbm"])
+    ridge_mean = sum(r["ridge_ic"] for r in per_date) / len(per_date)
+    tree_mean = sum(r["lightgbm_ic"] for r in per_date) / len(per_date)
     ensemble_mean = sum(ensemble_ics) / len(ensemble_ics)
     hurdle = max(ridge_mean, tree_mean)
     return {
@@ -119,7 +131,7 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         "verdict": {
             "best_single_model_mean_ic": round(hurdle, 4),
             "ensemble_beats_best_single_model": ensemble_mean > hurdle,
-            "kill_criterion": "rolling ensemble must beat the best constituent model on identical embargoed dates; weights may use only earlier OOS ICs",
+            "kill_criterion": "rolling ensemble must beat the best constituent model on identical embargoed dates; weights use only matured OOS outcomes available before the prediction",
         },
         "per_date": per_date,
     }

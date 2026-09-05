@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from .statistics import mean_uncertainty
 
 FACTOR_SOURCES = {
     "composite_score": ("composite", None),
@@ -85,6 +86,7 @@ def evaluate(observations: list[dict], horizon: str = "fwd_12m_pct") -> dict:
             by_date[o["as_of"]].append(o)
 
     ic_series: dict[str, list[float]] = defaultdict(list)
+    paired_advantages: dict[str, list[float]] = defaultdict(list)
     quant_accum: dict[str, list[list[float]]] = defaultdict(list)
     dates_used = 0
     for as_of, rows in sorted(by_date.items()):
@@ -93,6 +95,17 @@ def evaluate(observations: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         rets = [r["forward"][horizon] for r in rows]
         mean_ret = sum(rets) / len(rets)
         dates_used += 1
+        # Every verdict compares exactly the same ticker/date information set.
+        for baseline in BASELINES:
+            paired = [r for r in rows if _extract(r, FACTOR_SOURCES[baseline]) is not None
+                      and _extract(r, FACTOR_SOURCES["composite_score"]) is not None]
+            if len(paired) < MIN_NAMES_PER_DATE:
+                continue
+            actual = [r["forward"][horizon] for r in paired]
+            ci = spearman([r["composite"] for r in paired], actual)
+            bi = spearman([_extract(r, FACTOR_SOURCES[baseline]) for r in paired], actual)
+            if ci is not None and bi is not None:
+                paired_advantages[baseline].append(ci - bi)
         for name, source in FACTOR_SOURCES.items():
             pairs = [( _extract(r, source), r["forward"][horizon] - mean_ret)
                      for r in rows if _extract(r, source) is not None]
@@ -111,6 +124,7 @@ def evaluate(observations: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         if not ics:
             continue
         mean_ic = sum(ics) / len(ics)
+        uncertainty = mean_uncertainty(ics, lags={"fwd_3m_pct": 1, "fwd_6m_pct": 2, "fwd_12m_pct": 4}[horizon])
         std = (math.sqrt(sum((x - mean_ic) ** 2 for x in ics) / (len(ics) - 1))
                if len(ics) > 1 else None)
         qms = quant_accum.get(name, [])
@@ -120,8 +134,8 @@ def evaluate(observations: list[dict], horizon: str = "fwd_12m_pct") -> dict:
             "mean_ic": round(mean_ic, 4),
             "ic_positive_share": round(
                 sum(1 for x in ics if x > 0) / len(ics), 3),
-            "ic_tstat": (round(mean_ic / (std / math.sqrt(len(ics))), 2)
-                         if std else None),
+            "ic_tstat": round(uncertainty["tstat"], 2) if uncertainty["tstat"] is not None else None,
+            "ic_uncertainty": uncertainty,
             "n_dates": len(ics),
             "quintile_mean_excess_pct": q_avg,  # index 0 = top quintile
             "top_minus_bottom_pct": (round(q_avg[0] - q_avg[-1], 2)
@@ -137,15 +151,18 @@ def evaluate(observations: list[dict], horizon: str = "fwd_12m_pct") -> dict:
             best_baseline = b
     verdict = None
     if comp and best_baseline:
-        beats = comp["mean_ic"] > factors[best_baseline]["mean_ic"]
+        comparisons = {b: mean_uncertainty(paired_advantages[b],
+                       lags={"fwd_3m_pct": 1, "fwd_6m_pct": 2, "fwd_12m_pct": 4}[horizon],
+                       alpha=0.05 / len(BASELINES)) for b in BASELINES}
+        beats = all(v["status"] == "OK" and v["lower"] > 0 for v in comparisons.values())
         verdict = {
-            "kill_criterion": "composite mean IC must exceed the best "
-                              "single-factor baseline, else the composite "
-                              "adds narrative, not edge",
+            "kill_criterion": "paired IC advantage must have a positive dependence-aware confidence bound against every declared baseline; Bonferroni-adjusted across baselines",
             "composite_mean_ic": comp["mean_ic"],
             "best_baseline": best_baseline,
             "best_baseline_mean_ic": factors[best_baseline]["mean_ic"],
             "composite_beats_baselines": beats,
+            "paired_baseline_comparisons": comparisons,
+            "status": "RESEARCH_ONLY",
         }
     return {"horizon": horizon, "dates_used": dates_used,
             "factors": factors, "verdict": verdict}

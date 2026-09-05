@@ -6,6 +6,7 @@ its rows, so the database is always a pure function of raw storage."""
 from __future__ import annotations
 
 import json
+import hashlib
 from typing import Any
 from uuid import uuid4
 
@@ -14,186 +15,7 @@ from psycopg.types.json import Jsonb
 
 from .config import DATABASE_URL
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS companies (
-    ticker TEXT PRIMARY KEY,
-    cik TEXT NOT NULL,
-    legal_name TEXT,
-    exchange TEXT,
-    sic_description TEXT,
-    fiscal_year_end TEXT,
-    reporting_currency TEXT DEFAULT 'USD',
-    updated_at TIMESTAMPTZ DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS filings (
-    ticker TEXT NOT NULL,
-    accession_number TEXT NOT NULL,
-    form TEXT,
-    filed_at DATE,
-    report_date DATE,
-    primary_document TEXT,
-    PRIMARY KEY (ticker, accession_number)
-);
-CREATE TABLE IF NOT EXISTS financial_periods (
-    ticker TEXT NOT NULL,
-    duration_type TEXT NOT NULL,
-    period_end DATE NOT NULL,
-    period_start DATE,
-    fiscal_year INT,
-    fiscal_period TEXT,
-    filed_at DATE,
-    available_at DATE,
-    form TEXT,
-    accession_number TEXT,
-    derived BOOLEAN DEFAULT FALSE,
-    fields JSONB NOT NULL,
-    field_sources JSONB NOT NULL,
-    PRIMARY KEY (ticker, duration_type, period_end)
-);
-CREATE TABLE IF NOT EXISTS prices_daily (
-    ticker TEXT NOT NULL,
-    date DATE NOT NULL,
-    open DOUBLE PRECISION, high DOUBLE PRECISION, low DOUBLE PRECISION,
-    close DOUBLE PRECISION, adj_close DOUBLE PRECISION,
-    volume DOUBLE PRECISION,
-    PRIMARY KEY (ticker, date)
-);
-CREATE TABLE IF NOT EXISTS corporate_actions (
-    ticker TEXT NOT NULL,
-    date DATE NOT NULL,
-    action_type TEXT NOT NULL,
-    value DOUBLE PRECISION,
-    PRIMARY KEY (ticker, date, action_type)
-);
-CREATE TABLE IF NOT EXISTS shares_outstanding (
-    ticker TEXT NOT NULL,
-    as_of DATE NOT NULL,
-    shares DOUBLE PRECISION,
-    available_at DATE,
-    accession_number TEXT,
-    PRIMARY KEY (ticker, as_of, shares)
-);
-CREATE TABLE IF NOT EXISTS consensus_snapshots (
-    ticker TEXT NOT NULL,
-    snapshot_date DATE NOT NULL,
-    period_type TEXT NOT NULL,
-    forecast_period_end DATE NOT NULL,
-    revenue_mean DOUBLE PRECISION, revenue_high DOUBLE PRECISION,
-    revenue_low DOUBLE PRECISION,
-    eps_mean DOUBLE PRECISION, eps_high DOUBLE PRECISION,
-    eps_low DOUBLE PRECISION,
-    analyst_count INT,
-    PRIMARY KEY (ticker, snapshot_date, period_type, forecast_period_end)
-);
-CREATE TABLE IF NOT EXISTS earnings_surprises (
-    ticker TEXT NOT NULL,
-    date DATE NOT NULL,
-    actual_eps DOUBLE PRECISION,
-    estimated_eps DOUBLE PRECISION,
-    surprise_pct DOUBLE PRECISION,
-    PRIMARY KEY (ticker, date)
-);
-CREATE TABLE IF NOT EXISTS data_quality_events (
-    id BIGSERIAL PRIMARY KEY,
-    ticker TEXT,
-    recorded_at TIMESTAMPTZ DEFAULT now(),
-    event JSONB NOT NULL
-);
-CREATE TABLE IF NOT EXISTS metric_snapshots (
-    ticker TEXT NOT NULL,
-    as_of DATE NOT NULL,
-    metrics JSONB NOT NULL,
-    PRIMARY KEY (ticker, as_of)
-);
-ALTER TABLE companies ADD COLUMN IF NOT EXISTS sic TEXT;
-ALTER TABLE companies ADD COLUMN IF NOT EXISTS sector TEXT;
-CREATE TABLE IF NOT EXISTS insider_transactions (
-    id BIGSERIAL PRIMARY KEY,
-    ticker TEXT NOT NULL,
-    accession TEXT NOT NULL,
-    filed_at DATE,
-    transaction_date DATE,
-    owner TEXT,
-    role TEXT,
-    code TEXT,
-    acquired BOOLEAN,
-    shares DOUBLE PRECISION,
-    price DOUBLE PRECISION,
-    value DOUBLE PRECISION,
-    plan_10b5_1 BOOLEAN,
-    classification TEXT,
-    UNIQUE (accession, owner, transaction_date, code, shares, price)
-);
-CREATE TABLE IF NOT EXISTS forecast_outcomes (
-    report_id TEXT NOT NULL,
-    horizon TEXT NOT NULL,
-    ticker TEXT NOT NULL,
-    as_of DATE NOT NULL,
-    target_date DATE NOT NULL,
-    base_price DOUBLE PRECISION,
-    actual_price DOUBLE PRECISION,
-    actual_return_pct DOUBLE PRECISION,
-    expected_return_pct DOUBLE PRECISION,
-    error_pct DOUBLE PRECISION,
-    in_range BOOLEAN,
-    direction_hit BOOLEAN,
-    classification TEXT,
-    scored_at TIMESTAMPTZ DEFAULT now(),
-    PRIMARY KEY (report_id, horizon)
-);
--- prefixed: the shared Neon db has an unrelated backtest_runs table from
--- another project — never touch tables this app did not create
-CREATE TABLE IF NOT EXISTS sm_backtest_runs (
-    run_id TEXT PRIMARY KEY,
-    created_at TIMESTAMPTZ DEFAULT now(),
-    params JSONB NOT NULL,
-    summary JSONB
-);
-CREATE TABLE IF NOT EXISTS backtest_observations (
-    run_id TEXT NOT NULL,
-    as_of DATE NOT NULL,
-    ticker TEXT NOT NULL,
-    sector TEXT,
-    composite DOUBLE PRECISION,
-    components JSONB,
-    factors JSONB,
-    forward JSONB,
-    PRIMARY KEY (run_id, as_of, ticker)
-);
-CREATE TABLE IF NOT EXISTS analysis_reports (
-    report_id TEXT PRIMARY KEY,
-    ticker TEXT NOT NULL,
-    as_of TIMESTAMPTZ,
-    saved_at TIMESTAMPTZ DEFAULT now(),
-    report JSONB NOT NULL
-);
-CREATE TABLE IF NOT EXISTS prediction_forecasts (
-    ticker TEXT NOT NULL,
-    as_of DATE NOT NULL,
-    model_version TEXT NOT NULL,
-    generated_at TIMESTAMPTZ DEFAULT now(),
-    status TEXT NOT NULL,
-    payload JSONB NOT NULL,
-    PRIMARY KEY (ticker, as_of, model_version)
-);
-CREATE TABLE IF NOT EXISTS dataset_snapshots (
-    snapshot_id TEXT PRIMARY KEY,
-    ticker TEXT NOT NULL,
-    dataset TEXT NOT NULL,
-    observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    content_hash TEXT NOT NULL,
-    row_count INT NOT NULL,
-    min_record_date DATE,
-    max_record_date DATE,
-    status TEXT NOT NULL,
-    reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
-    metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
-    payload JSONB,
-    UNIQUE (ticker, dataset, content_hash)
-);
-CREATE INDEX IF NOT EXISTS dataset_snapshots_latest_idx
-    ON dataset_snapshots (ticker, dataset, observed_at DESC);
-"""
+REQUIRED_SCHEMA_VERSION = "0016_input_vintages"
 
 
 def connect() -> psycopg.Connection:
@@ -203,8 +25,16 @@ def connect() -> psycopg.Connection:
 
 
 def init_schema(conn: psycopg.Connection) -> None:
-    with conn.cursor() as cur:
-        cur.execute(SCHEMA)
+    """Verify the migration contract; ingestion must never bootstrap partial DDL."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT version_num FROM alembic_version")
+            versions = {row[0] for row in cur.fetchall()}
+    except psycopg.errors.UndefinedTable as exc:
+        conn.rollback()
+        raise RuntimeError("Database is not migration-managed; apply Alembic migrations before ingestion. Existing databases require a verified baseline, not a blind stamp.") from exc
+    if versions != {REQUIRED_SCHEMA_VERSION}:
+        raise RuntimeError("Database migration required: run alembic upgrade head before ingestion")
     conn.commit()
 
 
@@ -269,7 +99,18 @@ def replace_periods(conn: psycopg.Connection, ticker: str,
 
 
 def replace_prices(conn: psycopg.Connection, ticker: str, rows: list[dict]) -> None:
+    from .data_quality import assess_dataset
+    from .market_calendar import latest_completed_session
+    cutoff = latest_completed_session()
+    rows = [r for r in rows if r["date"] <= cutoff]
+    quality = assess_dataset("prices", rows)
+    if quality["status"] == "FAIL":
+        raise ValueError(f"invalid price refresh for {ticker}; existing history retained")
     with conn.cursor() as cur:
+        cur.execute("SELECT max(date)::text FROM prices_daily WHERE ticker=%s", (ticker,))
+        previous = cur.fetchone()[0]
+        if previous and quality["max_record_date"] < min(previous, cutoff):
+            raise ValueError(f"price refresh for {ticker} regresses the latest completed date")
         cur.execute("DELETE FROM prices_daily WHERE ticker = %s", (ticker,))
         cur.executemany(
             """INSERT INTO prices_daily VALUES (%(ticker)s, %(date)s, %(open)s,
@@ -313,8 +154,12 @@ def insert_consensus_snapshots(conn: psycopg.Connection, ticker: str,
             if not r.get("forecast_period_end"):
                 continue
             cur.execute(
-                """INSERT INTO consensus_snapshots VALUES (%s, %s, %s, %s,
-                   %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING""",
+                """INSERT INTO consensus_snapshots
+                   (ticker, snapshot_date, period_type, forecast_period_end,
+                    revenue_mean, revenue_high, revenue_low, eps_mean, eps_high,
+                    eps_low, analyst_count, period_basis)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'fiscal')
+                   ON CONFLICT DO NOTHING""",
                 (ticker, snapshot_date, r["period_type"],
                  r["forecast_period_end"], r.get("revenue_mean"),
                  r.get("revenue_high"), r.get("revenue_low"),
@@ -331,6 +176,13 @@ def upsert_surprises(conn: psycopg.Connection, ticker: str,
     recent events, so old rows are never deleted — history builds up as
     quarters roll."""
     with conn.cursor() as cur:
+        cur.executemany(
+            """INSERT INTO earnings_surprise_vintages
+               (ticker, event_date, content_hash, actual_eps, estimated_eps, surprise_pct)
+               VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
+            [(ticker, r["date"], hashlib.sha256(json.dumps(r, sort_keys=True, default=str).encode()).hexdigest(),
+              r.get("actual_eps"), r.get("estimated_eps"), r.get("surprise_pct"))
+             for r in rows if r.get("date")])
         cur.executemany(
             """INSERT INTO earnings_surprises VALUES (%(ticker)s, %(date)s,
                %(actual_eps)s, %(estimated_eps)s, %(surprise_pct)s)
@@ -542,9 +394,8 @@ def save_report(conn: psycopg.Connection, report_id: str, ticker: str,
 def save_prediction_forecast(conn: psycopg.Connection, payload: dict) -> None:
     """Persist one immutable-by-vintage forecast result.
 
-    Recomputing the same model for the same symbol/as-of date replaces only
-    that exact vintage. Older dates and older model versions remain available
-    for audit and outcome scoring.
+    Identical outputs are idempotent. Changed inputs or results create a new
+    immutable identity, even for the same symbol/date/model version.
     """
     ticker = str(payload.get("ticker") or "").upper()
     as_of = payload.get("as_of")
@@ -552,15 +403,23 @@ def save_prediction_forecast(conn: psycopg.Connection, payload: dict) -> None:
     status = str(payload.get("status") or "FAILED")
     if not ticker or not as_of:
         raise ValueError("forecast payload requires ticker and as_of")
+    def stable(value):
+        if isinstance(value, dict):
+            return {k: stable(v) for k, v in value.items()
+                    if k not in {"forecast_id", "generated_at"}}
+        if isinstance(value, list):
+            return [stable(v) for v in value]
+        return value
+    identity = "fc_" + hashlib.sha256(json.dumps(stable(payload), sort_keys=True,
+                 separators=(",", ":"), default=str).encode()).hexdigest()
+    payload = {**payload, "forecast_id": identity}
     with conn.cursor() as cur:
         cur.execute(
             """INSERT INTO prediction_forecasts
-               (ticker, as_of, model_version, status, payload)
-               VALUES (%s, %s, %s, %s, %s)
-               ON CONFLICT (ticker, as_of, model_version) DO UPDATE SET
-                   generated_at = now(), status = EXCLUDED.status,
-                   payload = EXCLUDED.payload""",
-            (ticker, str(as_of)[:10], model_version, status, Jsonb(payload)),
+               (ticker, as_of, model_version, status, payload, forecast_id)
+               VALUES (%s, %s, %s, %s, %s, %s)
+               ON CONFLICT (forecast_id) DO NOTHING""",
+            (ticker, str(as_of)[:10], model_version, status, Jsonb(payload), identity),
         )
     conn.commit()
 
@@ -570,7 +429,7 @@ def latest_prediction_forecast(conn: psycopg.Connection,
     """Return the newest persisted result; never computes a forecast."""
     with conn.cursor() as cur:
         cur.execute(
-            """SELECT payload FROM prediction_forecasts
+            """SELECT payload || jsonb_build_object('forecast_id', forecast_id) FROM prediction_forecasts
                WHERE ticker = %s
                ORDER BY as_of DESC, generated_at DESC LIMIT 1""",
             (ticker.upper(),),
@@ -591,7 +450,8 @@ def record_dataset_snapshots(conn: psycopg.Connection, ticker: str,
                 min_record_date, max_record_date, status, reasons, metrics,
                 payload)
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-               ON CONFLICT (ticker, dataset, content_hash) DO NOTHING""",
+               ON CONFLICT (ticker, dataset, content_hash) DO UPDATE SET
+                 last_checked_at = now()""",
             [(str(uuid4()), ticker.upper(), s["dataset"], s["content_hash"],
               s["row_count"], s.get("min_record_date"),
               s.get("max_record_date"), s["status"],
@@ -609,19 +469,20 @@ def latest_dataset_snapshots(conn: psycopg.Connection,
                     snapshot_id, ticker, dataset, observed_at::text,
                     content_hash, row_count, min_record_date::text,
                     max_record_date::text, status, reasons, metrics,
-                    count(*) OVER (PARTITION BY ticker, dataset) AS version_count
+                    count(*) OVER (PARTITION BY ticker, dataset) AS version_count,
+                    last_checked_at::text
              FROM dataset_snapshots"""
     params: list[Any] = []
     if ticker:
         sql += " WHERE ticker = %s"
         params.append(ticker.upper())
-    sql += " ORDER BY ticker, dataset, observed_at DESC, snapshot_id DESC"
+    sql += " ORDER BY ticker, dataset, last_checked_at DESC, observed_at DESC, snapshot_id DESC"
     with conn.cursor() as cur:
         cur.execute(sql, params)
         cols = ["snapshot_id", "ticker", "dataset", "observed_at",
                 "content_hash", "row_count", "min_record_date",
                 "max_record_date", "status", "reasons", "metrics",
-                "version_count"]
+                "version_count", "last_checked_at"]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 

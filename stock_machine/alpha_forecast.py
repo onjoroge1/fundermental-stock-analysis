@@ -26,10 +26,12 @@ from math import erf, exp, log, sqrt
 from statistics import mean
 
 from .backtest.model import ridge_fit
+from .expectations import consensus_revision, known_surprises
+from .backtest.statistics import mean_uncertainty
 
 DIRECT_HORIZONS = (5, 10, 20, 63, 126, 252)
 MODEL_NAME = "direct_excess_ridge"
-MODEL_VERSION = "direct-alpha.v1"
+MODEL_VERSION = "direct-alpha.v2"
 MIN_TRAIN_ROWS = 120
 MIN_EVAL_ROWS = 16
 RIDGE_ALPHA = 12.0
@@ -89,69 +91,14 @@ def _rolling_vol(values: list[float], end: int, width: int) -> float:
     return _stdev(values[start:end])
 
 
-def _revision_index(consensus_history: list[dict]) -> tuple[list[str], list[dict]]:
-    """Collapse each snapshot day to the nearest forward-period consensus.
-
-    We intentionally prefer quarterly rows when available and otherwise use
-    the nearest annual row.  The time series is a vintage series: a feature on
-    date T may only inspect snapshots with snapshot_date <= T.
-    """
-    by_day: dict[str, list[dict]] = {}
-    for row in consensus_history:
-        snap = str(row.get("snapshot_date") or "")[:10]
-        if not snap:
-            continue
-        by_day.setdefault(snap, []).append(row)
-
-    days: list[str] = []
-    snapshots: list[dict] = []
-    for snap in sorted(by_day):
-        rows = by_day[snap]
-        quarterly = [r for r in rows if r.get("period_type") == "quarter"]
-        chosen_pool = quarterly or rows
-        chosen = sorted(
-            chosen_pool,
-            key=lambda r: str(r.get("forecast_period_end") or "9999-12-31"),
-        )[0]
-        snapshots.append({
-            "snapshot_date": snap,
-            "eps_mean": chosen.get("eps_mean"),
-            "revenue_mean": chosen.get("revenue_mean"),
-        })
-        days.append(snap)
-    return days, snapshots
-
-
-def _pct_change(new, old) -> float:
-    if new is None or old is None:
-        return 0.0
-    old = float(old)
-    new = float(new)
-    if abs(old) < 1e-12:
-        return 0.0
-    return (new - old) / abs(old)
-
-
 def expectation_features(as_of: str, consensus_history: list[dict],
                          surprises: list[dict]) -> list[float]:
     """Point-in-time revision/surprise features for one observation date."""
-    days, snapshots = _revision_index(consensus_history)
-    pos = bisect_right(days, as_of) - 1
-    if pos >= 0:
-        cur = snapshots[pos]
-        prev = snapshots[pos - 1] if pos > 0 else None
-        eps_rev = _pct_change(cur.get("eps_mean"),
-                              prev.get("eps_mean") if prev else None)
-        rev_rev = _pct_change(cur.get("revenue_mean"),
-                              prev.get("revenue_mean") if prev else None)
-        has_consensus = 1.0
-    else:
-        eps_rev = rev_rev = 0.0
-        has_consensus = 0.0
-
-    past_surprises = [r for r in surprises
-                      if str(r.get("date") or "")[:10] <= as_of
-                      and r.get("surprise_pct") is not None]
+    revision = consensus_revision(consensus_history, as_of)
+    eps_rev = (revision["eps_revision_pct"] or 0.0) / 100.0
+    rev_rev = (revision["revenue_revision_pct"] or 0.0) / 100.0
+    has_consensus = float(revision["has_consensus"])
+    past_surprises = known_surprises(surprises, as_of)
     if past_surprises:
         latest = float(past_surprises[-1]["surprise_pct"]) / 100.0
         trailing = mean(float(r["surprise_pct"]) for r in past_surprises[-4:]) / 100.0
@@ -241,9 +188,12 @@ def _fit_predict(train_rows: list[dict], x: list[float]) -> tuple[float, list[fl
 
 def _evaluate(rows: list[dict], horizon: int) -> dict:
     """Purged expanding-window evaluation; target windows cannot overlap train."""
-    preds, actuals, probabilities = [], [], []
+    preds, actuals, probabilities, priors = [], [], [], []
+    previous_target = -1
     for test_pos in range(MIN_TRAIN_ROWS, len(rows)):
         test = rows[test_pos]
+        if test["idx"] <= previous_target:
+            continue
         # Because rows are sampled every SAMPLE_STEP sessions, purge by actual
         # price index rather than row count.
         train = [r for r in rows[:test_pos]
@@ -256,6 +206,8 @@ def _evaluate(rows: list[dict], horizon: int) -> dict:
         preds.append(pred)
         actuals.append(test["y"])
         probabilities.append(p)
+        priors.append(sum(r["y"] > 0 for r in train) / len(train))
+        previous_target = test["idx"] + horizon
 
     if len(preds) < MIN_EVAL_ROWS:
         return {"status": "INSUFFICIENT_EVALUATION",
@@ -264,8 +216,10 @@ def _evaluate(rows: list[dict], horizon: int) -> dict:
     baseline_mae = mean(abs(y) for y in actuals)
     brier = mean((p - float(y > 0)) ** 2
                  for p, y in zip(probabilities, actuals))
-    prior = sum(y > 0 for y in actuals) / len(actuals)
-    prior_brier = mean((prior - float(y > 0)) ** 2 for y in actuals)
+    prior_brier = mean((prior - float(y > 0)) ** 2 for prior, y in zip(priors, actuals))
+    mae_advantage = mean_uncertainty([abs(y)-abs(p-y) for p, y in zip(preds, actuals)], lags=1, alpha=0.05 / 12)
+    brier_advantage = mean_uncertainty([(prior-float(y>0))**2-(p-float(y>0))**2
+                        for prior, p, y in zip(priors, probabilities, actuals)], lags=1, alpha=0.05 / 12)
     hit = mean((p >= 0.5) == (y > 0)
                for p, y in zip(probabilities, actuals))
     return {
@@ -276,7 +230,11 @@ def _evaluate(rows: list[dict], horizon: int) -> dict:
         "brier_score": round(brier, 4),
         "class_prior_brier_score": round(prior_brier, 4),
         "direction_hit_rate": round(hit, 3),
-        "passes": bool(mae < baseline_mae and brier < prior_brier and hit > 0.5),
+        "evaluation_windows": "nonoverlapping",
+        "class_prior_source": "matured training outcomes at each forecast origin",
+        "mae_advantage": mae_advantage, "brier_advantage": brier_advantage,
+        "passes": bool((mae_advantage.get("lower") or 0) > 0
+                       and (brier_advantage.get("lower") or 0) > 0 and hit > 0.5),
     }
 
 
@@ -324,7 +282,12 @@ def forecast_alpha(ticker: str, stock_rows: list[dict], benchmark_ticker: str,
         p_positive = _normal_cdf(pred / sigma)
         horizons[str(horizon)] = {
             "status": "OK",
-            "expected_excess_return_pct": round(100 * (exp(pred) - 1), 3),
+            "expected_excess_return_pct": round(100 * (exp(pred + 0.5 * sigma**2) - 1), 3),
+            "expected_return_method": "arithmetic relative-wealth mean under residual-normal approximation",
+            "predicted_excess_log_return": pred,
+            "median_relative_wealth_return_pct": round(100 * (exp(pred) - 1), 3),
+            "readiness_status": "DIAGNOSTIC",
+            "calibration_status": "PENDING",
             "prob_outperform": round(p_positive, 3),
             "residual_sigma_pct": round(100 * sigma, 3),
             "training_rows": len(train),

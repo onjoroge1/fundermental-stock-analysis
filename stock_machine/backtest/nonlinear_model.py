@@ -8,6 +8,7 @@ against the strongest linear P1 control.
 from __future__ import annotations
 
 from collections import defaultdict
+from .intervals import matured_before
 from datetime import date, timedelta
 
 from .evaluate import spearman
@@ -47,7 +48,7 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
                 "reason": "install optional dependency group p1"}
 
     usable = [o for o in obs if o.get("forward", {}).get(horizon) is not None]
-    z = options_model._zscore_by_date(usable)
+    z = options_model._zscore_by_date(obs)
     by_date = defaultdict(list)
     for row in usable:
         by_date[row["as_of"]].append(row)
@@ -63,7 +64,8 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         if len(test_rows) < MIN_TEST_NAMES:
             continue
         cutoff = (date.fromisoformat(test_date) - timedelta(days=EMBARGO_DAYS)).isoformat()
-        train_dates = [d for d in dates if d <= cutoff]
+        train_dates = [d for d in dates if d <= cutoff
+                       and all(matured_before(r, horizon, test_date) for r in by_date[d])]
         if len(train_dates) < MIN_TRAIN_DATES:
             continue
         x_train = [z[(d, r["ticker"])] for d in train_dates for r in by_date[d]]

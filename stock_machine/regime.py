@@ -21,6 +21,15 @@ MAX_STALE_DAYS = 10
 # Canonical GICS-ish sector labels plus common labels already seen in public
 # company datasets. Unknown sectors simply have no sector proxy.
 SECTOR_ETF = {
+    "airlines": "JETS",
+    "automobiles": "XLY",
+    "banks & consumer finance": "XLF",
+    "consumer & retail": "XLY",
+    "healthcare services": "XLV",
+    "semiconductors": "SOXX",
+    "software & internet": "XLK",
+    "technology hardware": "XLK",
+    "telecom & cable": "XLC",
     "communication services": "XLC",
     "communications": "XLC",
     "consumer discretionary": "XLY",

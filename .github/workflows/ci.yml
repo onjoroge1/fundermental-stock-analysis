@@ -15,6 +15,20 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: stock_machine
+          POSTGRES_PASSWORD: stock_machine_ci
+          POSTGRES_DB: stock_machine_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U stock_machine -d stock_machine_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://stock_machine:stock_machine_ci@localhost:5432/stock_machine_test
     strategy:
       fail-fast: false
       matrix:

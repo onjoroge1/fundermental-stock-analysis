@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from math import fabs
 
 from .risk import beta as estimate_beta, correlation, realized_vol
+from ..forecast_readiness import alpha_readiness
 
 
 @dataclass(frozen=True)
@@ -32,7 +33,7 @@ def _alpha_row(forecast: dict, horizon: int):
 
 
 def build_proposal(candidates: list[dict], benchmark_rows: list[dict],
-                   policy: PortfolioPolicy | None = None) -> dict:
+                   policy: PortfolioPolicy | None = None, *, as_of=None) -> dict:
     """Return target weights; never executes trades.
 
     Each candidate requires ticker, sector, forecast, and price_rows. Scores are
@@ -41,7 +42,15 @@ def build_proposal(candidates: list[dict], benchmark_rows: list[dict],
     """
     policy = policy or PortfolioPolicy()
     scored = []
+    rejected = []
     for c in candidates:
+        prices = c.get("price_rows") or []
+        readiness = alpha_readiness(c.get("forecast") or {}, policy.horizon_days,
+                                    latest_price_date=prices[-1]["date"] if prices else None,
+                                    data_quality=c.get("data_quality"), as_of=as_of)
+        if not readiness["eligible"]:
+            rejected.append({"ticker": c["ticker"], "readiness": readiness})
+            continue
         row = _alpha_row(c.get("forecast") or {}, policy.horizon_days)
         if not row:
             continue
@@ -56,13 +65,16 @@ def build_proposal(candidates: list[dict], benchmark_rows: list[dict],
         if vol is None:
             continue
         b = estimate_beta(c.get("price_rows") or [], benchmark_rows)
+        if b is None:
+            continue
         score = (abs(expected) / 100.0) * abs(edge) / max(vol, policy.vol_floor)
         scored.append({
             "ticker": c["ticker"], "sector": c.get("sector") or "Unknown",
             "direction": 1.0 if expected > 0 else -1.0,
             "score": score, "expected_excess_return_pct": expected,
             "prob_outperform": prob, "realized_vol": vol, "beta": b or 0.0,
-            "price_rows": c.get("price_rows") or [],
+            "price_rows": c.get("price_rows") or [], "readiness": readiness,
+            "forecast_id": (c.get("forecast") or {}).get("forecast_id"),
         })
 
     scored.sort(key=lambda x: x["score"], reverse=True)
@@ -91,7 +103,7 @@ def build_proposal(candidates: list[dict], benchmark_rows: list[dict],
             if prior["weight"] * weight <= 0:
                 continue
             corr = correlation(item["price_rows"], prior["price_rows"])
-            if corr is not None and corr >= policy.max_pair_correlation:
+            if corr is None or corr >= policy.max_pair_correlation:
                 blocked = True
                 break
         if blocked:
@@ -129,6 +141,7 @@ def build_proposal(candidates: list[dict], benchmark_rows: list[dict],
         "proposal_only": True,
         "horizon_days": policy.horizon_days,
         "positions": selected,
+        "rejected": rejected,
         "exposures": {
             "gross": round(gross, 6), "net": round(net, 6),
             "beta": round(beta_exposure, 6),

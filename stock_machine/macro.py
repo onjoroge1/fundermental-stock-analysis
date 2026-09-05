@@ -1,13 +1,14 @@
 """Point-in-time macro/volatility/credit series support for P1.
 
 The ingestion path uses public FRED CSV series and stores an explicit
-``available_at`` date. Market-close VIX is available same-day; Treasury and
-credit series use a conservative one-day lag. Missing values stay missing.
+retrieval timestamp for each observed vintage. Current revised history is
+never treated as known on the original observation date. Missing historical
+vintages stay missing; ALFRED release vintages would be needed to fill them.
 """
 from __future__ import annotations
 
 import csv
-from datetime import date, timedelta
+from datetime import date, datetime, timezone, timedelta
 from io import StringIO
 
 import httpx
@@ -40,16 +41,17 @@ def fetch_fred_csv(series_id: str, timeout: float = 30.0) -> list[dict]:
     response.raise_for_status()
     reader = csv.DictReader(StringIO(response.text))
     out = []
-    lag = SERIES[series_id]["lag_days"]
+    observed_at = datetime.now(timezone.utc).isoformat()
     for row in reader:
         raw = row.get(series_id)
         if raw in (None, "", "."):
             continue
-        obs = date.fromisoformat(row["DATE"])
+        obs = date.fromisoformat(row.get("DATE") or row["observation_date"])
         out.append({
             "series_id": series_id,
             "observation_date": obs.isoformat(),
-            "available_at": (obs + timedelta(days=lag)).isoformat(),
+            # A current-history CSV is known now, not on its economic date.
+            "available_at": observed_at,
             "value": float(raw),
             "source": "FRED",
         })
@@ -60,6 +62,11 @@ def upsert_series(conn, rows: list[dict]) -> int:
     if not rows:
         return 0
     with conn.cursor() as cur:
+        cur.executemany(
+            """INSERT INTO macro_series_vintages
+               (series_id, observation_date, available_at, value, source)
+               VALUES (%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
+            [(r["series_id"], r["observation_date"], r["available_at"], r["value"], r["source"]) for r in rows])
         cur.executemany(
             """INSERT INTO macro_series
                (series_id, observation_date, available_at, value, source)
@@ -80,9 +87,9 @@ def load_series(conn, series_id: str) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute(
             """SELECT observation_date::text, available_at::text, value
-                 FROM macro_series
+                 FROM macro_series_vintages
                 WHERE series_id = %s
-                ORDER BY observation_date""",
+                ORDER BY observation_date, available_at""",
             (series_id,),
         )
         return [
@@ -106,6 +113,12 @@ def _change(rows: list[dict], idx: int, width: int) -> float | None:
 
 
 def features_as_of(series: dict[str, list[dict]], as_of: str) -> dict:
+    # Reconstruct one value per economic date at the requested information
+    # cutoff; duplicate revision rows must not lengthen rolling windows.
+    series = {sid: list({r["observation_date"]: r for r in sorted(rows,
+                          key=lambda r: (r["observation_date"], r["available_at"]))
+                       if r["available_at"] <= as_of}.values())
+              for sid, rows in series.items()}
     vix = _asof(series.get("VIXCLS", []), as_of)
     y2 = _asof(series.get("DGS2", []), as_of)
     y10 = _asof(series.get("DGS10", []), as_of)

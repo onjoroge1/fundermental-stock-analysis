@@ -67,6 +67,7 @@ class ForecastHorizon(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     horizon_days: int = Field(gt=0)
+    horizon_unit: Literal["trading_sessions"] = "trading_sessions"
     probability_up: float = Field(ge=0, le=1)
     expected_return: float
     expected_price: float = Field(gt=0)

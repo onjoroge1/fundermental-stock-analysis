@@ -44,14 +44,14 @@ def synthetic_facts():
     }}}
 
 
-def test_q4_derived_and_available_at_is_10k_filing_date():
+def test_q4_derived_and_available_after_10k_filing_day():
     quarterly, annual, events = build_periods(synthetic_facts())
     q4 = [q for q in quarterly if q["period_end"] == "2025-09-30"]
     assert len(q4) == 1
     q4 = q4[0]
     assert q4["derived"] is True
     assert q4["fields"]["revenue"] == 170
-    assert q4["available_at"] == "2025-11-15"  # not knowable before the 10-K
+    assert q4["available_at"] == "2025-11-16"  # not knowable before the 10-K
 
 
 def test_non_additive_fields_not_subtracted():
@@ -64,7 +64,7 @@ def test_first_reported_wins_and_restatement_logged():
     quarterly, _, events = build_periods(synthetic_facts())
     q1 = [q for q in quarterly if q["period_end"] == "2024-12-31"][0]
     assert q1["fields"]["revenue"] == 100  # original, not the restated 105
-    assert q1["available_at"] == "2025-02-01"
+    assert q1["available_at"] == "2025-02-02"
     restatements = [e for e in events if e["event"] == "RESTATEMENT"]
     assert len(restatements) == 1
     assert restatements[0]["later_values"][0]["value"] == 105
@@ -89,7 +89,7 @@ def test_shares_outstanding_extraction():
     }}}}}
     rows = extract_shares_outstanding(cf)
     assert [r["shares"] for r in rows] == [1000, 990]
-    assert rows[0]["available_at"] == "2025-02-01"
+    assert rows[0]["available_at"] == "2025-02-02"
 
 
 def test_ytd_cumulative_differencing_fills_cash_flow():

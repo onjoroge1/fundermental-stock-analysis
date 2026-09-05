@@ -148,7 +148,7 @@ def main() -> int:
     # Precompute and persist probabilistic forecasts. Web requests never train.
     prediction_result = {"ok": 0, "failed": 0}
     try:
-        from stock_machine.prediction import forecast
+        from stock_machine.forecast_service import compute_and_save
 
         # A connection must NEVER be held across model training: each forecast
         # burns ~30s of CPU, and a connection left idle-in-transaction that
@@ -156,22 +156,7 @@ def main() -> int:
         # it. Read and write in short-lived connections around the compute.
         for t in tickers:
             try:
-                with db.connect() as conn:
-                    rows = db.fetch_prices(conn, t)
-                    versions = db.latest_dataset_snapshots(conn, t)
-                closes = [{"date": r["date"],
-                           "adj_close": r.get("adj_close") or r["close"]}
-                          for r in rows]
-
-                r = forecast(t, closes)          # no connection held here
-
-                if r["status"] == "OK":
-                    r["input_data_versions"] = {
-                        v["dataset"]: v["content_hash"] for v in versions
-                        if v["dataset"] == "prices"
-                    }
-                    with db.connect() as conn:
-                        db.save_prediction_forecast(conn, r)
+                r = compute_and_save(t)
                 prediction_result["ok" if r["status"] == "OK"
                                   else "failed"] += 1
             except Exception as exc:
@@ -233,7 +218,10 @@ def main() -> int:
           f"outcomes newly scored: {len(newly) if newly is not None else 'err'} "
           f"(pending {outcome_result.get('pending_horizons', '?')})"
           f"  → {log_path}")
-    return 1 if failures else 0
+    operational_failure = (failures or prediction_result.get("failed") or prediction_result.get("error")
+                           or paper_result.get("error") or outcome_result.get("error")
+                           or not coverage_result.get("ok"))
+    return 1 if operational_failure else 0
 
 
 if __name__ == "__main__":

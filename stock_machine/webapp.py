@@ -201,6 +201,13 @@ def predict(ticker: str) -> dict:
             "latest_price_date": latest_price_date,
             "reason": "forecast predates the latest available price",
         }
+    from .market_calendar import price_freshness
+    freshness = price_freshness(latest_price_date)
+    if freshness["status"] != "CURRENT":
+        return {"status": "STALE", "ticker": ticker,
+                "model_version": MODEL_VERSION, "as_of": stored.get("as_of"),
+                "reason": "stored price history has no current completed session",
+                "data_freshness": freshness}
     return stored
 
 

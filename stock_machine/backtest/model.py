@@ -18,6 +18,7 @@ Pure Python (Gauss-Jordan solve) — 11 features do not need numpy."""
 from __future__ import annotations
 
 from collections import defaultdict
+from .intervals import matured_before
 from datetime import date, timedelta
 
 from .evaluate import spearman
@@ -102,7 +103,7 @@ def _zscore_by_date(obs: list[dict]) -> dict[tuple, list[float]]:
 
 def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
     usable = [o for o in obs if o["forward"].get(horizon) is not None]
-    z = _zscore_by_date(usable)
+    z = _zscore_by_date(obs)
     by_date: dict[str, list[dict]] = defaultdict(list)
     for o in usable:
         by_date[o["as_of"]].append(o)
@@ -118,7 +119,8 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
             continue
         cutoff = (date.fromisoformat(t)
                   - timedelta(days=EMBARGO_DAYS)).isoformat()
-        train_dates = [d for d in dates if d <= cutoff]
+        train_dates = [d for d in dates if d <= cutoff
+                       and all(matured_before(r, horizon, t) for r in by_date[d])]
         if len(train_dates) < MIN_TRAIN_DATES:
             continue
         train = [(z[(d, r["ticker"])],

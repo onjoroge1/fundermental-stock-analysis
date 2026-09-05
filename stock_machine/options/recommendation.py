@@ -22,8 +22,10 @@ from .extended import mixed_expiration
 from .generator import GenerationPolicy, generate_strategies
 from .models import StrategyCandidate, StrategyType
 from .surface_features import extract_surface
+from ..market_calendar import calendar_dte_to_sessions, price_freshness
 
-HORIZON_DAYS = {"3m": 90, "6m": 180, "12m": 300}
+HORIZON_DAYS = {"3m": 91, "6m": 182, "12m": 365}  # expiration calendar days
+FORECAST_SESSIONS = {"3m": 63, "6m": 126, "12m": 252}
 REPORT_HORIZONS = {"3m": "three_month", "6m": "six_month", "12m": "twelve_month"}
 QUANTILE_WEIGHTS = {"p10": 0.10, "p25": 0.20, "p50": 0.40, "p75": 0.20, "p90": 0.10}
 
@@ -121,7 +123,7 @@ def determine_direction(
         raise ValueError("direction must be auto, bearish, or bullish")
     expected = _report_return(report, horizon)
     if expected is None:
-        row = _forecast_horizon(forecast, HORIZON_DAYS[horizon])
+        row = _forecast_horizon(forecast, FORECAST_SESSIONS[horizon])
         expected = row.expected_return * 100.0 if row else None
     if expected is None or abs(expected) < 5.0:
         return "neutral"
@@ -135,7 +137,7 @@ def _analysis_targets(ticker: str, report: dict, forecast: ForecastDistribution 
     report_row = ((report.get("forecasts") or {}).get(REPORT_HORIZONS[horizon]) or {})
     low = report_row.get("fair_value_low")
     high = report_row.get("fair_value_high")
-    row = _forecast_horizon(forecast, HORIZON_DAYS[horizon])
+    row = _forecast_horizon(forecast, FORECAST_SESSIONS[horizon])
     quantiles = row.price_quantiles.model_dump() if row else {}
     anchors = [
         float(value) for value in (
@@ -312,7 +314,7 @@ def recommend(
         )
         vertical = _best_vertical(generated, resolved_direction)
         long_option = _long_option_candidate(
-            far_chain, forecast, HORIZON_DAYS[horizon], "P" if resolved_direction == "bearish" else "C"
+            far_chain, forecast, FORECAST_SESSIONS[horizon], "P" if resolved_direction == "bearish" else "C"
         )
 
         near = choose_expiration_month(expirations.get("months") or [], 45, minimum_days=21)
@@ -348,7 +350,9 @@ def recommend(
                                 row["near_expiration"], row["far_expiration"],
                             )
                         row["event_screen"] = screen
-                        row["execution_eligible"] = screen.get("status") == "CLEAR"
+                        from .path_risk import assess_mixed_path_risk
+                        row["path_risk"] = assess_mixed_path_risk(row, capital, event_screen=screen)
+                        row["execution_eligible"] = row["path_risk"].get("automation_eligible", False)
                     mixed.append(row)
             except Exception as exc:
                 mixed.append({
@@ -373,9 +377,14 @@ def recommend(
         option.quote.availability.value for option in far_chain.options
     })
     realtime = data_availability == ["realtime"]
-    forecast_ready = bool(forecast and forecast.readiness_status == "VALIDATED")
+    target_sessions = calendar_dte_to_sessions(date.today(), far["dte"])
+    selected_horizon = _forecast_horizon(forecast, target_sessions)
+    forecast_current = bool(forecast and price_freshness(str(forecast.as_of))["status"] == "CURRENT")
+    horizon_matches = bool(selected_horizon and abs(selected_horizon.horizon_days - target_sessions) <= max(5, target_sessions * 0.5))
+    forecast_ready = bool(selected_horizon and selected_horizon.readiness_status == "VALIDATED"
+                          and forecast_current and horizon_matches)
     execution_ready = bool(primary and realtime and forecast_ready)
-    legacy_12m = ((legacy_prediction.get("horizons") or {}).get("12m") or {}) if legacy_prediction else {}
+    legacy_12m = (((legacy_prediction.get("models") or {}).get(legacy_prediction.get("primary_model")) or {}).get("horizons") or {}).get("12m") or {} if legacy_prediction else {}
 
     return {
         "status": "OK" if primary else "NO_OPTION_CLEARED",
@@ -400,6 +409,9 @@ def recommend(
             "ready": execution_ready,
             "market_data_realtime": realtime,
             "forecast_validated": forecast_ready,
+            "forecast_current": forecast_current,
+            "selected_horizon_sessions": selected_horizon.horizon_days if selected_horizon else None,
+            "expiration_sessions": target_sessions,
             "availability": data_availability,
             "reason": None if execution_ready else (
                 "analysis only until a primary candidate exists, market data is realtime, and the forecast contract is VALIDATED"

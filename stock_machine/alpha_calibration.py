@@ -12,6 +12,7 @@ from math import log
 
 from . import db
 from .regime import RegimeFeatureProvider
+from .market_calendar import session_offset, latest_completed_session
 
 HORIZONS = (5, 10, 20, 63, 126, 252)
 
@@ -34,10 +35,13 @@ def _aligned(stock_rows: list[dict], bench_rows: list[dict]) -> list[tuple[str, 
 def _realized(aligned: list[tuple[str, float, float]], as_of: str, horizon: int):
     dates = [r[0] for r in aligned]
     i = bisect.bisect_left(dates, as_of)
-    if i >= len(dates) or dates[i] != as_of or i + horizon >= len(aligned):
+    target = session_offset(as_of, horizon)
+    j = bisect.bisect_left(dates, target)
+    if (i >= len(dates) or dates[i] != as_of or j >= len(dates)
+            or dates[j] != target or target > latest_completed_session()):
         return None
     d0, s0, b0 = aligned[i]
-    d1, s1, b1 = aligned[i + horizon]
+    d1, s1, b1 = aligned[j]
     excess_log = log(s1 / s0) - log(b1 / b0)
     return d1, (pow(2.718281828459045, excess_log) - 1.0) * 100.0
 
@@ -45,16 +49,16 @@ def _realized(aligned: list[tuple[str, float, float]], as_of: str, horizon: int)
 def score_pending(conn, benchmark: str = "SPY") -> dict:
     with conn.cursor() as cur:
         cur.execute(
-            """SELECT ticker, as_of::text, model_version, payload
+            """SELECT ticker, as_of::text, model_version, payload, forecast_id
                  FROM prediction_forecasts
                 WHERE status = 'OK' ORDER BY as_of, ticker"""
         )
         forecasts = cur.fetchall()
         cur.execute(
-            """SELECT ticker, as_of::text, model_version, horizon_days
+            """SELECT forecast_id, horizon_days
                  FROM alpha_probability_outcomes"""
         )
-        existing = {(r[0], r[1], r[2], int(r[3])) for r in cur.fetchall()}
+        existing = {(r[0], int(r[1])) for r in cur.fetchall()}
 
     bench_rows = db.fetch_prices(conn, benchmark)
     qqq_rows = db.fetch_prices(conn, "QQQ")
@@ -62,7 +66,7 @@ def score_pending(conn, benchmark: str = "SPY") -> dict:
     scored = []
     pending = 0
 
-    for ticker, as_of, version, payload in forecasts:
+    for ticker, as_of, version, payload, forecast_id in forecasts:
         alpha = (payload or {}).get("alpha_forecast") or {}
         if alpha.get("status") != "OK":
             continue
@@ -73,7 +77,7 @@ def score_pending(conn, benchmark: str = "SPY") -> dict:
         regime_label = regime.get("classification")
 
         for horizon in HORIZONS:
-            key = (ticker, as_of, version, horizon)
+            key = (forecast_id, horizon)
             if key in existing:
                 continue
             row = (alpha.get("horizons") or {}).get(str(horizon)) or {}
@@ -90,11 +94,11 @@ def score_pending(conn, benchmark: str = "SPY") -> dict:
                     """INSERT INTO alpha_probability_outcomes
                        (ticker, as_of, model_version, horizon_days, target_date,
                         prob_outperform, actual_excess_return_pct,
-                        actual_outperform, regime)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        actual_outperform, regime, forecast_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        ON CONFLICT DO NOTHING""",
                     (ticker, as_of, version, horizon, target_date, float(p),
-                     round(excess, 4), excess > 0, regime_label),
+                     round(excess, 4), excess > 0, regime_label, forecast_id),
                 )
             conn.commit()
             scored.append({"ticker": ticker, "as_of": as_of,

@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date
 
 from ..forecasts.models import ForecastDistribution, ForecastHorizon
+from ..market_calendar import calendar_dte_to_sessions
 from .models import (
     ForecastAssessment,
     LiquidityAssessment,
@@ -67,7 +68,8 @@ def assess_forecast(
     if spot_mismatch:
         warnings.append("forecast spot differs from option-chain spot by more than 5%")
 
-    horizon = _nearest_horizon(forecast, days_to_expiration)
+    remaining_sessions = calendar_dte_to_sessions(as_of, days_to_expiration)
+    horizon = _nearest_horizon(forecast, remaining_sessions)
     if strategy_type in _BULLISH:
         directional = horizon.probability_up
     elif strategy_type in _BEARISH:
@@ -101,10 +103,10 @@ def assess_forecast(
         warnings.append(
             "forecast is not calibrated; alignment influence was reduced"
         )
-    gap = abs(horizon.horizon_days - days_to_expiration)
-    if gap > max(7, days_to_expiration * 0.5):
+    gap = abs(horizon.horizon_days - remaining_sessions)
+    if gap > max(5, remaining_sessions * 0.5):
         score = 0.5 + (score - 0.5) * 0.7
-        warnings.append("nearest forecast horizon is materially different from DTE")
+        warnings.append("nearest forecast horizon differs materially from sessions until expiry")
     if forecast_age_days > 7:
         score = 0.5 + (score - 0.5) * 0.5
         warnings.append("forecast is more than seven calendar days old")

@@ -118,22 +118,22 @@ def test_build_mark_requires_complete_same_date(monkeypatch):
         ticker: price * (1.10 if ticker in contract["longs"] else 0.95)
         for ticker, price in contract["entry_adjusted_close"].items()
     }
-    monkeypatch.setattr(
-        fp, "_exact_price",
-        lambda conn, ticker, market_date: values.get(ticker),
-    )
+    monkeypatch.setattr(fp, "latest_completed_session", lambda: "2026-10-30")
+    def series(conn, ticker):
+        return [
+            {"date": contract["entry_market_date"], "adj_close": contract["entry_adjusted_close"][ticker]},
+            {"date": "2026-10-30", "adj_close": values.get(ticker)},
+        ]
+    monkeypatch.setattr(fp.db, "fetch_prices", series)
     mark = fp.build_mark(object(), cohort, "2026-10-30")
     assert mark["coverage"]["complete"] is True
     assert mark["net_return_pct"] > 0
     assert mark["control_return_pct"] == 0.0
 
     missing = contract["longs"][0]
-    monkeypatch.setattr(
-        fp, "_exact_price",
-        lambda conn, ticker, market_date: None if ticker == missing else values.get(ticker),
-    )
+    values.pop(missing)
     with pytest.raises(ValueError, match="mark aborted"):
-        fp.build_mark(object(), cohort, "2026-10-31")
+        fp.build_mark(object(), cohort, "2026-10-30")
 
 
 def _marks(n=40, latest_excess=8.0):

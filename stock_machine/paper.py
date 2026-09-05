@@ -22,6 +22,7 @@ import bisect
 from datetime import date
 
 from . import db
+from .market_calendar import latest_completed_session, session_on_or_before
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sm_paper_positions (
@@ -140,18 +141,23 @@ def flag_position(conn, ticker: str, note: str) -> None:
 def mark(conn, on: str | None = None) -> dict:
     """Daily mark: per-position and book P&L, stored in sm_paper_nav."""
     init_schema(conn)
-    on = on or date.today().isoformat()
+    on = session_on_or_before(on) if on else latest_completed_session()
+    if on > latest_completed_session():
+        raise ValueError("paper marks require a completed market session")
     positions = open_positions(conn)
     longs, shorts, details = [], [], []
     for p in positions:
-        px = _adj_close(conn, p["ticker"], on)
-        if px is None:
-            continue
-        chg = (px / p["entry_price"] - 1) * 100
+        series = {r["date"]: r.get("adj_close") for r in db.fetch_prices(conn, p["ticker"], on)}
+        px = series.get(on)
+        entry = series.get(session_on_or_before(p["entry_date"]))
+        if not px or not entry:
+            raise ValueError(f"missing adjusted-price endpoint for {p['ticker']}; complete book mark aborted")
+        chg = (px / entry - 1) * 100
         ret = chg if p["direction"] == "long" else -chg
         (longs if p["direction"] == "long" else shorts).append(ret)
         details.append({"ticker": p["ticker"], "direction": p["direction"],
-                        "entry": p["entry_price"], "price": px,
+                        "entry": entry, "entry_observed": p["entry_price"], "price": px,
+                        "return_basis": "same_vintage_adjusted_endpoints.v1",
                         "position_ret_pct": round(ret, 2),
                         "flagged": p["flagged"]})
     long_ret = round(sum(longs) / len(longs), 3) if longs else None

@@ -7,7 +7,7 @@ from stock_machine.portfolio import PortfolioPolicy, build_proposal
 from stock_machine.portfolio.risk import beta, correlation, realized_vol
 
 
-def _prices(daily, n=320, start="2025-01-01"):
+def _prices(daily, n=318, start="2025-01-01"):
     d0 = date.fromisoformat(start)
     px = 100.0
     rows = []
@@ -18,9 +18,11 @@ def _prices(daily, n=320, start="2025-01-01"):
 
 
 def _forecast(expected, prob, horizon=63):
-    return {"alpha_forecast": {"status": "OK", "horizons": {
+    return {"as_of": "2025-11-14", "data_quality": {"status": "READY"},
+            "alpha_forecast": {"status": "OK", "horizons": {
         str(horizon): {"status": "OK", "expected_excess_return_pct": expected,
-                       "prob_outperform": prob}
+                       "prob_outperform": prob, "validation": {"passes": True},
+                       "readiness_status": "VALIDATED"}
     }}}
 
 
@@ -45,8 +47,9 @@ def test_portfolio_obeys_hard_exposure_limits():
     policy = PortfolioPolicy(gross_limit=0.60, net_limit=0.40,
                              single_name_limit=0.12, sector_limit=0.20,
                              beta_limit=0.40, max_pair_correlation=0.9999)
-    result = build_proposal(candidates, spy, policy)
+    result = build_proposal(candidates, spy, policy, as_of=date(2025, 11, 15))
     assert result["proposal_only"] is True
+    assert result["positions"], result.get("rejected")
     assert result["exposures"]["gross"] <= 0.600001
     assert abs(result["exposures"]["net"]) <= 0.400001
     assert abs(result["exposures"]["beta"]) <= 0.400001
@@ -62,5 +65,5 @@ def test_weak_or_conflicted_signals_abstain():
         {"ticker": "CONFLICT", "sector": "Health", "forecast": _forecast(-5.0, 0.70),
          "price_rows": _prices(0.0002)},
     ]
-    result = build_proposal(candidates, spy)
+    result = build_proposal(candidates, spy, as_of=date(2025, 11, 15))
     assert result["positions"] == []
