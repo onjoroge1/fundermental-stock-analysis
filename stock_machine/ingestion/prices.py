@@ -1,5 +1,5 @@
 """Daily price + corporate-action ingestion from Yahoo Finance's public chart
-endpoint (keyless). Provides BOTH unadjusted and adjusted closes plus explicit
+endpoint (keyless). Provides split-adjusted closes and total-return-adjusted closes plus explicit
 split/dividend events, which the point-in-time design requires.
 
 Phase 2 should still move to a licensed vendor for survivorship-free history
@@ -19,7 +19,7 @@ def fetch_daily(ticker: str) -> tuple[list[dict], list[dict]]:
     """Returns (price_rows ascending, corporate_actions).
 
     price_rows: {date, open, high, low, close, adj_close, volume} (close is
-    unadjusted). corporate_actions: {date, action_type, value} where value is
+    split-adjusted, without dividend adjustments). corporate_actions: {date, action_type, value} where value is
     the dividend amount or the split ratio (e.g. 4.0 for 4:1)."""
     symbol = ticker.upper()
     url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"

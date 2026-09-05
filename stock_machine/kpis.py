@@ -12,6 +12,7 @@ from datetime import date
 from pathlib import Path
 
 from .config import DATA_DIR
+from .market_calendar import price_freshness, latest_completed_session
 
 RECON_TOLERANCE = 0.01  # A = L + E within 1%
 
@@ -62,8 +63,9 @@ def compute_kpis(conn) -> dict:
         cur.execute("""SELECT count(*), count(available_at)
                        FROM financial_periods""")
         n_periods, n_with_avail = cur.fetchone()
-        cur.execute("""SELECT max(date) FROM prices_daily""")
-        last_price = cur.fetchone()[0]
+        cur.execute("""SELECT c.ticker,max(p.date)::text FROM companies c
+                       LEFT JOIN prices_daily p ON c.ticker=p.ticker GROUP BY c.ticker ORDER BY c.ticker""")
+        price_dates = cur.fetchall()
         cur.execute("""SELECT count(DISTINCT ticker) FROM consensus_snapshots""")
         consensus_tickers = cur.fetchone()[0]
         cur.execute("""SELECT count(DISTINCT ticker) FROM insider_transactions""")
@@ -78,21 +80,20 @@ def compute_kpis(conn) -> dict:
                      f"{recon['rate']*100:.1f}%" if recon["rate"] else "—",
                      ">99%", (recon["rate"] or 0) > 0.99,
                      f"{recon['passed']}/{recon['total']} periods"))
-    kpis.append(_kpi("Point-in-time integrity (available_at present)",
+    kpis.append(_kpi("Availability timestamp coverage",
                      f"{n_with_avail/n_periods*100:.1f}%" if n_periods else "—",
                      "100%", n_with_avail == n_periods,
-                     "no-lookahead enforced at query layer; every period "
-                     "carries its filing date"))
-    price_age = (date.today() - last_price).days if last_price else None
-    kpis.append(_kpi("Price freshness", f"{price_age}d" if price_age is not None
-                     else "—", "<=3 trading days", price_age is not None
-                     and price_age <= 5, f"last close {last_price}"))
+                     "Measures timestamp presence only. Causal validity also requires dependency availability, release timing, and source-vintage checks."))
+    stale = [ticker for ticker, latest in price_dates if price_freshness(latest)["status"] != "CURRENT"]
+    kpis.append(_kpi("Price freshness", f"{len(price_dates)-len(stale)}/{n_companies} current",
+                     "every ticker through latest completed exchange session", bool(price_dates) and not stale,
+                     f"expected {latest_completed_session()}; missing/stale: {', '.join(stale) or 'none'}"))
     kpis.append(_kpi("Consensus coverage",
                      f"{consensus_tickers}/{n_companies}",
                      "100% (needs FMP Starter)",
                      consensus_tickers == n_companies,
                      f"vintage span {vintage_span}d (revision analysis "
-                     f"unlocks at 7d)"))
+                     f"requires comparable same-fiscal-period vintages across 30d)"))
     kpis.append(_kpi("Insider-data coverage",
                      f"{insider_tickers}/{n_companies}", "100%",
                      insider_tickers == n_companies))

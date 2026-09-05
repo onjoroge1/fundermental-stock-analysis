@@ -42,9 +42,9 @@ WINDOW = 40
 BLOCK = 21
 PURGE = 20
 SEED = 7
-MODEL_VERSION = "forecast-calibration.v2"
+MODEL_VERSION = "forecast-calibration.v3"
 MIN_CALIBRATION_SAMPLES = 10
-MIN_EVALUATION_SAMPLES = 8
+MIN_EVALUATION_SAMPLES = 12
 
 try:
     import torch
@@ -357,6 +357,15 @@ def _summarize_validation(folds: list[dict], model: str,
         str(days): summarize([row for row in observations if row[0] == days])
         for days in VALIDATION_HORIZONS
     }
+    from .backtest.statistics import mean_uncertainty
+    for days in VALIDATION_HORIZONS:
+        rows = [r for r in observations if r[0] == days]
+        by_horizon[str(days)]["paired_mae_advantage"] = mean_uncertainty(
+            [r[3]["models"]["no_change"][str(days)]["absolute_error"] - r[1]["absolute_error"] for r in rows],
+            lags=1, alpha=0.05 / (2 * len(VALIDATION_HORIZONS)))
+        by_horizon[str(days)]["paired_brier_advantage"] = mean_uncertainty(
+            [r[3]["models"]["no_change"][str(days)]["brier"] - r[1]["brier"] for r in rows],
+            lags=1, alpha=0.05 / (2 * len(VALIDATION_HORIZONS)))
     return {
         **summarize(observations),
         "by_horizon": by_horizon,
@@ -390,7 +399,7 @@ def _promotion_checks(candidate: dict | None, no_change: dict) -> dict:
         model_h = (candidate or {}).get("by_horizon", {}).get(str(days), {})
         base_h = no_change["by_horizon"][str(days)]
         values = {
-            "minimum_eight_evaluation_folds": (
+            "minimum_evaluation_folds": (
                 model_h.get("samples", 0) >= MIN_EVALUATION_SAMPLES
             ),
             "mae_beats_no_change": (
@@ -400,6 +409,10 @@ def _promotion_checks(candidate: dict | None, no_change: dict) -> dict:
             "brier_beats_class_prior": (
                 model_h.get("brier_score", math.inf) < base_h["brier_score"]
             ),
+            "paired_advantages_have_positive_confidence_bounds": all(
+                (model_h.get(k) or {}).get("status") == "OK"
+                and (model_h[k].get("lower") or 0) > 0
+                for k in ("paired_mae_advantage", "paired_brier_advantage")),
             "balanced_accuracy_above_half": (
                 (model_h.get("balanced_accuracy") or 0.0) > 0.5
             ),

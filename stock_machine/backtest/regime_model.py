@@ -7,6 +7,8 @@ P0 on the same embargoed out-of-sample dates.
 from __future__ import annotations
 
 from collections import defaultdict
+from .intervals import matured_before
+from .comparisons import baseline_scores, comparison_series, evidence
 from datetime import date, timedelta
 
 from .evaluate import spearman
@@ -36,15 +38,25 @@ BASE_FEATURES = [
     ("expectations", "latest_eps_surprise_pct"),
     ("expectations", "trailing_4q_eps_surprise_pct"),
 ]
-FEATURE_NAMES = [f"{a}.{b}" for a, b in BASE_FEATURES] + [f"regime.{x}" for x in REGIME_FEATURE_NAMES]
+INTERACTIONS = [(state, exposure) for state in REGIME_FEATURE_NAMES
+                if not state.startswith("has_")
+                for exposure in ("momentum_12m_pct", "fcf_yield_pct")]
+FEATURE_NAMES = ([f"{a}.{b}" for a, b in BASE_FEATURES]
+                 + [f"regime.{x}" for x in REGIME_FEATURE_NAMES]
+                 + [f"regime.{state}_x_{exposure}" for state, exposure in INTERACTIONS])
 
 
 def _value(row: dict, index: int):
     if index < len(BASE_FEATURES):
         top, sub = BASE_FEATURES[index]
         return row.get(top, {}).get(sub)
-    name = REGIME_FEATURE_NAMES[index - len(BASE_FEATURES)]
-    return (row.get("regime") or {}).get("features", {}).get(name)
+    offset = index - len(BASE_FEATURES)
+    features = (row.get("regime") or {}).get("features", {})
+    if offset < len(REGIME_FEATURE_NAMES):
+        return features.get(REGIME_FEATURE_NAMES[offset])
+    state, exposure = INTERACTIONS[offset - len(REGIME_FEATURE_NAMES)]
+    state_value, exposure_value = features.get(state), row.get("factors", {}).get(exposure)
+    return None if state_value is None or exposure_value is None else state_value * exposure_value
 
 
 def _zscore_by_date(obs: list[dict]) -> dict[tuple[str, str], list[float]]:
@@ -58,7 +70,11 @@ def _zscore_by_date(obs: list[dict]) -> dict[tuple[str, str], list[float]]:
         stats = []
         for j in range(width):
             vals = [_value(r, j) for r in rows if _value(r, j) is not None]
-            if len(vals) >= 3:
+            if len(BASE_FEATURES) <= j < len(BASE_FEATURES) + len(REGIME_FEATURE_NAMES):
+                # Preserve common temporal state. Exposure interactions
+                # below carry its cross-sectional ranking information.
+                stats.append((0.0, 1.0))
+            elif len(vals) >= 3:
                 m = sum(vals) / len(vals)
                 var = sum((v - m) ** 2 for v in vals) / len(vals)
                 stats.append((m, var ** 0.5 or 1.0))
@@ -67,15 +83,25 @@ def _zscore_by_date(obs: list[dict]) -> dict[tuple[str, str], list[float]]:
         for row in rows:
             vec = []
             for j, (m, sd) in enumerate(stats):
-                v = _value(row, j)
-                vec.append(0.0 if v is None else (v - m) / sd)
+                if j >= len(BASE_FEATURES) + len(REGIME_FEATURE_NAMES):
+                    state, exposure = INTERACTIONS[j - len(BASE_FEATURES) - len(REGIME_FEATURE_NAMES)]
+                    state_value = ((row.get("regime") or {}).get("features") or {}).get(state)
+                    value = (row.get("factors") or {}).get(exposure)
+                    em, esd = stats[BASE_FEATURES.index(("factors", exposure))]
+                    # Normalize exposure, then interact. Normalizing the
+                    # product would erase the magnitude of common state.
+                    vec.append(0.0 if state_value is None or value is None
+                               else state_value * (value - em) / esd)
+                else:
+                    v = _value(row, j)
+                    vec.append(0.0 if v is None else (v - m) / sd)
             out[(as_of, row["ticker"])] = vec
     return out
 
 
 def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
     usable = [o for o in obs if o.get("forward", {}).get(horizon) is not None]
-    z = _zscore_by_date(usable)
+    z = _zscore_by_date(obs)
     by_date: dict[str, list[dict]] = defaultdict(list)
     for o in usable:
         by_date[o["as_of"]].append(o)
@@ -91,7 +117,8 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         if len(test_rows) < MIN_TEST_NAMES:
             continue
         cutoff = (date.fromisoformat(test_date) - timedelta(days=EMBARGO_DAYS)).isoformat()
-        train_dates = [d for d in dates if d <= cutoff]
+        train_dates = [d for d in dates if d <= cutoff
+                       and all(matured_before(r, horizon, test_date) for r in by_date[d])]
         if len(train_dates) < MIN_TRAIN_DATES:
             continue
         train = [
@@ -110,12 +137,16 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         if ic is None:
             continue
         p1_ics.append(ic)
-        per_date.append({"as_of": test_date, "n": len(test_rows), "regime_ic": round(ic, 3)})
+        per_date.append({"as_of": test_date, "n": len(test_rows), "regime_ic": ic,
+                             "tickers": sorted(r["ticker"] for r in test_rows),
+                             "paired_baselines": baseline_scores(test_rows, preds, actual)})
 
     if not p1_ics:
         return {"status": "INSUFFICIENT_HISTORY"}
 
     p0 = p0_walk_forward(obs, horizon=horizon)
+    control_series = {"p0": comparison_series(p0.get("per_date", []), "unified_ic")}
+    paired = evidence(per_date, "regime_ic", horizon, control_series)
     p1_mean = sum(p1_ics) / len(p1_ics)
     p0_mean = p0.get("unified_mean_ic") if p0.get("status") == "OK" else None
     best_dumb = p0.get("verdict", {}).get("best_baseline_mean_ic_same_dates") if p0.get("status") == "OK" else None
@@ -132,7 +163,8 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         "feature_weights_final": {name: round(w, 4) for name, w in zip(FEATURE_NAMES, weights_last or [])},
         "verdict": {
             "hurdle_mean_ic": round(hurdle, 4) if hurdle is not None else None,
-            "regime_model_beats_p0_and_baseline": bool(hurdle is not None and p1_mean > hurdle),
+            "regime_model_beats_p0_and_baseline": paired["passes"],
+            "paired_evidence": paired,
             "kill_criterion": "P1 regime challenger must beat P0 unified and the strongest dumb baseline on the same embargoed panel",
         },
         "per_date": per_date,

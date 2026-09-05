@@ -51,6 +51,19 @@ def _pct_change(lookup, as_of_date: str, days_back: int) -> float | None:
     return round((now / then - 1) * 100, 2)
 
 
+def _price_lookup_on_share_basis(prices: list[dict], actions: list[dict], as_of: str):
+    """Put vendor split-adjusted closes onto the requested as-of share basis."""
+    factor = 1.0
+    for action in actions:
+        if action["action_type"] == "split" and action["date"] > as_of and action.get("value"):
+            factor *= float(action["value"])
+    lookup = _price_lookup(prices)
+    def converted(day):
+        value = lookup(day)
+        return value * factor if value is not None else None
+    return converted
+
+
 def _source_id(accn: str | None) -> str | None:
     return f"SEC:ACCESSION:{accn}" if accn else None
 
@@ -125,13 +138,19 @@ def build_bundle(ticker: str, as_of: str | None = None) -> dict:
         insiders = insider_summary(conn, ticker, as_of)
         from .monitoring import active_breaches
         breaches = active_breaches(conn, ticker)
-        actions = db.fetch_actions(conn, ticker, as_of)
+        all_actions = db.fetch_actions(conn, ticker)
+        actions = [a for a in all_actions if a["date"] <= as_of_date]
         dataset_snapshots = db.latest_dataset_snapshots(conn, ticker)
+        from .events.store import events_in_window
+        from datetime import date, timedelta
+        upcoming_earnings = events_in_window(
+            conn, ticker, "EARNINGS", as_of_date,
+            (date.fromisoformat(as_of_date) + timedelta(days=366)).isoformat(), as_of_date)
     finally:
         conn.close()
 
-    lookup = _price_lookup(prices)                      # unadjusted: market cap
-    adj_lookup = _price_lookup(prices, "adj_close")     # adjusted: returns, P/E history
+    lookup = _price_lookup_on_share_basis(prices, all_actions, as_of_date)
+    adj_lookup = _price_lookup(prices, "adj_close")     # total-return adjustment: returns only
     price = lookup(as_of_date)
     latest_q = quarterly[-1] if quarterly else None
     ttm = metrics.build_ttm(quarterly)
@@ -153,14 +172,14 @@ def build_bundle(ticker: str, as_of: str | None = None) -> dict:
     # split-adjust the cover-page count for splits AFTER its as-of date
     # (KLAC failure mode: pre-split count x post-split price = fake mcap)
     share_adjustments = []
-    if shares_out and shares_as_of and shares_source == "dei_cover_page":
+    if shares_out and shares_as_of:
         for a in actions:
             if (a["action_type"] == "split" and a["value"]
                     and a["date"] > shares_as_of):
                 shares_out *= a["value"]
                 share_adjustments.append(
                     f"{a['value']:g}:1 split on {a['date']} applied to "
-                    f"cover-page count of {shares_as_of}")
+                    f"{shares_source} count of {shares_as_of}")
     market_cap = price * shares_out if price and shares_out else None
 
     def _split_factor_after(d: str) -> float:
@@ -208,8 +227,9 @@ def build_bundle(ticker: str, as_of: str | None = None) -> dict:
             if hist_eps is not None:
                 t["fields"]["diluted_eps"] = (
                     hist_eps / _split_factor_after(t["period_end"]))
-            ttm_eps_history.append((t["period_end"],
-                                    t["fields"].get("diluted_eps")))
+            known_at = t["available_at"]
+            if known_at:
+                ttm_eps_history.append((known_at, t["fields"].get("diluted_eps")))
     derived = {
         "growth": metrics.growth_metrics(quarterly, annual),
         "profitability": metrics.profitability_metrics(ttm, prior_ttm),
@@ -218,7 +238,7 @@ def build_bundle(ticker: str, as_of: str | None = None) -> dict:
         "capital_allocation": metrics.capital_allocation_metrics(
             ttm, quarterly, market_cap),
         "valuation": metrics.valuation_metrics(
-            ttm, price, market_cap, ev, ttm_eps_history, adj_lookup),
+            ttm, price, market_cap, ev, ttm_eps_history, lookup),
     }
 
     # ---- bank mode: loan flows make cash-flow/accrual metrics actively
@@ -304,18 +324,17 @@ def build_bundle(ticker: str, as_of: str | None = None) -> dict:
     })
 
     # ---- Phase A: catalyst calendar (next earnings from FMP calendar) ----
-    next_earn = next((r["forecast_period_end"] for r in (consensus_rows or [])
-                      if r["period_type"] == "quarter"
-                      and r["forecast_period_end"] > as_of_date), None)
+    next_event = next((r for r in upcoming_earnings if r["event_date"] > as_of_date), None)
+    next_earn = next_event["event_date"] if next_event else None
     from datetime import date as _date
     catalyst_calendar = {
         "next_earnings_date": next_earn,
         "days_until": ((_date.fromisoformat(next_earn)
                         - _date.fromisoformat(as_of_date)).days
                        if next_earn else None),
-        "source": "FMP earnings calendar" if next_earn else None,
+        "source": next_event["source"] if next_event else None,
         "note": None if next_earn else "no forward earnings date available "
-                "(ticker not covered by estimates plan)",
+                "in observed event history; fiscal period ends are not earnings release dates",
     }
 
     # ---- data-quality gate ----
@@ -364,9 +383,7 @@ def build_bundle(ticker: str, as_of: str | None = None) -> dict:
         "splits, dividends); Phase 2 should move to a licensed vendor with "
         "survivorship-free history.",
         "EBITDA-based ratios use operating income as a proxy (D&A not yet mapped).",
-        "Historical P/E percentile uses adjusted close against point-in-time "
-        "TTM EPS; pre-split EPS is as-reported and comparison across split "
-        "dates relies on the adjusted series.",
+        "Historical P/E uses split-consistent close and EPS on each TTM's availability date. Its accuracy still depends on complete split-event and share coverage.",
     ]
     restatements = [e for e in events if e.get("event") == "RESTATEMENT"]
     consensus_available = bool(consensus_rows)
@@ -445,10 +462,10 @@ def build_bundle(ticker: str, as_of: str | None = None) -> dict:
         reasons.append("no surprise history available")
     if consensus_available:
         permitted.append("forward_consensus_context")
-    if not consensus_available or vintage_span < 7:
+    if not consensus_available or vintage_span < 30:
         prohibited.append("expectations_gap_scoring")
         reasons.append(
-            "consensus revision analysis needs >=7 days of our own vintage "
+            "consensus revision analysis needs comparable fiscal-period snapshots across >=30 days of our own vintage "
             f"snapshots (have {vintage_span})" if consensus_available
             else "no consensus data")
     prohibited.append("price_forecast_with_confidence")

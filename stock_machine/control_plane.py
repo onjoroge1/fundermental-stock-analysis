@@ -259,14 +259,11 @@ def _price_rows(rows: list[dict]) -> list[dict]:
 
 
 def _forecast_one(ticker: str) -> dict:
-    from .prediction import forecast
-    with db.connect() as conn:
-        prices = _price_rows(db.fetch_prices(conn, ticker))
-    result = forecast(ticker, prices)
-    if result.get("status") == "OK":
-        with db.connect() as conn:
-            db.save_prediction_forecast(conn, result)
-    return {"status": result.get("status"), "model_version": result.get("model_version")}
+    from .forecast_service import compute_and_save
+    result = compute_and_save(ticker)
+    return {"status": result.get("status"), "model_version": result.get("model_version"),
+            "alpha_status": (result.get("alpha_forecast") or {}).get("status"),
+            "forecast_id": result.get("forecast_id")}
 
 
 def _events_one(ticker: str) -> dict:

@@ -42,6 +42,8 @@ def test_prediction_endpoint_refuses_stale_vintage(monkeypatch):
 
 
 def test_prediction_endpoint_returns_current_completed_vintage(monkeypatch):
+    from datetime import datetime, timezone
+    monkeypatch.setattr("stock_machine.market_calendar.market_now", lambda: datetime(2026, 8, 21, 12, tzinfo=timezone.utc))
     from stock_machine.prediction import MODEL_VERSION
 
     payload = {

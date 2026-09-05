@@ -23,7 +23,7 @@ def _sqlalchemy_url(url: str) -> str:
 
 
 if DATABASE_URL:
-    config.set_main_option("sqlalchemy.url", _sqlalchemy_url(DATABASE_URL))
+    config.set_main_option("sqlalchemy.url", _sqlalchemy_url(DATABASE_URL).replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:

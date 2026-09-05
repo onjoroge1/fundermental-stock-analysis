@@ -3,18 +3,18 @@ companyfacts.
 
 Policies (each one maps to a stress-test row in the spec):
 - First-reported wins: for a (field, period) the value from the EARLIEST filing
-  is canonical and `available_at` is that filing's date. Later filings that
+  is canonical and `available_at` is the day after its latest dependency filing. Later filings that
   disagree are logged as restatement events, never silently substituted —
   point-in-time reconstruction must reflect what was known on the analysis date.
 - Duration classification is explicit: a "quarter" flow fact spans 60–115 days,
   an "annual" one 330–390 (covers 53-week fiscal years). Anything else is
   ignored (cumulative 6/9-month contexts are the main duplicate-fact trap).
 - Q4 is derived as FY minus Q1..Q3 for additive fields only, and is stamped
-  `available_at` = the 10-K filing date.
+  `available_at` = the latest dependency availability, including the 10-K.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from .xbrl_mapping import (FIELD_MAP, FLOW_FIELDS, NON_ADDITIVE_FIELDS,
@@ -90,7 +90,8 @@ def extract_facts(companyfacts: dict) -> tuple[list[dict], list[dict]]:
                 (rank, tag, e))
 
         for (start, end, dur), tagged_occ in grouped.items():
-            best_rank = min(r for r, _, _ in tagged_occ)
+            first_filed = min(e["filed"] for _, _, e in tagged_occ)
+            best_rank = min(r for r, _, e in tagged_occ if e["filed"] == first_filed)
             occ = [e for r, _, e in tagged_occ if r == best_rank]
             chosen_tag = next(t for r, t, _ in tagged_occ if r == best_rank)
             occ.sort(key=lambda e: (e["filed"], e.get("accn", "")))
@@ -151,13 +152,15 @@ def _rescale_share_facts(facts: list[dict], companyfacts: dict,
     dei = extract_shares_outstanding(companyfacts)
     if not dei:
         return
-    dei_median = sorted(r["shares"] for r in dei)[len(dei) // 2]
     corrected_fields = set()
     for f in facts:
         if FIELD_MAP[f["field"]]["kind"] != "shares":
             continue
+        known = [r for r in dei if r.get("filed") and r["filed"] <= f["filed"]
+                 and r["as_of"] <= f["filed"]]
+        reference = max(known, key=lambda r: (r["as_of"], r["filed"]))["shares"] if known else None
         v = f["value"]
-        if v and v < 1e5 and 1e5 <= dei_median / v <= 1e7:
+        if reference and v and v < 1e5 and 1e5 <= reference / v <= 1e7:
             f["value"] = v * 1e6
             corrected_fields.add(f["field"])
     for field in sorted(corrected_fields):
@@ -239,6 +242,9 @@ def build_periods(companyfacts: dict) -> tuple[list[dict], list[dict], list[dict
                     p["fields"][f["field"]] = f["value"]
                     p["field_sources"][f["field"]] = f["accn"]
                     p["_labels"].append(f)
+                    # A later-disclosed instant cannot travel back to the
+                    # filing date of an earlier flow for the same period.
+                    p["filed_at"] = max(p["filed_at"], f["filed"])
 
     for coll in (quarters, annuals):
         for p in coll.values():
@@ -247,7 +253,9 @@ def build_periods(companyfacts: dict) -> tuple[list[dict], list[dict], list[dict
             if coll is quarters and fp == "FY":
                 fp = "Q4"
             p["fiscal_year"], p["fiscal_period"] = fy, fp
-            p["available_at"] = p["filed_at"]
+            # SEC facts here have dates, not acceptance times. They are safe
+            # for a closing-price information set only from the next day.
+            p["available_at"] = (date.fromisoformat(p["filed_at"]) + timedelta(days=1)).isoformat()
 
     # ---- derive Q4 from FY - (Q1+Q2+Q3) for additive flow fields ----
     q_list = sorted(quarters.values(), key=lambda p: p["period_end"])
@@ -283,8 +291,10 @@ def build_periods(companyfacts: dict) -> tuple[list[dict], list[dict], list[dict
         quarters[end] = {
             "period_end": end, "period_start": q4_start,
             "duration_type": "quarter", "fields": fields,
-            "field_sources": sources, "filed_at": ann["filed_at"],
-            "available_at": ann["filed_at"], "form": ann["form"],
+            "field_sources": sources,
+            "filed_at": max([ann["filed_at"]] + [q["filed_at"] for q in inside]),
+            "available_at": max([ann["available_at"]] + [q["available_at"] for q in inside]),
+            "form": ann["form"],
             "accession_number": ann["accession_number"], "derived": True,
             "fiscal_year": ann["fiscal_year"], "fiscal_period": "Q4",
         }
@@ -312,18 +322,18 @@ def build_periods(companyfacts: dict) -> tuple[list[dict], list[dict], list[dict
 
 def extract_shares_outstanding(companyfacts: dict) -> list[dict]:
     """dei:EntityCommonStockSharesOutstanding — cover-page share counts,
-    used for current market cap (never for historical market cap)."""
+    used only after the filing becomes available, on the matching share basis."""
     dei = companyfacts.get("facts", {}).get("dei", {})
     entries = (dei.get("EntityCommonStockSharesOutstanding", {})
                .get("units", {}).get("shares", []))
     out, seen = [], set()
-    for e in entries:
+    for e in sorted(entries, key=lambda e: e.get("filed") or "9999-12-31"):
         key = (e.get("end"), e.get("val"))
         if key in seen or e.get("val") is None:
             continue
         seen.add(key)
         out.append({"as_of": e["end"], "shares": e["val"],
                     "filed": e.get("filed"), "accn": e.get("accn"),
-                    "available_at": e.get("filed")})
+                    "available_at": (date.fromisoformat(e["filed"]) + timedelta(days=1)).isoformat() if e.get("filed") else None})
     out.sort(key=lambda r: (r["as_of"], r["filed"] or ""))
     return out

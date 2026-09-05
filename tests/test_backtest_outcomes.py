@@ -50,7 +50,8 @@ def test_evaluate_ic_signs():
     assert out["dates_used"] == 2
     assert math.isclose(out["factors"]["composite_score"]["mean_ic"], 1.0)
     assert math.isclose(out["factors"]["revenue_yoy"]["mean_ic"], -1.0)
-    assert out["verdict"]["composite_beats_baselines"] is True
+    assert out["verdict"]["composite_beats_baselines"] is False  # two dates do not establish an edge
+    assert out["verdict"]["paired_baseline_comparisons"]["revenue_yoy"]["n"] == 2
     assert out["factors"]["composite_score"]["top_minus_bottom_pct"] > 0
 
 

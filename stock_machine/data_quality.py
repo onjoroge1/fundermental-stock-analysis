@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+from math import isfinite
 from datetime import date
 from typing import Any, Iterable
+from .market_calendar import price_freshness
 
 
 REQUIRED_DATASETS = ("fundamentals", "prices", "filings")
@@ -51,6 +53,7 @@ def assess_dataset(dataset: str, rows: list[dict], *,
     """Return a deterministic manifest payload for one normalized dataset."""
     if dataset not in ALL_DATASETS:
         raise ValueError(f"unsupported dataset: {dataset}")
+    check_time = as_of
     as_of = as_of or date.today()
     row_count = len(rows)
     status = "PASS"
@@ -82,18 +85,30 @@ def assess_dataset(dataset: str, rows: list[dict], *,
             any(r.get(k) is None for k in ("date", "close", "volume"))
             for r in rows
         )
+        invalid = sum(not isinstance(r.get("close"), (int, float))
+                      or not isfinite(r["close"]) or r["close"] <= 0
+                      or (r.get("adj_close") is not None and (not isfinite(r["adj_close"]) or r["adj_close"] <= 0))
+                      or (r.get("volume") is not None and (not isfinite(r["volume"]) or r["volume"] < 0))
+                      for r in rows)
+        duplicate_dates = len(rows) - len({r.get("date") for r in rows})
         metrics.update({"freshness_days": age,
-                        "incomplete_rows": incomplete})
+                        "incomplete_rows": incomplete, "invalid_rows": invalid,
+                        "duplicate_dates": duplicate_dates,
+                        "missing_adjusted_close": sum(not r.get("adj_close") for r in rows)})
+        freshness = price_freshness(newest, as_of=check_time)
+        metrics.update(freshness)
         if not rows:
             status = "FAIL"
             reasons.append("no price history")
+        elif invalid or duplicate_dates:
+            status = "FAIL"
+            reasons.append(f"{invalid} invalid rows and {duplicate_dates} duplicate dates")
         elif incomplete:
             status = "FAIL"
             reasons.append(f"{incomplete} price rows lack date, close, or volume")
-        elif age is None or age > 5:
+        elif freshness["status"] != "CURRENT":
             status = "WARN"
-            reasons.append(f"latest price is {age} days old" if age is not None
-                           else "latest price date is unknown")
+            reasons.append(f"price data {freshness['status'].lower()}: expected completed session {freshness['expected_market_date']}, have {newest}")
     elif dataset == "filings":
         if not rows:
             status = "FAIL"
@@ -130,6 +145,7 @@ def assess_dataset(dataset: str, rows: list[dict], *,
 def readiness_for_snapshots(snapshots: dict[str, dict], *,
                             as_of: date | None = None) -> dict[str, Any]:
     """Gate trade research on the required point-in-time inputs."""
+    check_time = as_of
     as_of = as_of or date.today()
     blockers, warnings = [], []
     for dataset in REQUIRED_DATASETS:
@@ -142,13 +158,17 @@ def readiness_for_snapshots(snapshots: dict[str, dict], *,
         elif item.get("status") == "WARN":
             warnings.extend(f"{dataset}: {reason}"
                             for reason in item.get("reasons") or ["warning"])
-        observed_age = _days_old(item.get("observed_at"), as_of) if item else None
+        observed_age = _days_old(item.get("last_checked_at") or item.get("observed_at"), as_of) if item else None
         if observed_age is not None and observed_age > 7:
             blockers.append(
                 f"{dataset}: manifest has not refreshed for {observed_age} days")
         elif observed_age is not None and observed_age > 3:
             warnings.append(
                 f"{dataset}: manifest has not refreshed for {observed_age} days")
+        if dataset == "prices" and item:
+            fresh = price_freshness(item.get("max_record_date"), as_of=check_time)
+            if fresh["status"] != "CURRENT":
+                blockers.append(f"prices: {fresh['status'].lower()}; expected {fresh['expected_market_date']}, have {fresh['latest_market_date']}")
     for dataset, item in snapshots.items():
         if dataset not in REQUIRED_DATASETS and item.get("status") == "WARN":
             warnings.extend(f"{dataset}: {reason}"

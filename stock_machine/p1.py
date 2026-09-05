@@ -17,6 +17,7 @@ from .regime import RegimeFeatureProvider, sector_etf
 from .options.surface_store import history as option_history
 from .backtest.p1_store import latest as latest_p1_run
 from .alpha_calibration import summary as calibration_summary
+from .forecast_readiness import alpha_readiness
 
 T = TypeVar("T")
 
@@ -39,7 +40,7 @@ def _alpha_horizon(alpha: dict, days: int) -> dict | None:
     sigma_pct = row.get("residual_sigma_pct")
     p_bad10 = None
     if expected is not None and sigma_pct not in (None, 0):
-        mu = log(max(1e-8, 1.0 + expected / 100.0))
+        mu = row.get("predicted_excess_log_return", log(max(1e-8, 1.0 + expected / 100.0)))
         sigma = sigma_pct / 100.0
         p_bad10 = _normal_cdf((log(0.90) - mu) / sigma)
     return {
@@ -141,12 +142,9 @@ def decision_summary(ticker: str) -> dict:
     horizons = [x for x in (_alpha_horizon(alpha, d) for d in (20, 63, 126, 252)) if x]
     promotion = alpha.get("promotion") or {}
     validated = sum(bool((h.get("validation") or {}).get("passes")) for h in horizons)
-    if horizons and validated == len(horizons) and promotion.get("passed_all_horizons"):
-        confidence = "HIGH"
-    elif validated:
-        confidence = "MEDIUM"
-    else:
-        confidence = "LOW"
+    readiness = {str(h["days"]): alpha_readiness(stored or {}, h["days"],
+                 latest_price_date=as_of) for h in horizons}
+    confidence = "HIGH" if readiness and all(r["eligible"] for r in readiness.values()) else "LOW"
 
     p1_result = research.get("result") if research else None
     return {
@@ -156,6 +154,7 @@ def decision_summary(ticker: str) -> dict:
         "sector": company.get("sector"),
         "sector_proxy": sector_symbol,
         "confidence": confidence,
+        "forecast_readiness": readiness,
         "warnings": warnings,
         "alpha": {
             "status": alpha.get("status", "PENDING"),
@@ -190,6 +189,6 @@ def decision_summary(ticker: str) -> dict:
             "Option features are observed surfaces only; missing history is not backfilled.",
             "Probability calibration is scored only after each forecast horizon matures and is never used to rewrite frozen historical forecasts.",
             "Optional P1 research storage degrades to PENDING rather than failing the entire endpoint while migrations/data population catch up.",
-            "The 10% downside statistic is probability of underperforming the benchmark by 10 percentage points under the residual normal approximation, not probability of a 10% stock drawdown.",
+            "The 10% downside statistic is probability that stock wealth divided by benchmark wealth falls by 10%, under a residual-normal approximation; it is neither a percentage-point return difference nor a stock drawdown probability.",
         ],
     }

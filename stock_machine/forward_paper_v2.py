@@ -13,6 +13,7 @@ import math
 from datetime import date
 
 from . import db
+from .market_calendar import latest_completed_session, session_on_or_before
 from .backtest.engine import TickerData
 from .strategy_lab_v2 import (
     MAX_SECTOR_SHARE_PER_LEG,
@@ -123,6 +124,7 @@ def build_contract(lab_row: dict, policy_name: str, mode: str,
         "shorts": shorts,
         "frozen_eligible_universe": eligible_universe,
         "entry_adjusted_close": entries,
+        "return_basis": "same_vintage_adjusted_endpoints.v1",
         "signal_scores": {
             t: round(scored["scores"][t], 6)
             for t in sorted(set(longs + shorts))
@@ -249,19 +251,21 @@ def build_mark(conn, cohort: dict, market_date: str | None = None) -> dict:
     market_date = market_date or latest_common_market_date(conn, required)
     if not market_date:
         raise ValueError("no complete same-market-date price set exists")
+    if market_date > latest_completed_session() or session_on_or_before(market_date) != market_date:
+        raise ValueError("mark date is not a completed exchange session; mark aborted")
     entry_date = contract["entry_market_date"]
     if market_date < entry_date:
         raise ValueError("mark date precedes cohort entry")
-    current: dict[str, float] = {}
+    # Both endpoints must come from the same current adjustment vintage.
+    # The frozen entry values remain evidence of what was observed at entry,
+    # not denominators to mix with a later dividend/split-adjusted series.
+    entry, current = {}, {}
     for ticker in required:
-        value = _exact_price(conn, ticker, market_date)
-        if value is None:
-            raise ValueError(
-                f"missing exact {market_date} adjusted close for {ticker}; mark aborted"
-            )
-        current[ticker] = value
-
-    entry = contract["entry_adjusted_close"]
+        # One query per series prevents a refresh between endpoint reads.
+        series = {r["date"]: r.get("adj_close") for r in db.fetch_prices(conn, ticker)}
+        if not series.get(entry_date) or not series.get(market_date):
+            raise ValueError(f"missing exact adjusted endpoint for {ticker}; mark aborted")
+        entry[ticker], current[ticker] = float(series[entry_date]), float(series[market_date])
     returns = {
         t: (current[t] / float(entry[t]) - 1.0) * 100.0 for t in required
     }
@@ -301,6 +305,10 @@ def build_mark(conn, cohort: dict, market_date: str | None = None) -> dict:
             "required": len(required), "priced": len(current), "complete": True
         },
         "constituent_adjusted_close": current,
+        "return_basis": "same_vintage_adjusted_endpoints.v1",
+        "entry_adjusted_close_used": entry,
+        "entry_adjustment_changed": any(
+            abs(entry[t] - float(contract["entry_adjusted_close"][t])) > 1e-8 for t in required),
     }
 
 

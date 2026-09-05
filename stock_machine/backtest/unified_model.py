@@ -11,6 +11,8 @@ same test dates.
 from __future__ import annotations
 
 from collections import defaultdict
+from .intervals import matured_before
+from .comparisons import baseline_scores, comparison_series, evidence
 from datetime import date, timedelta
 
 from .evaluate import spearman
@@ -68,7 +70,7 @@ def _zscore_by_date(obs: list[dict]) -> dict[tuple[str, str], list[float]]:
 
 def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
     usable = [o for o in obs if o.get("forward", {}).get(horizon) is not None]
-    z = _zscore_by_date(usable)
+    z = _zscore_by_date(obs)
     by_date: dict[str, list[dict]] = defaultdict(list)
     for o in usable:
         by_date[o["as_of"]].append(o)
@@ -87,7 +89,8 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
             continue
         cutoff = (date.fromisoformat(test_date)
                   - timedelta(days=EMBARGO_DAYS)).isoformat()
-        train_dates = [d for d in dates if d <= cutoff]
+        train_dates = [d for d in dates if d <= cutoff
+                       and all(matured_before(r, horizon, test_date) for r in by_date[d])]
         if len(train_dates) < MIN_TRAIN_DATES:
             continue
 
@@ -116,6 +119,8 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
             "composite": (None, "composite"),
         }
         row_result = {"as_of": test_date, "n": len(test_rows),
+                      "tickers": sorted(r["ticker"] for r in test_rows),
+                      "paired_baselines": baseline_scores(test_rows, preds, actual),
                       "unified_ic": round(ic, 3)}
         for name, (top, sub) in baseline_specs.items():
             values = [r.get(sub) if top is None else r.get(top, {}).get(sub)
@@ -133,6 +138,7 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         return {"status": "INSUFFICIENT_HISTORY",
                 "reason": f"need {MIN_TRAIN_DATES}+ embargoed training dates"}
 
+    paired = evidence(per_date, "unified_ic", horizon)
     model_mean = sum(model_ics) / len(model_ics)
     baseline_means = {
         name: (sum(vals) / len(vals) if vals else None)
@@ -158,7 +164,8 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
             "best_baseline": best_name,
             "best_baseline_mean_ic_same_dates": (round(best_value, 4)
                                                   if best_value is not None else None),
-            "model_beats_baseline": bool(best_value is not None and model_mean > best_value),
+            "model_beats_baseline": paired["passes"],
+            "paired_evidence": paired,
             "kill_criterion": "unified model must beat the strongest dumb baseline on identical embargoed test dates",
         },
         "per_date": per_date,

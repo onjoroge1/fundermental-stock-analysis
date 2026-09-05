@@ -48,7 +48,8 @@ def test_optional_vendor_data_is_pending_not_a_blocker():
         for name in ("fundamentals", "prices", "filings")
     }
     snapshots["consensus"] = {"status": "PENDING", "reasons": ["missing"]}
-    readiness = readiness_for_snapshots(snapshots)
+    snapshots["prices"]["max_record_date"] = "2026-08-20"
+    readiness = readiness_for_snapshots(snapshots, as_of=date(2026, 8, 21))
     assert readiness["status"] == "READY"
     assert readiness["trade_eligible"] is True
 

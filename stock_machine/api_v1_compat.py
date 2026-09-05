@@ -2,14 +2,22 @@
 
 Prediction payloads currently retain the legacy keyed `horizons` mapping while
 also attaching the canonical `forecast_distribution.v1` contract, whose
-`horizons` field is a list.  The v1 agent routes need to understand both until
+`horizons` field is a list. The v1 agent routes need to understand both until
 all persisted forecasts have migrated to one representation.
+
+This module also mounts the operational market-data freshness endpoints on the
+already-installed v1 router, keeping the main web app read-mostly while giving
+operators an auditable health surface and a guarded lightweight refresh path.
 """
 from __future__ import annotations
 
+import hmac
 from typing import Any
 
+from fastapi import Header, HTTPException
+
 from . import api_v1 as _base
+from . import db
 
 _HORIZON_DAYS = {
     "5d": 5,
@@ -82,6 +90,61 @@ def bearish_asymmetry_score(
         ),
         1,
     )
+
+
+def _bearer(authorization: str | None) -> str:
+    prefix = "Bearer "
+    if authorization and authorization.startswith(prefix):
+        return authorization[len(prefix):]
+    return ""
+
+
+def _require_admin(authorization: str | None) -> None:
+    from .control_plane import admin_token
+
+    expected = admin_token()
+    if len(expected) < 24:
+        raise HTTPException(503, "STOCK_MACHINE_ADMIN_TOKEN is not configured")
+    if not hmac.compare_digest(_bearer(authorization), expected):
+        raise HTTPException(401, "invalid admin credentials")
+
+
+@_base.router.get("/data-health")
+def market_data_health(max_age_hours: float = 18.0) -> dict:
+    """Read-only freshness state for every covered daily-price dataset."""
+    from .market_health import health
+
+    threshold = max(1.0, min(float(max_age_hours), 168.0))
+    with db.connect() as conn:
+        return health(conn, max_age_hours=threshold)
+
+
+@_base.router.post("/data-refresh")
+def market_data_refresh(
+    tickers: str = "",
+    max_age_hours: float = 18.0,
+    force: bool = False,
+    limit: int = 10,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """Admin-only lightweight price refresh; never runs the full data pipeline."""
+    from .market_health import refresh_prices
+
+    _require_admin(authorization)
+    threshold = max(1.0, min(float(max_age_hours), 168.0))
+    bounded_limit = max(1, min(int(limit), 25))
+    requested = [x.strip().upper() for x in tickers.split(",") if x.strip()]
+
+    with db.connect() as conn:
+        if not requested:
+            requested = [c["ticker"] for c in db.list_companies(conn)]
+        return refresh_prices(
+            conn,
+            requested,
+            only_if_stale=not force,
+            max_age_hours=threshold,
+            limit=bounded_limit,
+        )
 
 
 # Route functions are defined in api_v1 and resolve these globals at request

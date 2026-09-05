@@ -21,6 +21,7 @@ def fetch_consensus_history(conn, ticker: str) -> list[dict]:
                       eps_mean, eps_high, eps_low, analyst_count
                  FROM consensus_snapshots
                 WHERE ticker = %s
+                  AND (period_type = 'annual' OR period_basis = 'fiscal')
                 ORDER BY snapshot_date, forecast_period_end""",
             (ticker,),
         )
@@ -35,11 +36,12 @@ def fetch_consensus_history(conn, ticker: str) -> list[dict]:
 def fetch_surprise_history(conn, ticker: str) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute(
-            """SELECT date::text, actual_eps, estimated_eps, surprise_pct
-                 FROM earnings_surprises
+            """SELECT event_date::text, actual_eps, estimated_eps, surprise_pct,
+                      observed_at::text AS available_at
+                 FROM earnings_surprise_vintages
                 WHERE ticker = %s
-                ORDER BY date""",
+                ORDER BY event_date, observed_at""",
             (ticker,),
         )
-        cols = ["date", "actual_eps", "estimated_eps", "surprise_pct"]
+        cols = ["date", "actual_eps", "estimated_eps", "surprise_pct", "available_at"]
         return [dict(zip(cols, row)) for row in cur.fetchall()]

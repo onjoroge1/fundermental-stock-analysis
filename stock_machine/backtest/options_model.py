@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from .intervals import matured_before
+from .comparisons import baseline_scores, comparison_series, evidence
 from datetime import date, timedelta
 
 from .evaluate import spearman
@@ -48,7 +50,7 @@ def _zscore_by_date(obs: list[dict]):
 
 def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
     usable = [o for o in obs if o.get("forward", {}).get(horizon) is not None]
-    z = _zscore_by_date(usable)
+    z = _zscore_by_date(obs)
     by_date = defaultdict(list)
     for row in usable:
         by_date[row["as_of"]].append(row)
@@ -63,7 +65,8 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         if len(test_rows) < MIN_TEST_NAMES:
             continue
         cutoff = (date.fromisoformat(test_date) - timedelta(days=EMBARGO_DAYS)).isoformat()
-        train_dates = [d for d in dates if d <= cutoff]
+        train_dates = [d for d in dates if d <= cutoff
+                       and all(matured_before(r, horizon, test_date) for r in by_date[d])]
         if len(train_dates) < MIN_TRAIN_DATES:
             continue
         train = [
@@ -81,12 +84,17 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         ic = spearman(pred, actual)
         if ic is not None:
             ics.append(ic)
-            per_date.append({"as_of": test_date, "n": len(test_rows), "options_ic": round(ic, 3)})
+            per_date.append({"as_of": test_date, "n": len(test_rows), "options_ic": ic,
+                             "tickers": sorted(r["ticker"] for r in test_rows),
+                             "paired_baselines": baseline_scores(test_rows, pred, actual)})
 
     if not ics:
         return {"status": "INSUFFICIENT_HISTORY"}
 
     macro = macro_model.walk_forward(obs, horizon=horizon)
+    control_series = {**macro.get("control_series", {}),
+                      "macro": comparison_series(macro.get("per_date", []), "macro_ic")}
+    paired = evidence(per_date, "options_ic", horizon, control_series)
     mean_ic = sum(ics) / len(ics)
     controls = [
         macro.get("macro_mean_ic") if macro.get("status") == "OK" else None,
@@ -100,6 +108,7 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         "status": "OK",
         "horizon": horizon,
         "test_dates": len(ics),
+        "control_series": control_series,
         "options_mean_ic": round(mean_ic, 4),
         "options_ic_positive_share": round(sum(x > 0 for x in ics) / len(ics), 3),
         "macro_mean_ic": controls[0],
@@ -109,7 +118,8 @@ def walk_forward(obs: list[dict], horizon: str = "fwd_12m_pct") -> dict:
         "feature_weights_final": {n: round(w, 4) for n, w in zip(FEATURE_NAMES, weights_last or [])},
         "verdict": {
             "hurdle_mean_ic": round(hurdle, 4) if hurdle is not None else None,
-            "options_model_beats_all_controls": bool(hurdle is not None and mean_ic > hurdle),
+            "options_model_beats_all_controls": paired["passes"],
+            "paired_evidence": paired,
             "kill_criterion": "options-implied challenger must beat macro, regime, P0, and dumb baselines on identical embargoed dates",
         },
         "per_date": per_date,

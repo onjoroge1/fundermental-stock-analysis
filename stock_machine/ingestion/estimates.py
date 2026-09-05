@@ -147,15 +147,8 @@ def fetch_estimates(ticker: str) -> dict:
                     "surprise_pct": (round((actual - est) / abs(est) * 100, 2)
                                      if est else None),
                 })
-            elif actual is None and est is not None:
-                snapshots.append({
-                    "period_type": "quarter",
-                    "forecast_period_end": row.get("date"),
-                    "revenue_mean": _pick(row, "revenueEstimated"),
-                    "revenue_high": None, "revenue_low": None,
-                    "eps_mean": est, "eps_high": None, "eps_low": None,
-                    "analyst_count": None,
-                })
+            # The earnings endpoint's date is an announcement date, not a
+            # fiscal period end. Do not mix it with analyst-estimate vintages.
 
     if snapshots or surprises:
         events.append({

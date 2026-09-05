@@ -10,9 +10,15 @@ from .ingestion import prices as price_ing
 from .ingestion import sec as sec_ing
 from .normalization import financial_periods as fp
 from .data_quality import assess_dataset
+from .market_calendar import latest_completed_session
 
 
 PRICE_SOURCE = os.environ.get("PRICE_SOURCE", "auto").lower()
+
+
+def _completed_prices(rows):
+    cutoff = latest_completed_session()
+    return [r for r in rows if r["date"] <= cutoff]
 
 
 def _fetch_prices(ticker: str) -> tuple[list[dict], list[dict], str, list[dict]]:
@@ -33,7 +39,7 @@ def _fetch_prices(ticker: str) -> tuple[list[dict], list[dict], str, list[dict]]
             from .ingestion import prices_tws
 
             rows, actions = prices_tws.fetch_daily(ticker)
-            return rows, actions, "ibkr_tws", events
+            return _completed_prices(rows), actions, "ibkr_tws", events
         except Exception as exc:
             if PRICE_SOURCE == "tws":
                 raise
@@ -44,7 +50,7 @@ def _fetch_prices(ticker: str) -> tuple[list[dict], list[dict], str, list[dict]]
                            f"{exc}); fell back to Yahoo for the full series"),
             })
     rows, actions = price_ing.fetch_daily(ticker)
-    return rows, actions, "yahoo", events
+    return _completed_prices(rows), actions, "yahoo", events
 
 
 def run(ticker: str) -> dict:
