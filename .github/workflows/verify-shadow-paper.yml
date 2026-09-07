@@ -17,22 +17,27 @@ concurrency:
 jobs:
   alpha:
     uses: ./.github/workflows/alpha-shadow.yml
+    secrets: inherit
 
   p1:
     needs: alpha
     if: ${{ !cancelled() }}
     uses: ./.github/workflows/p1-shadow.yml
+    secrets: inherit
 
   strategy:
     needs: p1
     if: ${{ !cancelled() }}
     uses: ./.github/workflows/strategy-lab-v2.yml
+    secrets: inherit
 
   paper-sync:
     needs: strategy
     uses: ./.github/workflows/forward-paper-v2-sync.yml
+    secrets: inherit
 
   paper-mark:
     needs: [strategy, paper-sync]
     if: ${{ !cancelled() }}
     uses: ./.github/workflows/forward-paper-v2-mark.yml
+    secrets: inherit
