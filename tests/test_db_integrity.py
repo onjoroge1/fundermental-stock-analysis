@@ -145,3 +145,18 @@ def test_pit_readers_filter_fiscal_basis_and_future_effective_dates(conn):
     assert db.fetch_shares(conn, "READER", "2025-02-01") == []
     assert db.fetch_periods(conn, "READER", "quarter", "2025-02-01") == []
     assert db.fetch_surprises(conn, "VINTAGE", "2025-01-25") == []
+
+
+def test_historical_macro_import_is_append_only_and_preserves_current_cache(conn):
+    from stock_machine.macro import upsert_series, load_series, features_as_of
+    from stock_machine.macro_archive import save_vintage
+    current = {'series_id': 'VIXCLS', 'observation_date': '2020-01-02',
+               'available_at': '2026-09-07T12:00:00Z', 'value': 99, 'source': 'FRED'}
+    upsert_series(conn, [current])
+    archive = {**current, 'available_at': '2020-01-03T00:00:00Z', 'value': 15, 'source': 'ALFRED-test'}
+    assert save_vintage(conn, [archive]) == 1
+    assert save_vintage(conn, [archive]) == 0
+    assert save_vintage(conn, [{**archive, 'value': 100}]) == 0
+    assert conn.execute("SELECT value,source FROM macro_series WHERE series_id='VIXCLS'").fetchone() == (99, 'FRED')
+    features = features_as_of({'VIXCLS': load_series(conn, 'VIXCLS')}, '2020-01-03')['features']
+    assert features['vix_level'] == 15

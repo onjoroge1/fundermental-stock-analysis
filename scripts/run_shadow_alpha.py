@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from stock_machine import db
+from stock_machine.historical_coverage import inventory
 from stock_machine.backtest.engine import CAVEATS, run
 from stock_machine.backtest.shadow import evaluate_shadow
 from stock_machine.backtest.shadow_store import save
@@ -18,9 +19,11 @@ def main() -> int:
     end = sys.argv[2] if len(sys.argv) > 2 else None
 
     with db.connect() as conn:
+        inputs = inventory(conn)
         observations, grid = run(conn, start=start, end=end)
 
     result = evaluate_shadow(observations)
+    result["input_inventory"] = inputs
     result["panel"] = {
         "requested_start": start,
         "requested_end": end,

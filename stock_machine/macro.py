@@ -3,7 +3,7 @@
 The ingestion path uses public FRED CSV series and stores an explicit
 retrieval timestamp for each observed vintage. Current revised history is
 never treated as known on the original observation date. Missing historical
-vintages stay missing; ALFRED release vintages would be needed to fill them.
+vintages stay missing unless recovered from the separately verified ALFRED archive.
 """
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ from datetime import date, datetime, timezone, timedelta
 from io import StringIO
 
 import httpx
+
+from .asof import utc_timestamp
 
 SERIES = {
     "VIXCLS": {"label": "vix", "lag_days": 0},
@@ -98,14 +100,6 @@ def load_series(conn, series_id: str) -> list[dict]:
         ]
 
 
-def _asof(rows: list[dict], as_of: str) -> tuple[int, float] | None:
-    eligible = [(i, r) for i, r in enumerate(rows) if r["available_at"] <= as_of]
-    if not eligible:
-        return None
-    i, row = eligible[-1]
-    return i, float(row["value"])
-
-
 def _change(rows: list[dict], idx: int, width: int) -> float | None:
     if idx - width < 0:
         return None
@@ -113,27 +107,44 @@ def _change(rows: list[dict], idx: int, width: int) -> float | None:
 
 
 def features_as_of(series: dict[str, list[dict]], as_of: str) -> dict:
-    # Reconstruct one value per economic date at the requested information
-    # cutoff; duplicate revision rows must not lengthen rolling windows.
-    series = {sid: list({r["observation_date"]: r for r in sorted(rows,
-                          key=lambda r: (r["observation_date"], r["available_at"]))
-                       if r["available_at"] <= as_of}.values())
-              for sid, rows in series.items()}
-    vix = _asof(series.get("VIXCLS", []), as_of)
-    y2 = _asof(series.get("DGS2", []), as_of)
-    y10 = _asof(series.get("DGS10", []), as_of)
-    hy = _asof(series.get("BAMLH0A0HYM2", []), as_of)
+    cutoff = utc_timestamp(as_of)
+    reconstructed = {}
+    latest_dates = {}
+    for sid, rows in series.items():
+        by_date = {}
+        for row in rows:
+            available = utc_timestamp(row["available_at"])
+            economic = date.fromisoformat(row["observation_date"])
+            if available > cutoff or economic > cutoff.date():
+                continue
+            previous = by_date.get(economic)
+            if previous is None or available > previous[0]:
+                by_date[economic] = (available, row)
+        ordered = [by_date[d][1] for d in sorted(by_date)]
+        latest_dates[sid] = ordered[-1]["observation_date"] if ordered else None
+        # A failed archive request must not carry a previous quarter forward.
+        if ordered and (cutoff.date() - date.fromisoformat(ordered[-1]["observation_date"])).days > 10:
+            ordered = []
+        reconstructed[sid] = ordered
+    series = reconstructed
+    def latest(sid):
+        rows = series.get(sid, [])
+        return (len(rows) - 1, float(rows[-1]["value"])) if rows else None
+    vix, hy = latest("VIXCLS"), latest("BAMLH0A0HYM2")
+    # Compare Treasury tenors on matching economic dates, including the
+    # rolling window; independent indexes can compare different sessions.
+    y2 = {r["observation_date"]: r["value"] for r in series.get("DGS2", [])}
+    y10 = {r["observation_date"]: r["value"] for r in series.get("DGS10", [])}
+    common = sorted(y2.keys() & y10.keys())
+    spreads = [float(y10[d]) - float(y2[d]) for d in common]
+    if common and (cutoff.date() - date.fromisoformat(common[-1])).days > 10:
+        spreads = []
 
     vix_level = vix[1] if vix else None
     vix_change = _change(series["VIXCLS"], vix[0], 20) if vix else None
 
-    curve = (y10[1] - y2[1]) if y10 and y2 else None
-    curve_change = None
-    if y10 and y2 and y10[0] >= 63 and y2[0] >= 63:
-        now = y10[1] - y2[1]
-        old = (float(series["DGS10"][y10[0] - 63]["value"])
-               - float(series["DGS2"][y2[0] - 63]["value"]))
-        curve_change = now - old
+    curve = spreads[-1] if spreads else None
+    curve_change = spreads[-1] - spreads[-64] if len(spreads) >= 64 else None
 
     hy_level = hy[1] if hy else None
     hy_change = _change(series["BAMLH0A0HYM2"], hy[0], 20) if hy else None
@@ -146,10 +157,10 @@ def features_as_of(series: dict[str, list[dict]], as_of: str) -> dict:
         "hy_oas": hy_level,
         "hy_oas_change_20": hy_change,
         "has_vix": float(vix is not None),
-        "has_curve": float(y10 is not None and y2 is not None),
+        "has_curve": float(bool(spreads)),
         "has_credit": float(hy is not None),
     }
-    return {"as_of": as_of, "features": features}
+    return {"as_of": as_of, "features": features, "latest_observation_dates": latest_dates}
 
 
 def interaction_features(row: dict) -> dict:

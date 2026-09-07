@@ -1,0 +1,54 @@
+name: Historical Input Recovery and Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/workflows/historical-input-recovery.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: historical-input-recovery
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    environment: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -e .
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: alembic upgrade head
+      - name: Recover verified historical macro vintages
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python scripts/recover_macro_vintages.py
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: macro-archive-recovery
+          path: macro-archive-recovery.json
+          if-no-files-found: warn
+  alpha:
+    needs: archive
+    uses: ./.github/workflows/alpha-shadow.yml
+    secrets: inherit
+  p1:
+    needs: alpha
+    uses: ./.github/workflows/p1-shadow.yml
+    secrets: inherit
+  strategy:
+    needs: p1
+    uses: ./.github/workflows/strategy-lab-v2.yml
+    secrets: inherit
