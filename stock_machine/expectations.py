@@ -37,6 +37,7 @@ def consensus_revision(rows: list[dict], as_of: str, window_days: int = 30) -> d
 def known_surprises(rows: list[dict], as_of: str) -> list[dict]:
     # Date-only releases cannot be assumed known at that session's close.
     eligible = sorted([r for r in rows if r.get("date") and r.get("surprise_pct") is not None
+                   and str(r["date"])[:10] < as_of[:10]
                    and str(r.get("available_at") or r["date"])[:10] < as_of[:10]],
                   key=lambda r: (str(r["date"]), str(r.get("available_at") or r["date"])))
     return list({str(r["date"]): r for r in eligible}.values())

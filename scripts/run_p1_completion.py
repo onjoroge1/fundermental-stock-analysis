@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from stock_machine import db
+from stock_machine.historical_coverage import inventory
 from stock_machine.backtest.engine import CAVEATS, run
 from stock_machine.backtest.regime_panel import enrich as enrich_regime
 from stock_machine.backtest.macro_panel import enrich as enrich_macro
@@ -26,6 +27,7 @@ def main() -> int:
     end = sys.argv[2] if len(sys.argv) > 2 else None
 
     with db.connect() as conn:
+        inputs = inventory(conn)
         base, grid = run(conn, start=start, end=end)
         regime_rows, regime_cov = enrich_regime(conn, base)
         macro_rows, macro_cov = enrich_macro(conn, regime_rows)
@@ -37,7 +39,7 @@ def main() -> int:
 
     data_gate = (
         option_cov.get("coverage", 0.0) >= MIN_OPTION_COVERAGE
-        and option_cov.get("tickers_with_history", 0) >= MIN_OPTION_TICKERS
+        and option_cov.get("tickers_with_matches", 0) >= MIN_OPTION_TICKERS
     )
     candidate_gates = {
         "options_ridge": bool(options_result.get("verdict", {}).get("options_model_beats_all_controls")),
@@ -75,6 +77,7 @@ def main() -> int:
             "caveats": CAVEATS,
         },
         "coverage": {
+            "input_inventory": inputs,
             "regime": regime_cov,
             "macro": macro_cov,
             "options": option_cov,

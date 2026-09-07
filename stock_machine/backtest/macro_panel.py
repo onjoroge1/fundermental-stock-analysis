@@ -6,11 +6,12 @@ from ..macro import SERIES, features_as_of, interaction_features, load_series
 
 def enrich(conn, observations: list[dict]) -> tuple[list[dict], dict]:
     series = {sid: load_series(conn, sid) for sid in SERIES}
+    cache = {d: features_as_of(series, d) for d in sorted({r["as_of"] for r in observations})}
     enriched = []
     dates_with = {"vix": set(), "curve": set(), "credit": set()}
     for row in observations:
         copy = dict(row)
-        macro = features_as_of(series, row["as_of"])
+        macro = cache[row["as_of"]]
         copy["macro"] = macro
         copy["macro_interactions"] = interaction_features(copy)
         f = macro["features"]
@@ -22,6 +23,8 @@ def enrich(conn, observations: list[dict]) -> tuple[list[dict], dict]:
             dates_with["credit"].add(row["as_of"])
         enriched.append(copy)
     return enriched, {
+        "observation_dates": len(cache),
+        "missing_dates": {key: sorted(set(cache) - values) for key, values in dates_with.items()},
         "series_rows": {sid: len(rows) for sid, rows in series.items()},
         "dates_with_vix": len(dates_with["vix"]),
         "dates_with_curve": len(dates_with["curve"]),

@@ -239,9 +239,9 @@ def test_option_dte_converts_calendar_days_to_exchange_sessions():
 def test_macro_revision_cannot_rewrite_earlier_information_set():
     from stock_machine.macro import features_as_of
     early = {"observation_date": "2026-01-01", "available_at": "2026-01-02", "value": 15}
-    revised = {**early, "available_at": "2026-02-01", "value": 40}
-    assert features_as_of({"VIXCLS": [early, revised]}, "2026-01-15")["features"]["vix_level"] == 15
-    assert features_as_of({"VIXCLS": [early, revised]}, "2026-02-02")["features"]["vix_level"] == 40
+    revised = {**early, "available_at": "2026-01-04", "value": 40}
+    assert features_as_of({"VIXCLS": [early, revised]}, "2026-01-03")["features"]["vix_level"] == 15
+    assert features_as_of({"VIXCLS": [early, revised]}, "2026-01-05")["features"]["vix_level"] == 40
 
 
 def test_baseline_comparison_uses_identical_names_when_a_factor_is_missing():

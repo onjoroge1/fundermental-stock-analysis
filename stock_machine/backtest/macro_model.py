@@ -10,7 +10,8 @@ from .evaluate import spearman
 from .model import ridge_fit
 from .regime_model import walk_forward as p1a_walk_forward
 from .unified_model import walk_forward as p0_walk_forward
-from ..macro import MACRO_INTERACTION_NAMES
+from ..macro import MACRO_INTERACTION_NAMES, interaction_components
+from . import regime_model
 from ..regime import REGIME_FEATURE_NAMES
 
 EMBARGO_DAYS = 370
@@ -18,57 +19,37 @@ MIN_TRAIN_DATES = 8
 MIN_TEST_NAMES = 8
 RIDGE_ALPHA = 12.0
 
-BASE_FEATURES = [
-    ("components", "growth"), ("components", "profitability"),
-    ("components", "earnings_quality"), ("components", "financial_health"),
-    ("components", "capital_allocation"), ("components", "valuation"),
-    ("factors", "earnings_yield_pct"), ("factors", "fcf_yield_pct"),
-    ("factors", "revenue_yoy_pct"), ("factors", "roic_pct"),
-    ("factors", "momentum_12m_pct"),
-    ("expectations", "eps_revision_pct"),
-    ("expectations", "revenue_revision_pct"),
-    ("expectations", "latest_eps_surprise_pct"),
-    ("expectations", "trailing_4q_eps_surprise_pct"),
-]
-
-FEATURE_NAMES = (
-    [f"{a}.{b}" for a, b in BASE_FEATURES]
-    + [f"regime.{x}" for x in REGIME_FEATURE_NAMES]
-    + [f"macro_interactions.{x}" for x in MACRO_INTERACTION_NAMES]
-)
+BASE_FEATURES = regime_model.BASE_FEATURES
+FEATURE_NAMES = regime_model.FEATURE_NAMES + [f"macro_interactions.{x}" for x in MACRO_INTERACTION_NAMES]
 
 
 def _value(row: dict, index: int):
-    if index < len(BASE_FEATURES):
-        top, sub = BASE_FEATURES[index]
-        return row.get(top, {}).get(sub)
-    index -= len(BASE_FEATURES)
-    if index < len(REGIME_FEATURE_NAMES):
-        return (row.get("regime") or {}).get("features", {}).get(REGIME_FEATURE_NAMES[index])
-    index -= len(REGIME_FEATURE_NAMES)
-    return (row.get("macro_interactions") or {}).get(MACRO_INTERACTION_NAMES[index])
+    if index < len(regime_model.FEATURE_NAMES):
+        return regime_model._value(row, index)
+    return (row.get("macro_interactions") or {}).get(MACRO_INTERACTION_NAMES[index - len(regime_model.FEATURE_NAMES)])
 
 
 def _zscore_by_date(obs: list[dict]):
+    # Preserve the validated regime representation in every downstream lane.
+    prefix = regime_model._zscore_by_date(obs)
     by_date = defaultdict(list)
     for row in obs:
         by_date[row["as_of"]].append(row)
     out = {}
     for as_of, rows in by_date.items():
-        stats = []
-        for j in range(len(FEATURE_NAMES)):
-            vals = [_value(r, j) for r in rows if _value(r, j) is not None]
-            if len(vals) >= 3:
-                m = sum(vals) / len(vals)
-                sd = (sum((v - m) ** 2 for v in vals) / len(vals)) ** 0.5 or 1.0
-            else:
-                m, sd = 0.0, 1.0
-            stats.append((m, sd))
-        for row in rows:
-            out[(as_of, row["ticker"])] = [
-                0.0 if _value(row, j) is None else (_value(row, j) - m) / sd
-                for j, (m, sd) in enumerate(stats)
-            ]
+        parts = [interaction_components(row) for row in rows]
+        suffix = [[] for _ in rows]
+        for name in MACRO_INTERACTION_NAMES:
+            values = [part[name][1] for part in parts]
+            mean = sum(values) / len(values)
+            sd = (sum((v - mean) ** 2 for v in values) / len(values)) ** .5 or 1.0
+            for vec, part in zip(suffix, parts):
+                state, exposure = part[name]
+                # Standardizing the product would erase macro magnitude.
+                vec.append(state * (exposure - mean) / sd)
+        for row, vec in zip(rows, suffix):
+            key = (as_of, row["ticker"])
+            out[key] = prefix[key] + vec
     return out
 
 
