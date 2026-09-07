@@ -259,6 +259,7 @@ def api_meta() -> dict[str, Any]:
             "legacy_option_scan": "/api/options/scan/{ticker}",
             "system_kpis": "/api/kpis",
             "data_quality": "/api/data-quality",
+            "accounting_quality": "/api/accounting-quality",
         },
     }
 

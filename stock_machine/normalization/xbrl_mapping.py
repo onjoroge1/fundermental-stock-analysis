@@ -78,7 +78,7 @@ FIELD_MAP: dict[str, dict] = {
         "StockholdersEquity",
         "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"]},
     "noncontrolling_interest": {"kind": "instant", "tags": [
-        "MinorityInterest"]},
+        "MinorityInterest", "NonredeemableNoncontrollingInterest"]},
     # mezzanine equity: temporary equity and redeemable NCI are separate,
     # ADDITIVE concepts (UBER pre-IPO carries both at once)
     "temporary_equity": {"kind": "instant", "tags": [

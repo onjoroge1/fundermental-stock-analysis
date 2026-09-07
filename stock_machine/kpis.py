@@ -46,6 +46,8 @@ def reconciliation_stats(conn) -> dict:
               WHERE fields ? 'total_assets'
                 AND fields ? 'total_liabilities'
                 AND fields ? 'shareholders_equity'
+                AND fields->>'total_liabilities' IS NOT NULL
+                AND fields->>'shareholders_equity' IS NOT NULL
                 AND (fields->>'total_assets')::float > 0
             ) t""", (RECON_TOLERANCE,))
         passed, total = cur.fetchone()
@@ -79,7 +81,10 @@ def compute_kpis(conn) -> dict:
     kpis.append(_kpi("Accounting reconciliation (A = L + E, 1% tol)",
                      f"{recon['rate']*100:.1f}%" if recon["rate"] else "—",
                      ">99%", (recon["rate"] or 0) > 0.99,
-                     f"{recon['passed']}/{recon['total']} periods"))
+                     f"{recon['passed']}/{recon['total']} tested periods; "
+                     f"{n_periods - recon['total']}/{n_periods} periods untested "
+                     "because core balance fields are missing or assets are not positive. "
+                     "A passing identity is not proof of source/entity consistency."))
     kpis.append(_kpi("Availability timestamp coverage",
                      f"{n_with_avail/n_periods*100:.1f}%" if n_periods else "—",
                      "100%", n_with_avail == n_periods,

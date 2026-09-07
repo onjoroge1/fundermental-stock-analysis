@@ -60,5 +60,7 @@ def ingest(ticker: str) -> dict:
     cik, title = resolve_cik(ticker)
     submissions = fetch_submissions(ticker, cik)
     facts = fetch_companyfacts(ticker, cik)
+    from .cover_shares import supplement_companyfacts
+    cover_events = supplement_companyfacts(ticker, cik, submissions, facts)
     return {"ticker": ticker.upper(), "cik": cik, "title": title,
-            "submissions": submissions, "companyfacts": facts}
+            "submissions": submissions, "companyfacts": facts, "cover_events": cover_events}

@@ -233,6 +233,13 @@ def kpis() -> dict:
         conn.close()
 
 
+@app.get("/api/accounting-quality")
+def accounting_quality_dashboard() -> dict:
+    from .accounting_quality import build_report
+    with db.connect() as conn:
+        return build_report(conn)
+
+
 @app.get("/api/data-quality")
 def data_quality_dashboard() -> dict:
     """Return persisted quality manifests; never refreshes or mutates data."""

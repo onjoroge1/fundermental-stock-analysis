@@ -8,10 +8,10 @@ predictive edge.
 | --- | --- | --- |
 | Production release and data recovery | Released; 54/54 prices current, 41 ready / 13 caution / 0 blocked at the last check | Continue existing daily health and refresh jobs. |
 | Historical macro coverage | PR #44 released; 20,344 genuine ALFRED rows; VIX and curve 50/50 evaluation dates, credit 11/50 | Longer credit vintages require an entitled source archive. |
-| Analyst-estimate collection | Timestamped, source-aware store and causal reader implemented in this change; live collection verification runs on release | Existing daily pipeline accumulates precise vintages. Obtain a genuine historical estimate archive to fill earlier dates. |
+| Analyst-estimate collection | PR #45 released; live run 34168414523 verified 5 precise AAPL observations; FMP explicitly restricts HIMS under this subscription | Existing daily pipeline accumulates precise vintages. Obtain a genuine historical estimate archive to fill earlier dates. |
 | Historical options | No stored surfaces in last verified inventory | Verify a reachable, entitled IBKR bridge for prospective capture or obtain an entitled historical surface archive. Current chains cannot recreate earlier prices/IV. |
 | Historical universe | Current-universe survivorship limitation remains | Acquire dated membership, removed/delisted companies and delisting returns before claiming unbiased market-wide performance. |
-| Accounting and missing fundamentals | Reconciliation KPI 97.9%; 13 caution tickers at last check | Investigate failing reconciliation cases and missing share/quarter inputs individually. |
+| Accounting and missing fundamentals | This repair maps UBER nonredeemable NCI and recovers seven latest cover-page share counts from original SEC filings. Local full-universe replay: 99.2% on 2,511 tested rows; 1,881 untested rows remain explicit | Verify production recovery; resolve 20 older failures, missing liability coverage and seven quarterly EPS gaps. See ACCOUNTING_DATA_RECOVERY.md. |
 | Predictive validation | Alpha/P1 pending missing inputs; no P1 challenger passed; Strategy Lab candidates rejected | Freeze a 20- or 63-session benchmark-relative experiment and record prospective forecasts before outcomes; retain simple controls and realistic costs. |
 | Paper portfolios | No eligible research policy at last validation | Preserve eligibility checks. Start cohorts only when the declared policy requirements pass. |
 

@@ -334,6 +334,7 @@ def extract_shares_outstanding(companyfacts: dict) -> list[dict]:
         seen.add(key)
         out.append({"as_of": e["end"], "shares": e["val"],
                     "filed": e.get("filed"), "accn": e.get("accn"),
+                    **{k: e[k] for k in ('cover_page_components', 'provenance', 'source_url') if k in e},
                     "available_at": (date.fromisoformat(e["filed"]) + timedelta(days=1)).isoformat() if e.get("filed") else None})
     out.sort(key=lambda r: (r["as_of"], r["filed"] or ""))
     return out

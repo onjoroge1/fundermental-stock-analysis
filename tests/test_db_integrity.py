@@ -65,6 +65,33 @@ def test_migration_links_legacy_outcome_to_exact_preserved_forecast(conn):
     db.init_schema(conn)
 
 
+def test_partial_and_failed_cover_share_refreshes_preserve_history(conn):
+    old = {'as_of': '2026-04-15', 'shares': 100, 'available_at': '2026-04-24', 'accn': 'old-filing'}
+    new = {'as_of': '2026-07-15', 'shares': 110, 'available_at': '2026-07-24', 'accn': 'new-filing'}
+    db.replace_shares(conn, 'COVER', [old])
+    db.replace_shares(conn, 'COVER', [new])
+    db.replace_shares(conn, 'COVER', [])
+    db.replace_shares(conn, 'COVER', [new])
+    rows = db.fetch_shares(conn, 'COVER')
+    assert len(rows) == 2
+    assert {r['available_at'] for r in rows} == {'2026-04-24', '2026-07-24'}
+
+
+def test_accounting_diagnostics_match_kpi_and_exclude_null_core_fields(conn):
+    from stock_machine.accounting_quality import build_report
+    from stock_machine.kpis import reconciliation_stats
+    periods = [
+        {'period_end': '2026-03-31', 'duration_type': 'quarter',
+         'fields': {'total_assets': 100, 'total_liabilities': 60, 'shareholders_equity': 40}, 'field_sources': {}},
+        {'period_end': '2026-06-30', 'duration_type': 'quarter',
+         'fields': {'total_assets': 100, 'total_liabilities': None, 'shareholders_equity': 40}, 'field_sources': {}},
+    ]
+    db.replace_periods(conn, 'RECONTEST', periods, [])
+    report, kpi = build_report(conn), reconciliation_stats(conn)
+    assert (report['passed'], report['tested']) == (kpi['passed'], kpi['total'])
+    assert report['latest_quarters']['RECONTEST']['status'] == 'UNTESTED'
+
+
 def test_identical_forecast_reruns_are_idempotent_but_changed_inputs_append(conn):
     original = {"ticker": "IDENTITY", "as_of": "2026-09-04", "model_version": "test.v1", "status": "OK",
                 "input_data_versions": {"consensus": "sha256:one"},
