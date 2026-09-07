@@ -1,0 +1,38 @@
+name: Verify Shadow and Paper Workflows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-shadow-paper.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-shadow-paper
+  cancel-in-progress: false
+
+jobs:
+  alpha:
+    uses: ./.github/workflows/alpha-shadow.yml
+
+  p1:
+    needs: alpha
+    if: ${{ !cancelled() }}
+    uses: ./.github/workflows/p1-shadow.yml
+
+  strategy:
+    needs: p1
+    if: ${{ !cancelled() }}
+    uses: ./.github/workflows/strategy-lab-v2.yml
+
+  paper-sync:
+    needs: strategy
+    uses: ./.github/workflows/forward-paper-v2-sync.yml
+
+  paper-mark:
+    needs: [strategy, paper-sync]
+    if: ${{ !cancelled() }}
+    uses: ./.github/workflows/forward-paper-v2-mark.yml

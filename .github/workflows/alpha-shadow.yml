@@ -1,6 +1,7 @@
 name: Unified Alpha Shadow
 
 on:
+  workflow_call:
   workflow_dispatch:
   schedule:
     - cron: "15 12 * * 6"

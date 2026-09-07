@@ -1,6 +1,7 @@
 name: Strategy Lab v2
 
 on:
+  workflow_call:
   workflow_dispatch:
   schedule:
     - cron: "15 13 * * 6"
