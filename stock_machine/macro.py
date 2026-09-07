@@ -163,7 +163,7 @@ def features_as_of(series: dict[str, list[dict]], as_of: str) -> dict:
     return {"as_of": as_of, "features": features, "latest_observation_dates": latest_dates}
 
 
-def interaction_features(row: dict) -> dict:
+def interaction_components(row: dict) -> dict:
     """Turn common macro state into cross-sectional information.
 
     Raw macro values are identical for all names on a given date and therefore
@@ -183,15 +183,19 @@ def interaction_features(row: dict) -> dict:
     sector_rel = r.get("sector_vs_spy_63") or 0.0
 
     return {
-        "vix_x_momentum": (m.get("vix_level") or 0.0) * momentum,
-        "vix_x_quality": (m.get("vix_level") or 0.0) * quality,
-        "vix_change_x_sector_rel": (m.get("vix_change_20") or 0.0) * sector_rel,
-        "credit_x_quality": (m.get("hy_oas") or 0.0) * quality,
-        "credit_change_x_valuation": (m.get("hy_oas_change_20") or 0.0) * valuation,
-        "curve_x_growth": (m.get("curve_10y2y") or 0.0) * growth,
-        "curve_change_x_momentum": (m.get("curve_change_63") or 0.0) * momentum,
-        "vix_x_realized_vol": (m.get("vix_level") or 0.0) * realized_vol,
+        "vix_x_momentum": ((m.get("vix_level") or 0.0), momentum),
+        "vix_x_quality": ((m.get("vix_level") or 0.0), quality),
+        "vix_change_x_sector_rel": ((m.get("vix_change_20") or 0.0), sector_rel),
+        "credit_x_quality": ((m.get("hy_oas") or 0.0), quality),
+        "credit_change_x_valuation": ((m.get("hy_oas_change_20") or 0.0), valuation),
+        "curve_x_growth": ((m.get("curve_10y2y") or 0.0), growth),
+        "curve_change_x_momentum": ((m.get("curve_change_63") or 0.0), momentum),
+        "vix_x_realized_vol": ((m.get("vix_level") or 0.0), realized_vol),
     }
+
+def interaction_features(row: dict) -> dict:
+    return {name: state * exposure for name, (state, exposure) in interaction_components(row).items()}
+
 
 MACRO_INTERACTION_NAMES = [
     "vix_x_momentum", "vix_x_quality", "vix_change_x_sector_rel",
