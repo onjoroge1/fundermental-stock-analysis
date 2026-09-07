@@ -71,3 +71,25 @@ def test_options_require_usable_features_before_exact_cutoff(monkeypatch, offset
 def test_future_earnings_event_is_not_known_despite_bad_availability():
     assert known_surprises([{'date': '2026-04-01', 'available_at': '2026-01-01',
                              'surprise_pct': 20}], '2026-02-01') == []
+
+
+def test_all_p1_lanes_preserve_regime_and_macro_state_magnitude():
+    from stock_machine.backtest import macro_model, options_model, regime_model
+    def panel(vix):
+        return [{'as_of': '2026-01-01', 'ticker': f'T{i}',
+                 'components': {}, 'factors': {'momentum_12m_pct': i},
+                 'regime': {'features': {'market_mom_63': .25}},
+                 'macro': {'features': {'vix_level': vix}}} for i in range(8)]
+    low, high = panel(15), panel(30)
+    key = ('2026-01-01', 'T7')
+    regime = regime_model._zscore_by_date(low)[key]
+    macro = macro_model._zscore_by_date(low)[key]
+    options = options_model._zscore_by_date(low)[key]
+    assert macro[:len(regime)] == regime
+    assert options[:len(macro)] == macro
+    j = macro_model.FEATURE_NAMES.index('macro_interactions.vix_x_momentum')
+    assert macro[j] != 0
+    assert options_model._zscore_by_date(high)[key][j] == pytest.approx(2 * options[j])
+    # An unrelated future cross-section cannot alter this date's transform.
+    future = [{**r, 'as_of': '2027-01-01'} for r in panel(1000)]
+    assert options_model._zscore_by_date(low + future)[key] == options
