@@ -132,8 +132,12 @@ def replace_actions(conn: psycopg.Connection, ticker: str, rows: list[dict]) -> 
 
 
 def replace_shares(conn: psycopg.Connection, ticker: str, rows: list[dict]) -> None:
+    """Retain disclosed history when a source returns only the latest filing.
+
+    Kept under the legacy name for callers. Empty or partial SEC responses
+    must not delete earlier share observations or their availability dates.
+    """
     with conn.cursor() as cur:
-        cur.execute("DELETE FROM shares_outstanding WHERE ticker = %s", (ticker,))
         cur.executemany(
             """INSERT INTO shares_outstanding VALUES (%(ticker)s, %(as_of)s,
                %(shares)s, %(available_at)s, %(accn)s)

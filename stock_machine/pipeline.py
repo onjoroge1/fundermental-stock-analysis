@@ -117,7 +117,7 @@ def run(ticker: str) -> dict:
             conn, ticker, date.today().isoformat(), est["snapshots"])
         db.upsert_surprises(conn, ticker, est["surprises"])
         db.record_events(conn, ticker,
-                         restatement_events + est["events"] + price_events)
+                         restatement_events + est["events"] + price_events + sec_data.get("cover_events", []))
         from .ingestion import form4
         form4_stats = form4.ingest_from_submissions(
             conn, ticker, sec_data["cik"], sub)
