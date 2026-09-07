@@ -61,6 +61,8 @@ def extract_cover_shares(content: str, *, cik: str, filed: str, accession: str, 
         raise ValueError('Invalid cover-page share context or value')
     if not groups:
         return None
+    if len(groups) != 1:
+        raise ValueError('Cover share classes do not share one instant')
     instant = max(groups)
     values = groups[instant]
     if instant in invalid or any(len(v) != 1 for v in values.values()):

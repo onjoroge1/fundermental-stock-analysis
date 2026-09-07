@@ -45,6 +45,13 @@ def test_duplicate_identical_facts_are_not_double_counted_and_future_facts_exclu
     assert parse(filing([(None, '10', '')], instant='2026-08-01')) is None
 
 
+def test_classes_at_different_dates_cannot_become_a_partial_total():
+    doc = filing([('class:A', '10', ''), ('class:B', '20', '')])
+    doc = doc.replace('<instant>2026-07-15</instant>', '<instant>2026-07-14</instant>', 1)
+    with pytest.raises(ValueError, match='one instant'):
+        parse(doc)
+
+
 def test_source_failure_preserves_original_companyfacts(monkeypatch):
     from stock_machine.ingestion import sec
     def unavailable(url):
