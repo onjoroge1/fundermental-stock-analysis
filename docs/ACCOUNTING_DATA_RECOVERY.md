@@ -71,6 +71,17 @@ forecasts. It does not alter prices, vendor estimates or analyst narratives.
 It retains research eligibility and promotion gates. Source evidence and
 before/after diagnostics are attached to the workflow run.
 
+PR #46 was released as `2be19c357af7263c18b570a693a68ad3863e606c`.
+CI passed 331 tests on both Python 3.11 and 3.12, including PostgreSQL
+integration contracts; the Vercel preview and production builds passed.
+Recovery run `34170649141` verified all eight forecast rebuilds and the seven
+cover-count writes. A scheduled daily run from the preceding commit had
+started just before the release and subsequently overwrote some recovered
+inputs. The follow-up makes recovery share `daily-data-forecast-refresh`
+with the daily workflow, without cancelling the running job. Its release
+queues another targeted recovery after that writer finishes. Final live
+counts must be read after the serialized recovery completes.
+
 ## Data API decision
 
 | Missing input | Appropriate source | Requirements before use |

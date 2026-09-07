@@ -7,7 +7,9 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: recover-sec-fundamentals
+  # Share the daily writer's group so an older scheduled checkout cannot
+  # overwrite the release recovery while it is still refreshing inputs.
+  group: daily-data-forecast-refresh
   cancel-in-progress: false
 jobs:
   recover:
