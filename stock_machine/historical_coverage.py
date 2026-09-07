@@ -3,6 +3,7 @@
 
 def inventory(conn):
     queries = {
+        'consensus_precise_vintages': 'SELECT count(*),count(DISTINCT ticker),min(observed_at)::text,max(observed_at)::text FROM consensus_vintages',
         'consensus': "SELECT count(*),count(DISTINCT ticker),min(snapshot_date)::text,max(snapshot_date)::text FROM consensus_snapshots WHERE period_type='annual' OR period_basis='fiscal'",
         'earnings_surprise_vintages': 'SELECT count(*),count(DISTINCT ticker),min(observed_at)::text,max(observed_at)::text FROM earnings_surprise_vintages',
         'option_surfaces': 'SELECT count(*),count(DISTINCT ticker),min(as_of)::text,max(as_of)::text FROM option_surface_snapshots',
@@ -16,7 +17,7 @@ def inventory(conn):
             result[name] = dict(zip(('stored_rows', 'entities', 'first_available', 'last_available'), row))
     result['interpretation'] = (
         'Availability dates describe stored vintages, not economic period dates. '
-        'Consensus dates have daily resolution. Matched panel coverage is reported separately; '
+        'Legacy consensus dates have daily resolution; precise vintages retain source and timestamp. Matched panel coverage is reported separately; '
         'current estimates, current option chains and newly fetched earnings surprises do not reconstruct historical knowledge.'
     )
     return result

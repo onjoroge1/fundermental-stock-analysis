@@ -1,0 +1,30 @@
+name: Verify Consensus History
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/workflows/verify-consensus-history.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: verify-consensus-history
+  cancel-in-progress: false
+jobs:
+  verify:
+    environment: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -e .
+      - name: Apply migrations
+        run: alembic upgrade head
+      - name: Verify current estimate collection and historical readers
+        run: python scripts/verify_consensus_collection.py --tickers AAPL,HIMS
