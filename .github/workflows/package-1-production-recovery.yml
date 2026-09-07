@@ -1,0 +1,123 @@
+name: Package 1 Production Recovery
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/package-1-production-recovery.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-1-production-recovery
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    environment: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+      PRICE_SOURCE: yahoo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Verify production configuration
+        run: |
+          missing=0
+          for name in DATABASE_URL FMP_API_KEY; do
+            if [ -n "${!name}" ]; then
+              echo "$name: present"
+            else
+              echo "::error::$name: empty"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Install application
+        run: python -m pip install --upgrade pip && python -m pip install -e .
+
+      - name: Apply and verify release migrations
+        run: |
+          alembic upgrade head
+          current="$(alembic current)"
+          echo "$current"
+          case "$current" in
+            *0016_input_vintages*) ;;
+            *)
+              echo "::error::Production database is not at 0016_input_vintages."
+              exit 1
+              ;;
+          esac
+
+      - name: Refresh company events from FMP
+        id: events
+        continue-on-error: true
+        run: python scripts/refresh_company_events.py
+
+      - name: Refresh macro series
+        id: macro
+        continue-on-error: true
+        run: python scripts/refresh_macro.py
+
+      - name: Sync configured universe
+        id: universe
+        continue-on-error: true
+        run: python scripts/sync_universe.py
+
+      - name: Refresh benchmark and sector prices
+        id: benchmarks
+        continue-on-error: true
+        run: python scripts/refresh_prices.py --benchmarks
+
+      - name: Refresh company inputs and canonical forecasts
+        id: daily
+        continue-on-error: true
+        run: python scripts/daily_refresh.py
+
+      - name: Materialize final coverage snapshot
+        id: coverage
+        if: always()
+        continue-on-error: true
+        run: python scripts/build_coverage_snapshot.py
+
+      - name: Publish recovery summary
+        if: always()
+        env:
+          EVENTS_OUTCOME: ${{ steps.events.outcome }}
+          MACRO_OUTCOME: ${{ steps.macro.outcome }}
+          UNIVERSE_OUTCOME: ${{ steps.universe.outcome }}
+          BENCHMARKS_OUTCOME: ${{ steps.benchmarks.outcome }}
+          DAILY_OUTCOME: ${{ steps.daily.outcome }}
+          COVERAGE_OUTCOME: ${{ steps.coverage.outcome }}
+        run: |
+          {
+            echo "## Package 1 production recovery"
+            echo ""
+            echo "| Stage | Outcome |"
+            echo "| --- | --- |"
+            echo "| Company events | $EVENTS_OUTCOME |"
+            echo "| Macro series | $MACRO_OUTCOME |"
+            echo "| Universe sync | $UNIVERSE_OUTCOME |"
+            echo "| Benchmark/sector prices | $BENCHMARKS_OUTCOME |"
+            echo "| Company inputs + forecasts | $DAILY_OUTCOME |"
+            echo "| Coverage snapshot | $COVERAGE_OUTCOME |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          failed=0
+          for outcome in "$EVENTS_OUTCOME" "$MACRO_OUTCOME" "$UNIVERSE_OUTCOME" \
+            "$BENCHMARKS_OUTCOME" "$DAILY_OUTCOME" "$COVERAGE_OUTCOME"; do
+            if [ "$outcome" != "success" ]; then
+              failed=1
+            fi
+          done
+          exit "$failed"
