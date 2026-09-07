@@ -28,6 +28,9 @@ Options joins now use the start of the forecast date rather than the end of
 that day; precise timestamps remain precise. Empty/nonfinite feature snapshots
 and snapshots even one second beyond the age limit do not establish coverage.
 Promotion counts tickers with usable matches, not merely stored snapshots.
+Macro and options challengers preserve the full regime representation. Macro
+interactions normalize exposures before multiplication, so cross-sectional
+standardization no longer erases the magnitude of common market state.
 
 ALFRED documents vintages as values actually available on a historical date:
 https://alfred.stlouisfed.org/help/downloaddata
