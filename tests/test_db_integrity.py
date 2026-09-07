@@ -160,3 +160,23 @@ def test_historical_macro_import_is_append_only_and_preserves_current_cache(conn
     assert conn.execute("SELECT value,source FROM macro_series WHERE series_id='VIXCLS'").fetchone() == (99, 'FRED')
     features = features_as_of({'VIXCLS': load_series(conn, 'VIXCLS')}, '2020-01-03')['features']
     assert features['vix_level'] == 15
+
+
+def test_consensus_preserves_intraday_reversion_and_source_identity(conn):
+    from stock_machine.prediction_inputs import fetch_consensus_history
+    from stock_machine.expectations import consensus_revision
+    base={'source':'fmp','period_type':'annual','forecast_period_end':'2026-12-31'}
+    rows=[{**base,'eps_mean':v,'observed_at':t} for v,t in [
+        (1,'2026-01-01T10:00:00+00:00'),(2,'2026-02-15T10:00:00+00:00'),
+        (3,'2026-02-15T11:00:00+00:00'),(2,'2026-02-15T12:00:00+00:00')]]
+    for row in rows + rows:
+        db.insert_consensus_snapshots(conn,'CONSENSUSPIT',row['observed_at'][:10],[row])
+    loaded=fetch_consensus_history(conn,'CONSENSUSPIT')
+    precise=[r for r in loaded if r.get('available_at')]
+    assert len(precise)==4
+    assert {r['source'] for r in precise}=={'fmp'}
+    assert consensus_revision(loaded,'2026-02-15T11:30:00Z')['eps_revision_pct']==200
+    assert consensus_revision(loaded,'2026-02-15T12:30:00Z')['eps_revision_pct']==100
+    with pytest.raises(ValueError,match='Conflicting consensus'):
+        db.insert_consensus_snapshots(conn,'CONSENSUSPIT','2026-02-15',[{**rows[-1],'eps_mean':99}])
+    conn.rollback()

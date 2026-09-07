@@ -15,7 +15,7 @@ from psycopg.types.json import Jsonb
 
 from .config import DATABASE_URL
 
-REQUIRED_SCHEMA_VERSION = "0016_input_vintages"
+REQUIRED_SCHEMA_VERSION = "0017_consensus_vintages"
 
 
 def connect() -> psycopg.Connection:
@@ -145,9 +145,11 @@ def replace_shares(conn: psycopg.Connection, ticker: str, rows: list[dict]) -> N
 
 def insert_consensus_snapshots(conn: psycopg.Connection, ticker: str,
                                snapshot_date: str, rows: list[dict]) -> int:
-    """Append today's vintage. Idempotent per (day, period): re-running the
-    refresh the same day does not duplicate. Never deletes old vintages —
-    they ARE the point-in-time history."""
+    """Preserve the daily display cache and precise sourced observations.
+
+    Exact source/timestamp replays are idempotent. Changed intraday observations
+    append; legacy callers without provenance only populate the daily cache.
+    """
     inserted = 0
     with conn.cursor() as cur:
         for r in rows:
@@ -166,6 +168,23 @@ def insert_consensus_snapshots(conn: psycopg.Connection, ticker: str,
                  r.get("eps_mean"), r.get("eps_high"), r.get("eps_low"),
                  r.get("analyst_count")))
             inserted += cur.rowcount
+            if r.get("source") and r.get("observed_at"):
+                from .asof import utc_timestamp
+                observed = utc_timestamp(r["observed_at"])
+                payload = {key: r.get(key) for key in (
+                    "revenue_mean", "revenue_high", "revenue_low", "eps_mean",
+                    "eps_high", "eps_low", "analyst_count")}
+                identity = (ticker, r["source"], observed, r["period_type"], r["forecast_period_end"])
+                cur.execute("""INSERT INTO consensus_vintages
+                    (ticker,source,observed_at,period_type,forecast_period_end,payload)
+                    VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
+                    (*identity, Jsonb(payload)))
+                if not cur.rowcount:
+                    cur.execute("""SELECT payload FROM consensus_vintages WHERE
+                        ticker=%s AND source=%s AND observed_at=%s AND
+                        period_type=%s AND forecast_period_end=%s""", identity)
+                    if cur.fetchone()[0] != payload:
+                        raise ValueError("Conflicting consensus values at the same source timestamp")
     conn.commit()
     return inserted
 

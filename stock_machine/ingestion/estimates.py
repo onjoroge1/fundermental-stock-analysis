@@ -16,6 +16,7 @@ never a fabricated value."""
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 
 import httpx
 
@@ -42,8 +43,8 @@ def _get(path: str, params: dict) -> tuple[list | None, dict | None]:
                          params={**params, "apikey": FMP_API_KEY}, timeout=60)
     except httpx.HTTPError as e:
         return None, {"event": "PROVIDER_ERROR", "dataset": path,
-                      "detail": f"FMP request failed: {type(e).__name__}: {e}"}
-    text = resp.text
+                      "detail": f"FMP request failed: {type(e).__name__}"}
+    text = resp.text.replace(FMP_API_KEY, "[redacted]") if FMP_API_KEY else resp.text
     if resp.status_code in (401, 402, 403) or text.startswith("Premium"):
         return None, {
             "event": "PROVIDER_PLAN_LIMIT", "dataset": path,
@@ -58,7 +59,7 @@ def _get(path: str, params: dict) -> tuple[list | None, dict | None]:
                       "detail": f"FMP non-JSON response: {text[:180]}"}
     if isinstance(payload, dict):
         return None, {"event": "PROVIDER_ERROR", "dataset": path,
-                      "detail": str(payload)[:180]}
+                      "detail": str(payload).replace(FMP_API_KEY or "[unset]", "[redacted]")[:180]}
     return payload, None
 
 
@@ -115,8 +116,11 @@ def fetch_estimates(ticker: str) -> dict:
             continue
         save_raw("estimates", [symbol, f"fmp_analyst_estimates_{period}"],
                  payload, f"{BASE}/stable/analyst-estimates?period={period}")
+        observed_at = datetime.now(timezone.utc).isoformat()
         for row in payload:
             snapshots.append({
+                "source": "fmp",
+                "observed_at": observed_at,
                 "period_type": period,
                 "forecast_period_end": row.get("date"),
                 "revenue_mean": _pick(row, "revenueAvg"),
