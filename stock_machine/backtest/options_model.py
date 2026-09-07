@@ -26,13 +26,14 @@ def _value(row: dict, index: int):
 
 
 def _zscore_by_date(obs: list[dict]):
+    prefix = macro_model._zscore_by_date(obs)
     by_date = defaultdict(list)
     for row in obs:
         by_date[row["as_of"]].append(row)
     out = {}
     for as_of, rows in by_date.items():
         stats = []
-        for j in range(len(FEATURE_NAMES)):
+        for j in range(len(macro_model.FEATURE_NAMES), len(FEATURE_NAMES)):
             vals = [_value(r, j) for r in rows if _value(r, j) is not None]
             if len(vals) >= 3:
                 m = sum(vals) / len(vals)
@@ -41,9 +42,10 @@ def _zscore_by_date(obs: list[dict]):
                 m, sd = 0.0, 1.0
             stats.append((m, sd))
         for row in rows:
-            out[(as_of, row["ticker"])] = [
+            key = (as_of, row["ticker"])
+            out[key] = prefix[key] + [
                 0.0 if _value(row, j) is None else (_value(row, j) - m) / sd
-                for j, (m, sd) in enumerate(stats)
+                for j, (m, sd) in enumerate(stats, start=len(macro_model.FEATURE_NAMES))
             ]
     return out
 
