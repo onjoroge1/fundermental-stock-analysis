@@ -69,6 +69,7 @@ def _source_id(accn: str | None) -> str | None:
 
 
 def _period_json(p: dict, statement_fields: dict[str, list[str]]) -> dict:
+    from .normalization.earnings_releases import eps_provenance
     fy, fp = p.get("fiscal_year"), p.get("fiscal_period")
     fields = p["fields"]
     sources = sorted({_source_id(a) for a in p["field_sources"].values() if a})
@@ -80,6 +81,7 @@ def _period_json(p: dict, statement_fields: dict[str, list[str]]) -> dict:
         "form": p.get("form"), "accession_number": p.get("accession_number"),
         "derived_q4": p.get("derived", False), "currency": "USD",
         "source_ids": sources,
+        "field_provenance": eps_provenance(p),
     }
     for stmt, flist in statement_fields.items():
         out[stmt] = {f: fields.get(f) for f in flist if f in fields or stmt != "other"}
@@ -362,6 +364,11 @@ def build_bundle(ticker: str, as_of: str | None = None) -> dict:
         missing_critical.append("prices")
 
     known_limitations = []
+    if ttm and ttm.get('eps_basis_status') == 'MIXED_SPLIT_BASIS_WITHHELD':
+        known_limitations.append(
+            'TTM EPS and its share-count fallback are withheld: this window mixes '
+            'a reviewed post-split earnings release with earlier quarters whose '
+            'per-share basis still requires reconciliation.')
     if share_adjustments:
         known_limitations.append(
             "Share count split-adjusted from corporate actions: "
