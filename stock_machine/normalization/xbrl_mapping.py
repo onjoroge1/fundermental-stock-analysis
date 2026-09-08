@@ -67,6 +67,7 @@ FIELD_MAP: dict[str, dict] = {
     "deferred_revenue": {"kind": "instant", "tags": [
         "ContractWithCustomerLiabilityCurrent", "DeferredRevenueCurrent"]},
     "current_liabilities": {"kind": "instant", "tags": ["LiabilitiesCurrent"]},
+    "noncurrent_liabilities": {"kind": "instant", "tags": ["LiabilitiesNoncurrent"]},
     "short_term_debt": {"kind": "instant", "tags": [
         "LongTermDebtCurrent", "DebtCurrent",
         "OtherShortTermBorrowings"]},
