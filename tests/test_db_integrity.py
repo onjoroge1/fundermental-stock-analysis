@@ -65,6 +65,40 @@ def test_migration_links_legacy_outcome_to_exact_preserved_forecast(conn):
     db.init_schema(conn)
 
 
+def test_licensed_archive_roundtrip_replay_and_atomic_conflict(conn):
+    from tests.test_estimate_archives import archive
+    from stock_machine.ingestion.estimate_archives import import_archive
+    from stock_machine.prediction_inputs import fetch_consensus_history
+    from stock_machine.expectations import consensus_revision
+    conn.execute("INSERT INTO companies (ticker,cik,legal_name) VALUES ('AAPL','0000320193','Test company') ON CONFLICT DO NOTHING")
+    conn.commit()
+    a = archive()
+    assert import_archive(conn, a)['inserted'] == 1
+    assert import_archive(conn, a)['inserted'] == 0
+    rows = fetch_consensus_history(conn, 'AAPL')
+    assert not consensus_revision(rows, '2020-01-02')['has_consensus']
+    assert consensus_revision(rows, '2020-01-02T01:00:00Z')['has_consensus']
+    conn.commit()
+    conflicting = deepcopy(a)
+    new = deepcopy(a['records'][0])
+    new.update(snapshot_at='2020-01-03T20:00:00Z', available_at='2020-01-04T01:00:00Z')
+    conflicting['records'].insert(0, new)
+    conflicting['records'][1]['eps_mean'] = 7
+    with pytest.raises(ValueError, match='conflicts'):
+        import_archive(conn, conflicting)
+    assert conn.execute("SELECT count(*) FROM consensus_vintages WHERE source LIKE 'archive:%%'").fetchone()[0] == 1
+    assert conn.execute('SELECT count(*) FROM consensus_archive_imports').fetchone()[0] == 1
+    conn.commit()
+
+
+def test_licensed_archive_rejects_wrong_registered_company(conn):
+    from tests.test_estimate_archives import archive
+    from stock_machine.ingestion.estimate_archives import import_archive
+    a = archive(); a['records'][0]['cik'] = '123'
+    with pytest.raises(ValueError, match='identity'):
+        import_archive(conn, a)
+
+
 def test_partial_and_failed_cover_share_refreshes_preserve_history(conn):
     old = {'as_of': '2026-04-15', 'shares': 100, 'available_at': '2026-04-24', 'accn': 'old-filing'}
     new = {'as_of': '2026-07-15', 'shares': 110, 'available_at': '2026-07-24', 'accn': 'new-filing'}

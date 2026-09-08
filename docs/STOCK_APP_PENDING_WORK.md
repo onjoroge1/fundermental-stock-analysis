@@ -1,6 +1,6 @@
 # Stock research app: pending work
 
-Updated September 7, 2026. This is the execution checklist following the
+Updated September 8, 2026. This is the execution checklist following the
 predictive-integrity audit. Completion of infrastructure does not demonstrate
 predictive edge.
 
@@ -39,3 +39,7 @@ historical expectation gap.
 
 Related detail: [historical recovery](HISTORICAL_INPUT_RECOVERY.md) and
 [original repair notes](PREDICTIVE_VALIDATION_REPAIR.md).
+
+## September 8 EPS and estimate-archive package
+
+Seven quarterly GAAP diluted EPS values have been verified against original SEC earnings exhibits and a repeatable recovery is implemented. Full-period timing remains conservative. KLA mixed-split TTM EPS is withheld pending basis reconciliation. A strict, atomic licensed PIT archive importer is implemented; no historical archive has been acquired or loaded. See [source evidence, access requirements and import contract](EARNINGS_AND_ESTIMATE_RECOVERY.md). Production results are recorded in the release PR and recovery workflow.

@@ -38,6 +38,13 @@ def _r(x, nd=2):
     return None if x is None else round(x, nd)
 
 
+def _mixed_release_eps_basis(periods: list[dict]) -> bool:
+    from ..normalization.earnings_releases import eps_provenance
+    return any(r.get('split_effective_date')
+               and any(q['period_end'] < r['split_effective_date'] for q in periods)
+               for p in periods for r in eps_provenance(p).values())
+
+
 def build_ttm(quarters: list[dict]) -> dict | None:
     """Trailing-12-month synthetic period from the last 4 quarters. Requires 4
     contiguous quarters (each start within ~14 days of prior end)."""
@@ -72,6 +79,15 @@ def build_ttm(quarters: list[dict]) -> dict | None:
             if _f(q, f) is not None:
                 fields[f] = _f(q, f)
                 break
+    # A reviewed post-split release can complete an EPS window that previously
+    # had a hole. Do not thereby enable a sum with older pre-split EPS or a
+    # fallback using pre-split shares. Per-field historical basis reconciliation
+    # is still needed; preserve reported quarters and withhold this TTM metric.
+    mixed_eps_basis = _mixed_release_eps_basis(last4)
+    if mixed_eps_basis:
+        for f in ('basic_eps', 'diluted_eps', 'weighted_average_basic_shares',
+                  'weighted_average_diluted_shares'):
+            fields.pop(f, None)
     # derived Q4 periods carry no EPS (non-additive), so a summed TTM EPS is
     # often unavailable — fall back to TTM net income / latest diluted shares
     if "diluted_eps" not in fields:
@@ -88,6 +104,7 @@ def build_ttm(quarters: list[dict]) -> dict | None:
         "duration_type": "ttm", "fields": fields,
         "available_at": max(q.get("available_at") or "" for q in last4) or None,
         "source_periods": [q["period_end"] for q in last4],
+        "eps_basis_status": 'MIXED_SPLIT_BASIS_WITHHELD' if mixed_eps_basis else 'NO_KNOWN_RELEASE_BASIS_CONFLICT',
     }
 
 
@@ -124,7 +141,8 @@ def growth_metrics(quarters: list[dict], annuals: list[dict]) -> dict:
         "revenue_yoy_pct": _pct(_f(q, "revenue"), _f(q_yoy, "revenue")),
         "revenue_qoq_pct": _pct(_f(q, "revenue"), _f(q_prior, "revenue")),
         "revenue_cagr_3y_pct": cagr,
-        "eps_yoy_pct": _pct(_f(q, "diluted_eps"), _f(q_yoy, "diluted_eps")),
+        "eps_yoy_pct": (None if _mixed_release_eps_basis([p for p in (q, q_yoy) if p])
+                        else _pct(_f(q, "diluted_eps"), _f(q_yoy, "diluted_eps"))),
         "operating_income_yoy_pct": _pct(_f(q, "operating_income"),
                                          _f(q_yoy, "operating_income")),
         "fcf_yoy_pct": _pct(_f(q, "free_cash_flow"), _f(q_yoy, "free_cash_flow")),

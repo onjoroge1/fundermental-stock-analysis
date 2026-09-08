@@ -332,7 +332,8 @@ def build_periods(companyfacts: dict) -> tuple[list[dict], list[dict], list[dict
                 sources[field] = ann["field_sources"].get(field, "")
         if not fields:
             continue
-        q4_start = max(q["period_end"] for q in inside)
+        q4_start = (date.fromisoformat(max(q["period_end"] for q in inside))
+                    + timedelta(days=1)).isoformat()
         quarters[end] = {
             "period_end": end, "period_start": q4_start,
             "duration_type": "quarter", "fields": fields,
@@ -362,6 +363,8 @@ def build_periods(companyfacts: dict) -> tuple[list[dict], list[dict], list[dict
                 p["field_sources"]["gross_profit"] = \
                     p["field_sources"].get("revenue", "")
 
+    from .earnings_releases import supplement_quarters
+    supplement_quarters(companyfacts.get('cik'), quarterly, events)
     return quarterly, annual, events
 
 
