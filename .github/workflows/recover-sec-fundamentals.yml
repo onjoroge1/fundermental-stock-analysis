@@ -3,7 +3,12 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: [".github/workflows/recover-sec-fundamentals.yml"]
+    paths:
+      - ".github/workflows/recover-sec-fundamentals.yml"
+      - "scripts/recover_sec_fundamentals.py"
+      - "stock_machine/ingestion/cover_shares.py"
+      - "stock_machine/normalization/financial_periods.py"
+      - "stock_machine/normalization/xbrl_mapping.py"
 permissions:
   contents: read
 concurrency:
