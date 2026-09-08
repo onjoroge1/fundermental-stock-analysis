@@ -173,3 +173,43 @@ def test_bank_revenue_uses_total_net_revenue_tag():
     }}}
     quarterly, _, _ = build_periods(cf)
     assert quarterly[-1]["fields"]["revenue"] == 1_100_368_000
+
+
+def _liability_component_facts(*, assets=1000, current=400, noncurrent=300,
+                               equity=300, component_accn="same-filing"):
+    def instant(value, accn="same-filing"):
+        return {"val": value, "end": "2026-03-31", "filed": "2026-05-01",
+                "form": "10-Q", "fy": 2026, "fp": "Q1", "accn": accn}
+    return {"facts": {"us-gaap": {
+        "Revenues": {"units": {"USD": [
+            _entry(100, "2026-01-01", "2026-03-31", "2026-05-01",
+                   fy=2026, fp="Q1", accn="same-filing")]}},
+        "Assets": {"units": {"USD": [instant(assets)]}},
+        "LiabilitiesCurrent": {"units": {"USD": [instant(current)]}},
+        "LiabilitiesNoncurrent": {"units": {"USD": [instant(noncurrent, component_accn)]}},
+        "StockholdersEquity": {"units": {"USD": [instant(equity)]}},
+    }}}
+
+
+def test_total_liabilities_aggregated_from_one_reconciling_filing():
+    quarterly, _, events = build_periods(_liability_component_facts())
+    period = quarterly[-1]
+    assert period["fields"]["noncurrent_liabilities"] == 300
+    assert period["fields"]["total_liabilities"] == 700
+    assert period["field_sources"]["total_liabilities"] == "same-filing"
+    assert period["available_at"] == "2026-05-02"
+    assert any(e["event"] == "TOTAL_LIABILITIES_AGGREGATED" for e in events)
+
+
+def test_liability_aggregation_rejected_when_identity_does_not_corroborate_it():
+    quarterly, _, events = build_periods(_liability_component_facts(equity=100))
+    assert "total_liabilities" not in quarterly[-1]["fields"]
+    rejected = [e for e in events if e["event"] == "TOTAL_LIABILITIES_AGGREGATION_REJECTED"]
+    assert rejected[0]["residual"] == 200
+
+
+def test_liability_aggregation_rejected_across_filing_accessions():
+    quarterly, _, events = build_periods(
+        _liability_component_facts(component_accn="later-filing"))
+    assert "total_liabilities" not in quarterly[-1]["fields"]
+    assert not any(e["event"] == "TOTAL_LIABILITIES_AGGREGATED" for e in events)

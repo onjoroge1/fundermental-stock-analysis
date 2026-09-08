@@ -97,7 +97,7 @@ STATEMENT_FIELDS = {
                       "inventory", "current_assets", "property_plant_equipment",
                       "goodwill", "intangible_assets", "total_assets",
                       "accounts_payable", "deferred_revenue",
-                      "current_liabilities", "short_term_debt",
+                      "current_liabilities", "noncurrent_liabilities", "short_term_debt",
                       "commercial_paper", "long_term_debt", "total_liabilities",
                       "shareholders_equity"],
     "cash_flow": ["operating_cash_flow", "capital_expenditures",

@@ -99,3 +99,20 @@ completed session at the September 7 holiday check. This is sufficient for
 current price-based diagnostics. Historical expectations, options, old credit
 vintages and universe membership remain incomplete. No validated forecast
 edge or profitable strategy is established by this repair.
+
+## Liability-component recovery
+
+The next normalization step reads SEC `LiabilitiesNoncurrent` alongside
+`LiabilitiesCurrent`. It creates `total_liabilities` only when assets, equity,
+both liability components and any equity components all use the same filing
+accession, and the resulting balance sheet independently reconciles within the
+unchanged 1% tolerance. Rejected candidates remain untested and produce a
+diagnostic event; no residual is assigned to liabilities.
+
+All-54 CompanyFacts replay accepted 554 additional normalized period rows and
+rejected 36 older AT&T/United rows whose component sums did not reconcile.
+Tested coverage rises from 2,511/4,392 (57.17%) to 3,065/4,392 (69.79%). The
+accepted rows pass, so the 20 previously documented failures remain 20 and the
+tested pass rate becomes 99.35%. Latest-quarter accounting status improves
+from 35 to 43 passes. AAL, ADI, DAL, ORCL, TGT, TMUS, UAL and VZ are newly
+testable at their latest quarter. Eleven latest quarters remain untested.

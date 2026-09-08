@@ -246,6 +246,51 @@ def build_periods(companyfacts: dict) -> tuple[list[dict], list[dict], list[dict
                     # filing date of an earlier flow for the same period.
                     p["filed_at"] = max(p["filed_at"], f["filed"])
 
+    # Some filers report only the complete current and noncurrent liability
+    # subtotals. Their sum is a direct accounting aggregation, but it is safe
+    # only when all balance-sheet inputs came from the same filing accession.
+    # This prevents predecessor/operating-company facts from being combined.
+    balance_basis = ("total_assets", "shareholders_equity",
+                     "current_liabilities", "noncurrent_liabilities")
+    optional_basis = ("noncontrolling_interest", "temporary_equity",
+                      "redeemable_noncontrolling_interest")
+    for coll in (quarters, annuals):
+        for p in coll.values():
+            if p["fields"].get("total_liabilities") is not None:
+                continue
+            if any(p["fields"].get(field) is None for field in balance_basis):
+                continue
+            source = p["field_sources"].get("current_liabilities")
+            if not source or any(p["field_sources"].get(field) != source
+                                 for field in balance_basis):
+                continue
+            if any(p["field_sources"].get(field) != source for field in optional_basis
+                   if p["fields"].get(field) is not None):
+                continue
+            candidate = (
+                p["fields"]["current_liabilities"]
+                + p["fields"]["noncurrent_liabilities"])
+            equity_basis = (p["fields"]["shareholders_equity"]
+                            + sum(p["fields"].get(field) or 0
+                                  for field in optional_basis))
+            residual = p["fields"]["total_assets"] - candidate - equity_basis
+            if abs(residual) > 0.01 * p["fields"]["total_assets"]:
+                events.append({
+                    "event": "TOTAL_LIABILITIES_AGGREGATION_REJECTED",
+                    "period_end": p["period_end"], "accession_number": source,
+                    "candidate_value": candidate, "residual": residual,
+                    "detail": "component sum does not reconcile within 1% of assets",
+                })
+                continue
+            p["fields"]["total_liabilities"] = candidate
+            p["field_sources"]["total_liabilities"] = source
+            events.append({
+                "event": "TOTAL_LIABILITIES_AGGREGATED",
+                "period_end": p["period_end"], "accession_number": source,
+                "value": p["fields"]["total_liabilities"],
+                "detail": "SEC LiabilitiesCurrent + LiabilitiesNoncurrent from one filing",
+            })
+
     for coll in (quarters, annuals):
         for p in coll.values():
             fy, fp = _fiscal_label(p.pop("_labels"))

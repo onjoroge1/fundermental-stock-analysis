@@ -13,7 +13,10 @@ from stock_machine.ingestion import sec
 from stock_machine.ingestion.cover_shares import supplement_companyfacts
 from stock_machine.normalization.financial_periods import build_periods, extract_shares_outstanding
 
-TARGETS = ('UBER', 'ABNB', 'DELL', 'GOOGL', 'HIMS', 'META', 'PLTR', 'RIVN')
+COVER_TARGETS = ('ABNB', 'DELL', 'GOOGL', 'HIMS', 'META', 'PLTR', 'RIVN')
+LIABILITY_TARGETS = ('AAL', 'ADI', 'AMZN', 'DAL', 'DIS', 'ORCL', 'TGT', 'TMUS', 'UAL', 'VZ')
+TARGETS = tuple(dict.fromkeys(('UBER',) + COVER_TARGETS + LIABILITY_TARGETS))
+LATEST_LIABILITY_TARGETS = ('AAL', 'ADI', 'DAL', 'ORCL', 'TGT', 'TMUS', 'UAL', 'VZ')
 
 
 def main():
@@ -31,7 +34,7 @@ def main():
         cover_events = supplement_companyfacts(ticker, cik, sub, facts)
         q, a, events = build_periods(facts)
         shares = extract_shares_outstanding(facts)
-        if not q or not a or not shares:
+        if not q or not a or (ticker in COVER_TARGETS and not shares):
             raise ValueError(f'{ticker}: incomplete SEC recovery; no target periods have been replaced')
         prepared.append((ticker, q, a, shares, events + cover_events))
         print(json.dumps({'ticker': ticker, 'quarters': len(q), 'annuals': len(a),
@@ -61,7 +64,10 @@ def main():
         after = build_report(conn)
     Path('data/accounting-recovery-report.json').write_text(json.dumps({'before': before, 'after': after}, indent=2))
     print(json.dumps({'after': after}), flush=True)
-    if after['tested'] < before['tested'] or after['failed'] > before['failed'] or any(r['ticker'] == 'UBER' for r in after['failures']):
+    latest_failed = [ticker for ticker in LATEST_LIABILITY_TARGETS
+                     if after['latest_quarters'].get(ticker, {}).get('status') != 'PASS']
+    if (after['tested'] < before['tested'] or after['failed'] > before['failed']
+            or any(r['ticker'] == 'UBER' for r in after['failures']) or latest_failed):
         raise ValueError('Accounting recovery verification failed')
     return 0
 
