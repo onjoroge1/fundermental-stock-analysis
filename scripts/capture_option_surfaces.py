@@ -6,6 +6,7 @@ run persists a point-in-time surface that later becomes historical training data
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
@@ -20,6 +21,7 @@ from stock_machine.options.surface_store import history, save
 
 MAX_EXPIRIES = int(os.getenv("P1_OPTION_EXPIRIES", "2"))
 MAX_STRIKES = int(os.getenv("P1_OPTION_STRIKES", "18"))
+MIN_SUCCESSES = int(os.getenv("P1_OPTION_MIN_SUCCESSES", "1"))
 
 
 def _spot(q) -> float | None:
@@ -30,7 +32,40 @@ def _spot(q) -> float | None:
     return q.last
 
 
-def main() -> int:
+def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Capture observed option surfaces without backfilling history."
+    )
+    parser.add_argument(
+        "--min-successes",
+        type=int,
+        default=MIN_SUCCESSES,
+        help="Fail unless at least this many ticker surfaces are persisted.",
+    )
+    parser.add_argument(
+        "--require-session",
+        action="store_true",
+        help="Fail before capture unless the configured provider is authenticated.",
+    )
+    args = parser.parse_args(argv)
+    if args.min_successes < 0:
+        parser.error("--min-successes must be nonnegative")
+    return args
+
+
+def _meaningful(surface: dict) -> bool:
+    """Require a real volatility observation, not only presence flags."""
+    features = surface.get("features") or {}
+    return (
+        surface.get("status") == "OK"
+        and isinstance(features.get("atm_iv"), (int, float))
+        and not isinstance(features.get("atm_iv"), bool)
+        and features["atm_iv"] > 0
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _arguments(argv)
     with db.connect() as conn:
         universe = [c["ticker"] for c in db.list_companies(conn)]
     env = os.getenv("P1_OPTION_TICKERS", "").strip()
@@ -38,7 +73,28 @@ def main() -> int:
 
     provider = get_provider()
     failures = 0
+    successes = 0
+    captured: list[str] = []
     try:
+        session = provider.session_status()
+        print(json.dumps({
+            "event": "session",
+            "provider": session.provider,
+            "connected": session.connected,
+            "authenticated": session.authenticated,
+            "competing": session.competing,
+            "message": session.message,
+            "checked_at": session.checked_at.isoformat(),
+        }))
+        if args.require_session and not (
+            session.connected and session.authenticated and not session.competing
+        ):
+            print(json.dumps({
+                "status": "error",
+                "reason": "provider session is not ready for unattended capture",
+            }))
+            return 2
+
         for ticker in tickers:
             try:
                 underlying = provider.resolve_underlying(ticker)
@@ -65,8 +121,14 @@ def main() -> int:
                 with db.connect() as conn:
                     prior = history(conn, ticker, before_as_of=max(c.fetched_at for c in chains).isoformat())
                 surface = extract_surface(chains, prior_surfaces=prior)
+                if not _meaningful(surface):
+                    raise RuntimeError(
+                        "captured chain has no usable at-the-money implied volatility"
+                    )
                 with db.connect() as conn:
                     snapshot_id = save(conn, surface)
+                successes += 1
+                captured.append(ticker)
                 print(json.dumps({
                     "ticker": ticker,
                     "status": "ok",
@@ -80,8 +142,17 @@ def main() -> int:
                                   "error": f"{type(exc).__name__}: {exc}"}))
     finally:
         provider.close()
-    print(json.dumps({"tickers": len(tickers), "failures": failures}))
-    return 1 if failures == len(tickers) and tickers else 0
+    passed = successes >= args.min_successes
+    print(json.dumps({
+        "event": "summary",
+        "status": "ok" if passed else "insufficient_coverage",
+        "tickers_requested": len(tickers),
+        "successes": successes,
+        "failures": failures,
+        "minimum_successes": args.min_successes,
+        "captured_tickers": captured,
+    }))
+    return 0 if passed else 1
 
 
 if __name__ == "__main__":
