@@ -60,7 +60,13 @@ look like a successful full-universe run. Production activation requires
 `IBKR_BRIDGE_BASE_URL` and `IBKR_BRIDGE_TOKEN` in the GitHub Production
 environment and a running authenticated TWS/IB Gateway bridge.
 
-The existing LSTM remains diagnostic. It is already implemented, but the
-roadmap blocks it from promotion until it predicts the fixed 5/10/20-session
-targets directly and beats simple baselines under the same frozen, causal
-evaluation used for every other challenger.
+The LSTM now predicts cumulative 5/10/20-session returns directly with three
+Gaussian heads. It never feeds sampled predictions back into its features and
+publishes no unsupported long-horizon distributions. It remains diagnostic.
+`validate(returns, evaluate_lstm=True)` runs the three-seed model inside the
+same purged folds and evaluates it against no-change and class-prior baselines.
+The default forecast worker does not run this expensive research evaluation.
+Use `scripts/validate_direct_lstm.py --ticker AAPL --as-of YYYY-MM-DD` with
+DATABASE_URL and the prediction extra. The dated, hashed report is a research
+artifact; it does not promote the model or overwrite production forecasts.
+The current 54-name universe still has survivorship limitations.

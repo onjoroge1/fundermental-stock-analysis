@@ -42,7 +42,7 @@ WINDOW = 40
 BLOCK = 21
 PURGE = 20
 SEED = 7
-MODEL_VERSION = "forecast-calibration.v3"
+MODEL_VERSION = "forecast-calibration.v4-direct-lstm"
 MIN_CALIBRATION_SAMPLES = 10
 MIN_EVALUATION_SAMPLES = 12
 
@@ -129,7 +129,21 @@ def bootstrap_paths(returns: list[float], n_days: int, n_paths: int = N_PATHS,
     return paths
 
 
-# ---------------- LSTM with Gaussian head ----------------
+# ---------------- direct-horizon LSTM with Gaussian heads ----------------
+
+def make_direct_windows(feats: list, window: int = WINDOW) -> tuple[list, list]:
+    """All three cumulative targets end inside the caller's training slice.
+
+    Return features are standardized daily returns. Summing and dividing by
+    sqrt(h) keeps target scales comparable; inference reverses this transform.
+    """
+    xs, ys = [], []
+    for end in range(window, len(feats) - max(VALIDATION_HORIZONS) + 1):
+        xs.append(feats[end - window:end])
+        ys.append([sum(row[0] for row in feats[end:end + h]) / math.sqrt(h)
+                   for h in VALIDATION_HORIZONS])
+    return xs, ys
+
 
 if TORCH_OK:
     class ReturnLSTM(nn.Module):
@@ -137,69 +151,97 @@ if TORCH_OK:
             super().__init__()
             self.lstm = nn.LSTM(n_features, hidden, num_layers=2,
                                 batch_first=True, dropout=0.1)
-            self.mu = nn.Linear(hidden, 1)
-            self.log_sigma = nn.Linear(hidden, 1)
+            self.mu = nn.Linear(hidden, len(VALIDATION_HORIZONS))
+            self.log_sigma = nn.Linear(hidden, len(VALIDATION_HORIZONS))
 
         def forward(self, x):
             out, _ = self.lstm(x)
             h = out[:, -1, :]
-            return self.mu(h).squeeze(-1), self.log_sigma(h).squeeze(-1)
+            return self.mu(h), self.log_sigma(h).clamp(-7.0, 2.3)
 
 
 def train_lstm(feats: list, window: int = WINDOW, epochs: int = 12,
                seed: int = SEED):
+    if not TORCH_OK:
+        raise RuntimeError("torch is required for LSTM training")
     torch.manual_seed(seed)
-    xs, ys = make_windows(feats, window)
+    xs, ys = make_direct_windows(feats, window)
+    if not xs:
+        raise ValueError("insufficient history for direct horizon targets")
     X = torch.tensor(xs, dtype=torch.float32)
     Y = torch.tensor(ys, dtype=torch.float32)
     model = ReturnLSTM()
     opt = torch.optim.Adam(model.parameters(), lr=3e-3)
-    n = len(X)
     for _ in range(epochs):
-        perm = torch.randperm(n)
-        for i in range(0, n, 256):
+        perm = torch.randperm(len(X))
+        for i in range(0, len(X), 256):
             idx = perm[i:i + 256]
             mu, log_sigma = model(X[idx])
             sigma = torch.exp(log_sigma).clamp(1e-3, 10.0)
             loss = (0.5 * ((Y[idx] - mu) / sigma) ** 2
                     + torch.log(sigma)).mean()
+            if not torch.isfinite(loss):
+                raise ValueError("non-finite LSTM training loss")
             opt.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step()
     model.eval()
     return model
 
 
-def lstm_paths(model, recent_feats: list, mean: float, std: float,
-               vol_mean: float, vol_std: float, n_days: int,
-               n_paths: int = N_PATHS, seed: int = SEED) -> list[list[float]]:
-    """Monte Carlo rollout: sample each next return from the predicted
-    Gaussian, feed it back with an updated causal vol channel —
-    uncertainty compounds honestly."""
+def lstm_horizon_samples(model, recent_feats: list, mean: float, std: float,
+                         n_samples: int = N_PATHS, seed: int = SEED) -> dict:
+    """One forward pass; marginal terminal returns, never synthetic daily paths."""
     torch.manual_seed(seed)
-    x = torch.tensor([recent_feats] * n_paths, dtype=torch.float32)
-    # raw-return ring buffer per path for the causal vol channel
-    raw_recent = [[f[0] * std + mean for f in recent_feats][-BLOCK:]
-                  for _ in range(n_paths)]
-    out = torch.empty((n_paths, n_days))
     with torch.no_grad():
-        for d in range(n_days):
-            mu, log_sigma = model(x)
-            sigma = torch.exp(log_sigma).clamp(1e-3, 10.0)
-            z_next = torch.normal(mu, sigma)
-            out[:, d] = z_next
-            vol_z = []
-            for p in range(n_paths):
-                r = z_next[p].item() * std + mean
-                raw_recent[p] = (raw_recent[p] + [r])[-BLOCK:]
-                w = raw_recent[p]
-                m_ = sum(w) / len(w)
-                v = math.sqrt(sum((a - m_) ** 2 for a in w)
-                              / max(1, len(w) - 1))
-                vol_z.append((v - vol_mean) / (vol_std or 1e-8))
-            nxt = torch.stack([z_next, torch.tensor(vol_z)], dim=1)
-            x = torch.cat([x[:, 1:, :], nxt.unsqueeze(1)], dim=1)
-    return [[v * std + mean for v in row.tolist()] for row in out]
+        mu, log_sigma = model(torch.tensor([recent_feats], dtype=torch.float32))
+        samples = torch.normal(mu.expand(n_samples, -1),
+                               log_sigma.exp().clamp(1e-3, 10).expand(n_samples, -1))
+    if not torch.isfinite(samples).all():
+        raise ValueError("non-finite LSTM forecast")
+    return {h: [float(z) * std * math.sqrt(h) + mean * h
+                for z in samples[:, i].tolist()]
+            for i, h in enumerate(VALIDATION_HORIZONS)}
+
+
+def direct_lstm_samples(train: list[float], observed: list[float],
+                         n_samples: int = N_PATHS, epochs: int = 12) -> dict:
+    """Fit only on train; observed ends at the forecast origin (no outcomes)."""
+    m, s = train_stats(train)
+    vm, vs = train_stats(rolling_vol(train))
+    feats = make_features(train, m, s, vm, vs)
+    recent = make_features(observed, m, s, vm, vs)[-WINDOW:]
+    pooled = {h: [] for h in VALIDATION_HORIZONS}
+    for seed in (SEED, SEED + 1, SEED + 2):
+        model = train_lstm(feats, epochs=epochs, seed=seed)
+        draws = lstm_horizon_samples(model, recent, m, s,
+                                     n_samples=max(1, n_samples // 3), seed=seed)
+        for h in pooled:
+            pooled[h].extend(draws[h])
+    return pooled
+
+
+def summarize_direct_samples(samples: dict, last_price: float) -> dict:
+    summary = {"horizons": {}, "fan": [], "direct_horizon_output": True}
+    for days, draws in samples.items():
+        # Reuse terminal statistics without interpolating a daily price path.
+        finals = [last_price * math.exp(r) for r in draws]
+        row = {"days": days,
+               **{f"p{q}": round(quantile(finals, q / 100), 2)
+                  for q in (10, 25, 50, 75, 90)},
+               "prob_positive": round(sum(r > 0 for r in draws) / len(draws), 3)}
+        for key, threshold, up in (("prob_up_10pct", 1.1, True),
+                                   ("prob_down_10pct", .9, False),
+                                   ("prob_down_20pct", .8, False)):
+            row[key] = round(sum((v > last_price * threshold) if up
+                                 else (v < last_price * threshold)
+                                 for v in finals) / len(finals), 3)
+        summary["horizons"][f"{days}d"] = row
+        summary["fan"].append({"day": days,
+                               **{k: v for k, v in row.items()
+                                  if k in ("p10", "p25", "p50", "p75", "p90")}})
+    return summary
 
 
 # ---------------- distribution summaries (pure) ----------------
@@ -422,26 +464,26 @@ def _promotion_checks(candidate: dict | None, no_change: dict) -> dict:
             "probability_calibrator_fitted": (
                 str(days) in (candidate or {}).get("probability_calibrators", {})
             ),
-            # The current LSTM recursively feeds its own one-day output back
-            # into the next step. Keep it diagnostic until it produces each
-            # horizon directly; recursive error may not earn promotion.
-            "direct_horizon_output": candidate is not None,
+            "direct_horizon_output": candidate is not None and (
+                candidate.get("model_name") != "lstm"
+                or candidate.get("direct_horizon_output") is True),
         }
-        if candidate and candidate.get("model_name") == "lstm":
-            values["direct_horizon_output"] = False
         checks.append({"horizon_days": days, **values,
                        "passed": all(values.values())})
     return {"by_horizon": checks,
             "passed": bool(checks) and all(check["passed"] for check in checks)}
 
 
-def validate(returns: list[float], n_folds: int = 30) -> dict:
+def validate(returns: list[float], n_folds: int = 30,
+             evaluate_lstm: bool = False, lstm_epochs: int = 12) -> dict:
     """Purged expanding-window validation at 5/10/20 trading days.
 
     A drift-bearing model may lead only when every horizon beats a no-change
     return baseline and a historical class-prior probability baseline while
     also meeting direction, coverage, and calibration gates.
     """
+    if evaluate_lstm and not TORCH_OK:
+        raise RuntimeError("install the prediction extra to evaluate LSTM")
     folds = []
     min_train = 750
     max_horizon = max(VALIDATION_HORIZONS)
@@ -464,6 +506,9 @@ def validate(returns: list[float], n_folds: int = 30) -> dict:
                 demeaned, max_horizon, n_paths=300, seed=SEED + fold_number
             ),
         }
+        direct_samples = (direct_lstm_samples(
+            train, returns[:cut], n_samples=300, epochs=lstm_epochs
+        ) if evaluate_lstm else None)
         historical_vol = rolling_vol(train)
         recent_vol = historical_vol[-1]
         reference_vol = quantile(historical_vol[-252:], 0.50)
@@ -489,6 +534,9 @@ def validate(returns: list[float], n_folds: int = 30) -> dict:
                 "direction_hit": (prior >= 0.5) == outcome,
                 "in_80pct_interval": False,
             }
+            if direct_samples is not None:
+                fold["models"].setdefault("lstm", {})[str(days)] = _fold_score(
+                    [[value] for value in direct_samples[days]], realized, 1)
             for name, paths in model_paths.items():
                 fold["models"].setdefault(name, {})[str(days)] = _fold_score(
                     paths, realized, days
@@ -509,14 +557,17 @@ def validate(returns: list[float], n_folds: int = 30) -> dict:
         )
         for name in ("no_change", "bootstrap_drift_neutral", "bootstrap")
     }
-    summaries["lstm"] = None
+    summaries["lstm"] = _summarize_validation(
+        evaluation_folds, "lstm", calibration_folds) if evaluate_lstm else None
+    if summaries["lstm"] is not None:
+        summaries["lstm"]["direct_horizon_output"] = True
     for name, summary in summaries.items():
         if summary is not None:
             summary["model_name"] = name
     no_change = summaries["no_change"]
     promotion = {
         name: _promotion_checks(summaries[name], no_change)
-        for name in ("bootstrap",) if summaries[name] is not None
+        for name in ("bootstrap", "lstm") if summaries[name] is not None
     }
     promoted = next(
         (name for name in ("bootstrap",)
@@ -536,7 +587,8 @@ def validate(returns: list[float], n_folds: int = 30) -> dict:
         "verdict": {
             "primary_model": primary,
             "forecast_edge": promoted is not None,
-            "lstm_beats_baseline": False,
+            "lstm_beats_baseline": promotion.get("lstm", {}).get("passed", False),
+            "lstm_role": "diagnostic; separate research evaluation required",
             "kill_criterion": "a drift-bearing model leads only if all 5/10/20-day "
                               "walk-forward gates pass against no-change and "
                               "historical class-prior baselines",
@@ -582,16 +634,8 @@ def forecast(ticker: str, closes: list[dict],
     models["bootstrap_drift_neutral"] = summarize_paths(boot_dn, last_price)
     hist_drift_ann_pct = round((math.exp(m_all * 252) - 1) * 100, 2)
     if TORCH_OK:
-        m, s = train_stats(rets)
-        vm, vs = train_stats(rolling_vol(rets))
-        feats = make_features(rets, m, s, vm, vs)
-        pooled = []
-        for seed in (SEED, SEED + 1, SEED + 2):  # 3-seed ensemble
-            model = train_lstm(feats, seed=seed)
-            pooled.extend(lstm_paths(model, feats[-WINDOW:], m, s, vm, vs,
-                                     HORIZONS["12m"],
-                                     n_paths=N_PATHS // 3, seed=seed))
-        models["lstm"] = summarize_paths(pooled, last_price)
+        models["lstm"] = summarize_direct_samples(
+            direct_lstm_samples(rets, rets), last_price)
 
     for model_name, summary in models.items():
         apply_probability_calibration(summary, model_name, validation)
@@ -622,8 +666,8 @@ def forecast(ticker: str, closes: list[dict],
             "target": "log-return distribution (never price levels)",
             "lstm": ("2-layer LSTM (torch — TF/Keras unavailable on "
                      "py3.14), 2 channels (return + causal 21d vol), "
-                     "Gaussian mu/sigma head, 3-seed ensemble, Monte Carlo "
-                     "rollout" if TORCH_OK else
+                     "direct 5/10/20-session Gaussian heads, 3-seed ensemble, "
+                     "terminal marginal samples" if TORCH_OK else
                      "unavailable (torch not installed)"),
             "baseline": f"block bootstrap of real historical returns "
                         f"(block={BLOCK}d, {N_PATHS} paths)",
@@ -640,7 +684,7 @@ def forecast(ticker: str, closes: list[dict],
             "limitations": "price-history-only model: knows nothing about "
                            "earnings dates, filings, or fundamentals; "
                            "calibration status is reported per horizon and "
-                           "is never a guarantee; recursive LSTM output is "
+                           "is never a guarantee; direct LSTM output remains "
                            "diagnostic-only; not investment advice",
         },
     }
