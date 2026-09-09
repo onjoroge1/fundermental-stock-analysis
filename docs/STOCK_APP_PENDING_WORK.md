@@ -9,7 +9,7 @@ predictive edge.
 | Production release and data recovery | Released; 54/54 prices current, 41 ready / 13 caution / 0 blocked at the last check | Continue existing daily health and refresh jobs. |
 | Historical macro coverage | PR #44 released; 20,344 genuine ALFRED rows; VIX and curve 50/50 evaluation dates, credit 11/50 | Longer credit vintages require an entitled source archive. |
 | Analyst-estimate collection | PR #45 released; live run 34168414523 verified 5 precise AAPL observations; FMP explicitly restricts HIMS under this subscription | Existing daily pipeline accumulates precise vintages. Obtain a genuine historical estimate archive to fill earlier dates. |
-| Historical options | No stored surfaces in last verified inventory | Verify a reachable, entitled IBKR bridge for prospective capture or obtain an entitled historical surface archive. Current chains cannot recreate earlier prices/IV. |
+| Historical options | Connected IBKR access returns valid current AAPL bid/ask, open interest and IV. A bounded weekday capture workflow now exists, but its unattended bridge configuration still needs verification. | Configure the read-only bridge secrets, run the first production capture, and continue prospective collection. Obtain an entitled archive for earlier dates; current chains cannot recreate them. |
 | Historical universe | Current-universe survivorship limitation remains | Acquire dated membership, removed/delisted companies and delisting returns before claiming unbiased market-wide performance. |
 | Accounting and missing fundamentals | PR #46 recovered UBER NCI and seven cover-share counts. This change adds same-filing, identity-corroborated current + noncurrent liability aggregation. Full-universe replay increases tested coverage from 57.17% to 69.79% while retaining 20 older failures | Verify production recovery; resolve the remaining liability coverage, 20 older failures and seven quarterly EPS gaps. See ACCOUNTING_DATA_RECOVERY.md. |
 | Predictive validation | Alpha/P1 pending missing inputs; no P1 challenger passed; Strategy Lab candidates rejected | Freeze a 20- or 63-session benchmark-relative experiment and record prospective forecasts before outcomes; retain simple controls and realistic costs. |
@@ -43,3 +43,24 @@ Related detail: [historical recovery](HISTORICAL_INPUT_RECOVERY.md) and
 ## September 8 EPS and estimate-archive package
 
 Seven quarterly GAAP diluted EPS values have been verified against original SEC earnings exhibits and a repeatable recovery is implemented. Full-period timing remains conservative. KLA mixed-split TTM EPS is withheld pending basis reconciliation. A strict, atomic licensed PIT archive importer is implemented; no historical archive has been acquired or loaded. See [source evidence, access requirements and import contract](EARNINGS_AND_ESTIMATE_RECOVERY.md). Production results are recorded in the release PR and recovery workflow.
+
+## September 9 prospective options package
+
+The connected IBKR account returned valid current AAPL option contracts,
+bid/ask quotes, open interest and implied volatility for two expirations. This
+proves that IBKR is suitable for collecting new observations, but the ChatGPT
+connection is not an unattended data feed and cannot recreate expired option
+surfaces.
+
+`option-surface-capture.yml` runs a bounded ten-name collection after the US
+close through the existing read-only HTTPS bridge. It refuses unauthenticated
+or competing sessions, persists only surfaces with positive observed ATM IV,
+and fails unless at least eight names succeed. Partial collection can no longer
+look like a successful full-universe run. Production activation requires
+`IBKR_BRIDGE_BASE_URL` and `IBKR_BRIDGE_TOKEN` in the GitHub Production
+environment and a running authenticated TWS/IB Gateway bridge.
+
+The existing LSTM remains diagnostic. It is already implemented, but the
+roadmap blocks it from promotion until it predicts the fixed 5/10/20-session
+targets directly and beats simple baselines under the same frozen, causal
+evaluation used for every other challenger.
