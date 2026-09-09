@@ -1,6 +1,9 @@
 name: Prospective Option Surface Capture
 
 on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/option-surface-capture.yml"]
   workflow_dispatch:
   schedule:
     # 17:30 Eastern in summer / 16:30 in winter, after the regular close.

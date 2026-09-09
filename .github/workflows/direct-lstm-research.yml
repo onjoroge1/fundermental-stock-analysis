@@ -1,0 +1,35 @@
+name: Direct LSTM Research
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/direct-lstm-research.yml']
+permissions:
+  contents: read
+concurrency:
+  group: direct-lstm-research
+  cancel-in-progress: false
+jobs:
+  evaluate:
+    environment: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e .
+      - run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Evaluate frozen AAPL pilot
+        run: python scripts/validate_direct_lstm.py --ticker AAPL --as-of 2026-09-08
+      - uses: actions/upload-artifact@v4
+        with:
+          name: direct-lstm-AAPL-${{ github.sha }}
+          path: direct-lstm-validation.json
+          if-no-files-found: error
+          retention-days: 90
