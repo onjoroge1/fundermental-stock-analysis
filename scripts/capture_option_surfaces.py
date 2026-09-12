@@ -16,20 +16,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from stock_machine import db
 from stock_machine.market_data import get_provider
-from stock_machine.options.surface_features import extract_surface
-from stock_machine.options.surface_store import history, save
+from stock_machine.options.capture import capture_ticker, meaningful as _meaningful
 
 MAX_EXPIRIES = int(os.getenv("P1_OPTION_EXPIRIES", "2"))
 MAX_STRIKES = int(os.getenv("P1_OPTION_STRIKES", "18"))
 MIN_SUCCESSES = int(os.getenv("P1_OPTION_MIN_SUCCESSES", "1"))
-
-
-def _spot(q) -> float | None:
-    if q.mark is not None and q.mark > 0:
-        return q.mark
-    if q.bid is not None and q.ask is not None and q.ask >= q.bid:
-        return (q.bid + q.ask) / 2
-    return q.last
 
 
 def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
@@ -53,15 +44,6 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
-def _meaningful(surface: dict) -> bool:
-    """Require a real volatility observation, not only presence flags."""
-    features = surface.get("features") or {}
-    return (
-        surface.get("status") == "OK"
-        and isinstance(features.get("atm_iv"), (int, float))
-        and not isinstance(features.get("atm_iv"), bool)
-        and features["atm_iv"] > 0
-    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -97,45 +79,10 @@ def main(argv: list[str] | None = None) -> int:
 
         for ticker in tickers:
             try:
-                underlying = provider.resolve_underlying(ticker)
-                months = list(underlying.option_months or [])[:MAX_EXPIRIES]
-                if not months:
-                    raise RuntimeError("provider returned no option months")
-                quote = provider.quote_underlying(ticker)
-                spot = _spot(quote)
-                if spot is None or spot <= 0:
-                    raise RuntimeError("underlying quote has no usable spot price")
-
-                chains = []
-                for month in months:
-                    strikes = provider.available_strikes(ticker, month)
-                    ladder = sorted(set(strikes.call_strikes) | set(strikes.put_strikes),
-                                    key=lambda x: abs(x - spot))[:MAX_STRIKES]
-                    ladder = sorted(ladder)
-                    if not ladder:
-                        continue
-                    chains.append(provider.option_chain(ticker, month, ladder))
-                if not chains:
-                    raise RuntimeError("no option chains captured")
-
-                with db.connect() as conn:
-                    prior = history(conn, ticker, before_as_of=max(c.fetched_at for c in chains).isoformat())
-                surface = extract_surface(chains, prior_surfaces=prior)
-                if not _meaningful(surface):
-                    raise RuntimeError(
-                        "captured chain has no usable at-the-money implied volatility"
-                    )
-                with db.connect() as conn:
-                    snapshot_id = save(conn, surface)
+                result = capture_ticker(provider, ticker, MAX_EXPIRIES, MAX_STRIKES)
                 successes += 1
                 captured.append(ticker)
-                print(json.dumps({
-                    "ticker": ticker,
-                    "status": "ok",
-                    "snapshot_id": snapshot_id,
-                    "as_of": surface["as_of"],
-                    "features": surface["features"],
-                }))
+                print(json.dumps(result))
             except Exception as exc:
                 failures += 1
                 print(json.dumps({"ticker": ticker, "status": "error",
