@@ -22,15 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      IBKR_PROVIDER: remote_bridge
-      IBKR_BRIDGE_BASE_URL: ${{ secrets.IBKR_BRIDGE_BASE_URL }}
-      IBKR_BRIDGE_TOKEN: ${{ secrets.IBKR_BRIDGE_TOKEN }}
-      IBKR_BRIDGE_TIMEOUT_S: "30"
-      IBKR_BRIDGE_VERIFY_SSL: "true"
+      STOCK_MACHINE_ADMIN_TOKEN: ${{ secrets.STOCK_MACHINE_ADMIN_TOKEN }}
+      STOCK_MACHINE_API_BASE_URL: ${{ vars.STOCK_MACHINE_API_BASE_URL || 'https://fundermental-stock-analysis.vercel.app' }}
       P1_OPTION_TICKERS: ${{ vars.P1_OPTION_TICKERS || 'AAPL,AMZN,GOOGL,META,MSFT,NVDA,TSLA,UBER,HIMS,SPY' }}
-      P1_OPTION_EXPIRIES: "2"
-      P1_OPTION_STRIKES: "18"
       P1_OPTION_MIN_SUCCESSES: ${{ vars.P1_OPTION_MIN_SUCCESSES || '8' }}
     steps:
       - uses: actions/checkout@v4
@@ -42,7 +36,7 @@ jobs:
       - name: Require production capture configuration
         run: |
           missing=0
-          for name in DATABASE_URL IBKR_BRIDGE_BASE_URL IBKR_BRIDGE_TOKEN; do
+          for name in STOCK_MACHINE_ADMIN_TOKEN; do
             if [ -n "${!name}" ]; then
               echo "$name: present"
             else
@@ -52,17 +46,12 @@ jobs:
           done
           exit "$missing"
 
-      - name: Install application
-        run: python -m pip install --upgrade pip && python -m pip install -e .
+      - name: Install API client
+        run: python -m pip install 'httpx>=0.27,<1'
 
-      - name: Apply migrations
-        run: alembic upgrade head
-
-      - name: Capture observed surfaces
-        run: |
-          python scripts/capture_option_surfaces.py \
-            --require-session \
-            --min-successes "$P1_OPTION_MIN_SUCCESSES" | tee option-capture.jsonl
+      - name: Capture through Vercel API
+        shell: bash
+        run: python scripts/capture_option_surfaces_api.py | tee option-capture.jsonl
 
       - name: Publish capture summary
         if: always()

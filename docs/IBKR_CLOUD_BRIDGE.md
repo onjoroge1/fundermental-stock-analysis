@@ -210,3 +210,31 @@ bounded.
 6. Production remote URLs must use HTTPS with certificate verification.
 7. TWS **Read-Only API** should remain enabled as an independent broker-side
    control.
+
+## API-based scheduled collection
+
+The scheduled GitHub collector calls `POST /api/admin/options/{ticker}/capture`
+sequentially, using `Authorization: Bearer $STOCK_MACHINE_ADMIN_TOKEN`.
+Each request collects at most two months and 18 strikes per month, validates
+positive finite ATM IV, and returns success only after persistence completes.
+The API uses Vercel's selected `IBKR_PROVIDER` and its server-side database and
+IBKR settings. Client Portal and remote bridge are both supported; existing
+local/localhost settings do not make a Mac reachable from Vercel.
+
+GitHub Production now needs only `STOCK_MACHINE_ADMIN_TOKEN` for this workflow,
+matching the existing Vercel admin token. Optional GitHub variables:
+`STOCK_MACHINE_API_BASE_URL` (HTTPS origin), `P1_OPTION_TICKERS`, and
+`P1_OPTION_MIN_SUCCESSES` (default 8 of 10). Other workflows may still need
+DATABASE_URL; do not delete shared secrets used by those jobs.
+
+Vercel retains DATABASE_URL and all IBKR credentials. It has a 300-second
+function duration; the caller waits up to 310 seconds per request. No provider
+credentials or raw provider errors are returned or written to workflow logs.
+No automatic retry is performed after an ambiguous timeout; inspect persisted
+surfaces before rerunning. HTTP 503 indicates configuration, session, data, or
+storage failure, never successful capture. Authentication/deployment errors
+(401/403/404) stop the caller early. A missing admin token fails closed.
+
+Activation: deploy the API before running the workflow. Run the workflow
+manually, inspect the HTTP status and snapshot IDs for each ticker, and require
+the configured minimum count before treating collection as operational.

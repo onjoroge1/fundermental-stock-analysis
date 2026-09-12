@@ -324,3 +324,36 @@ def migrate_database_to_head(
         return migrate_to_head()
     except Exception as exc:
         raise HTTPException(500, f"database migration failed: {type(exc).__name__}: {exc}")
+
+
+@app.post("/api/admin/options/{ticker}/capture")
+def capture_option_surface(
+    ticker: str, authorization: str | None = Header(default=None),
+) -> dict:
+    """Persist one bounded surface; credentials never leave this server."""
+    _require_admin(authorization)
+    from .control_plane import normalize_ticker
+    from .market_data import get_provider
+    from .options.capture import capture_ticker
+    try:
+        ticker = normalize_ticker(ticker)
+    except ValueError:
+        raise HTTPException(400, "invalid ticker") from None
+    provider = None
+    try:
+        provider = get_provider()
+        session = provider.session_status()
+        if not (session.connected and session.authenticated and not session.competing):
+            raise HTTPException(503, "IBKR session is not ready")
+        return capture_ticker(provider, ticker)
+    except HTTPException:
+        raise
+    except Exception:
+        # Provider exceptions can contain URLs/credentials; never echo them.
+        raise HTTPException(503, "option capture unavailable; check server IBKR configuration, session and data coverage") from None
+    finally:
+        if provider is not None:
+            try:
+                provider.close()
+            except Exception:
+                pass
