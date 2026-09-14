@@ -24,11 +24,13 @@ PROJECT = "prj_6QqP0HB8rbV1Hr1xFH0VVx5BD8ed"
 TEAM = "team_eql8ciDAOWzLf2pAe4Gd4WD4"
 PILOT = ("AAPL", "MSFT", "UBER", "HIMS", "VZ")
 INITIAL_KEY = "agent-pilot-initial-001"
-TABLES = ("agent_lab_policies", "agent_lab_evidence", "agent_lab_decisions", "agent_lab_events", "agent_lab_report_outbox")
 RELEASE_FILES = {
     ".github/workflows/agent-lab-release-0019.yml",
     "scripts/release_agent_lab_0019.py",
+    "scripts/agent_lab_migration.py",
+    "migrations/env.py",
     "tests/test_agent_lab_release_runner.py",
+    "tests/test_agent_lab_migration_runner.py",
     "docs/AGENT_LAB_RELEASE_0019.md",
 }
 
@@ -74,7 +76,6 @@ def preflight(gh, sha):
     git("merge-base", "--is-ancestor", BASE, sha)
     changed = set(git("diff", "--name-only", BASE, sha).splitlines())
     require(changed <= RELEASE_FILES, "RUNTIME_CHANGED_SINCE_REVIEWED_PR54")
-    # Wait only for the matching main-branch CI and Git integration build.
     for _ in range(60):
         current_main(gh, sha)
         runs = request(gh, "GET", f"/repos/{REPO}/actions/runs", params={"head_sha": sha, "event": "push", "per_page": 100})["workflow_runs"]
@@ -88,8 +89,6 @@ def preflight(gh, sha):
         time.sleep(10)
     else:
         raise ReleaseError("MATCHING_CI_OR_BUILD_NOT_READY")
-    # Old running/queued workers cannot be migrated underneath. Do not cancel
-    # unrelated jobs. Pagination is bounded and overflow fails closed.
     for state in ("in_progress", "queued", "waiting", "pending", "requested"):
         for page in range(1, 6):
             rows = request(gh, "GET", f"/repos/{REPO}/actions/runs", params={"status": state, "per_page": 100, "page": page})["workflow_runs"]
@@ -105,24 +104,18 @@ def preflight(gh, sha):
 
 
 def migrate():
-    from stock_machine import db
-    require(db.REQUIRED_SCHEMA_VERSION == TARGET, "SCHEMA_DECLARATION_MISMATCH")
-    require(bool(os.getenv("DATABASE_URL")), "DATABASE_URL_NOT_CONFIGURED")
-    with db.connect() as conn:
-        conn.autocommit = True
-        locked = conn.execute("SELECT pg_try_advisory_lock(hashtextextended('agent-lab-release-0019',0))").fetchone()[0]
-        require(locked, "ANOTHER_RELEASE_HOLDS_DATABASE_LOCK")
-        versions = {r[0] for r in conn.execute("SELECT version_num FROM alembic_version").fetchall()}
-        require(versions in ({"0018_consensus_archives"}, {TARGET}), "UNEXPECTED_DATABASE_REVISION")
-        if versions != {TARGET}:
-            applied = subprocess.run(["alembic", "upgrade", TARGET], capture_output=True, text=True, timeout=180)
-            require(applied.returncode == 0, "MIGRATION_FAILED_RECONCILE_BEFORE_RETRY")
-        db.init_schema(conn)
-        for table in TABLES:
-            require(conn.execute("SELECT to_regclass(%s)", (table,)).fetchone()[0] is not None, "JOURNAL_TABLE_MISSING")
-            triggers = conn.execute("SELECT count(*) FROM pg_trigger WHERE tgrelid=%s::regclass AND NOT tgisinternal AND tgenabled='O'", (table,)).fetchone()[0]
-            require(triggers == 2, "AUDIT_PROTECTION_MISSING")
-        return {"before": sorted(versions), "after": TARGET, "verified_tables": list(TABLES), "audit_triggers": 10}
+    from scripts.agent_lab_migration import migrate as apply, error_code
+    invariant_codes = {
+        "SCHEMA_DECLARATION_MISMATCH", "DATABASE_URL_NOT_CONFIGURED",
+        "MIGRATION_REQUIRES_TRANSACTION", "ANOTHER_RELEASE_HOLDS_DATABASE_LOCK",
+        "UNEXPECTED_DATABASE_REVISION", "SCHEMA_VERIFICATION_FAILED",
+        "JOURNAL_AUDIT_PROTECTION_MISSING",
+    }
+    try:
+        return apply()
+    except Exception as exc:
+        code = str(exc) if type(exc) is RuntimeError and str(exc) in invariant_codes else error_code(exc)
+        raise ReleaseError(code) from None
 
 
 def verify_state(data):
@@ -150,8 +143,6 @@ def enable_capture(app, gh, sha, report):
         created = request(vc, "POST", f"/v10/projects/{PROJECT}/env", params={"teamId": TEAM, "upsert": "true"}, json={"key": "AGENT_LAB_ENABLED", "value": "true", "type": "plain", "target": ["production"]})
         require(not created.get("failed"), "VERCEL_ENV_UPDATE_FAILED")
         report["enablement"] = "PRODUCTION_FLAG_SET_REDEPLOY_PENDING"
-        # A new git deployment consumes the current project environment. Do not
-        # inherit the old deployment's disabled environment via deploymentId.
         deployed = request(vc, "POST", "/v13/deployments", params={"teamId": TEAM, "forceNew": "1"}, json={"name": "fundermental-stock-analysis", "project": PROJECT, "target": "production", "gitSource": {"type": "github", "repoId": "1327796320", "ref": "main", "sha": sha}})
         deployment_id = deployed.get("id", "")
         require(deployment_id.startswith("dpl_"), "DEPLOYMENT_NOT_CONFIRMED")
@@ -255,7 +246,6 @@ def main():
         report["status"] = "BLOCKED"
         report["error_code"] = str(exc)
     except Exception as exc:
-        # Error class only. HTTP/provider/DB exceptions can contain secrets.
         report["status"] = "BLOCKED"
         report["error_code"] = "UNEXPECTED_" + type(exc).__name__
     Path("agent-lab-release-report.json").write_text(json.dumps(report, indent=2) + "\n")

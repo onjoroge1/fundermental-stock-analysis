@@ -41,6 +41,14 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    # An operational caller may own one transaction for its advisory lock,
+    # SET LOCAL timeouts, migration and verification. Ordinary CLI unchanged.
+    provided = config.attributes.get("connection")
+    if provided is not None:
+        context.configure(connection=provided, target_metadata=None)
+        with context.begin_transaction():
+            context.run_migrations()
+        return
     url = config.get_main_option("sqlalchemy.url")
     if not url or url == "postgresql+psycopg://":
         raise RuntimeError("DATABASE_URL is required for database migrations")
