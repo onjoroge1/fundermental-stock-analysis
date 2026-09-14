@@ -11,6 +11,7 @@ on:
 permissions:
   contents: read
   actions: read
+  statuses: read
 
 # Serialize with daily refresh and SEC recovery, rather than racing their writes.
 concurrency:
