@@ -1,0 +1,50 @@
+name: Agent Lab Release 0019
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/agent-lab-release-0019.yml
+      - scripts/release_agent_lab_0019.py
+
+permissions:
+  contents: read
+  actions: read
+
+# Serialize with daily refresh and SEC recovery, rather than racing their writes.
+concurrency:
+  group: daily-data-forecast-refresh
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    environment: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      STOCK_MACHINE_ADMIN_TOKEN: ${{ secrets.STOCK_MACHINE_ADMIN_TOKEN }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      PGOPTIONS: -c lock_timeout=10000 -c statement_timeout=120000
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install the matching application
+        run: python -m pip install -e .
+      - name: Release migration, enable research and verify five captures
+        run: python scripts/release_agent_lab_0019.py
+      - name: Save credential-free release verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-lab-release-0019-${{ github.run_id }}
+          path: agent-lab-release-report.json
+          if-no-files-found: warn
