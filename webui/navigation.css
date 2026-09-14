@@ -1,0 +1,14 @@
+/* Keep the Agent Lab entry independent of coverage loading and sidebar redraws. */
+#nav-tools { padding: 10px 8px 0; flex-shrink: 0; }
+#nav-tools a { color: var(--text-2); text-decoration: none; min-height: 44px; }
+#nav-tools a:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+#nav-tools .score-pill { margin-left: 8px; }
+#main { min-width: 0; }
+
+/* A native menu entry must remain reachable on narrow screens as well. */
+@media (max-width: 760px) {
+  #app { flex-direction: column; }
+  #sidebar { position: static; width: 100%; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  #nav-companies { flex: none; max-height: 32vh; overflow-y: auto; }
+  #main { width: 100%; padding: 20px 16px 40px; }
+}
