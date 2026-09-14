@@ -15,7 +15,7 @@ from psycopg.types.json import Jsonb
 
 from .config import DATABASE_URL
 
-REQUIRED_SCHEMA_VERSION = "0018_consensus_archives"
+REQUIRED_SCHEMA_VERSION = "0019_agent_lab"
 
 
 def connect() -> psycopg.Connection:

@@ -7,11 +7,13 @@ from .automation_api import router as automation_router
 from .config import PROJECT_ROOT
 from .options.recommendation_api import router as option_recommendation_router
 from .trade_dashboard_api import router as trade_dashboard_router
+from .agents.api import router as agent_lab_router
 from .webapp_ops import app
 
 app.include_router(automation_router)
 app.include_router(option_recommendation_router)
 app.include_router(trade_dashboard_router)
+app.include_router(agent_lab_router)
 
 
 @app.get("/trades")
