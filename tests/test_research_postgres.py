@@ -99,6 +99,10 @@ def test_full_bundle_reader_is_read_only_with_all_real_dependencies(pg):
     bundle, report, forecast = read_inputs("VZ")
     assert bundle["company"]["ticker"] == "VZ"
     assert bundle["market_snapshot"]["net_debt"] == 163479000000
+    assert bundle["peer_group"]["available"] is False
+    assert bundle["peer_group"]["comparison"] == []
+    assert bundle["price_implied_expectations"]["status"] == "WITHHELD"
+    assert bundle["base_rates"]["status"] == "WITHHELD"
     assert report is None and forecast is None
 
 

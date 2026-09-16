@@ -151,6 +151,26 @@ def safe_analysis(report, contract):
             "withheld_reasons": contract["guidance_reasons"]}
 
 
+def forecast_projection(bundle, report, prediction):
+    """Public model reads retain provenance, withhold unqualified estimates."""
+    from .prediction import MODEL_VERSION
+    contract = evaluate(bundle, report, prediction)
+    stored = prediction or {}
+    result = {k: stored[k] for k in ("ticker", "as_of", "generated_at", "forecast_id", "model_version", "primary_model") if k in stored}
+    result.update(ticker=(bundle.get("company") or {}).get("ticker"),
+                  research_contract=contract, latest_price_date=contract["price_date"],
+                  reason="Forecast estimates are withheld until source evidence and model validation qualify them.")
+    if not prediction:
+        return {**result, "status": "PENDING", "reason": "No saved forecast is available."}
+    if (stored.get("as_of") != contract["expected_price_date"]
+            or stored.get("as_of") != contract["price_date"]
+            or stored.get("model_version") != MODEL_VERSION):
+        return {**result, "status": "STALE", "reason": "Saved forecast does not match the current completed session and model version."}
+    if not contract["guidance_eligible"]:
+        return {**result, "status": "WITHHELD"}
+    return {**stored, "research_contract": contract}
+
+
 def guard_coverage_row(row: dict, *, now=None) -> dict:
     """Re-evaluate time on every cached read; a cache cannot renew a report."""
     row = dict(row)
@@ -166,6 +186,8 @@ def guard_coverage_row(row: dict, *, now=None) -> dict:
         contract["guidance_reasons"] = sorted(set(contract.get("guidance_reasons", []) + ["CACHED_CONTRACT_EXPIRED_OR_MISSING"]))
     if not contract.get("guidance_eligible"):
         row["report_12m"] = None
+        row["signal_count"] = 0
+        row["signals"] = {k: False for k in row.get("signals", {})}
     if (contract.get("financial_integrity") or {}).get("status") != "VERIFIED":
         row["composite_score"] = None
         row["ev_to_revenue_ttm"] = None

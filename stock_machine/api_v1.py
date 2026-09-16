@@ -298,8 +298,8 @@ def stock_research(
             "forecast_id": (prediction or {}).get("forecast_id"),
             "actual_primary_model": (prediction or {}).get("primary_model"),
             "model_version": (prediction or {}).get("model_version", MODEL_VERSION),
-            "three_month": pred3,
-            "twelve_month": pred12,
+            "three_month": pred3 if contract["guidance_eligible"] else None,
+            "twelve_month": pred12 if contract["guidance_eligible"] else None,
         },
         "catalysts": bundle.get("catalyst_calendar") or {},
         "decision_context": {

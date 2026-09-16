@@ -89,8 +89,14 @@ def alpha_shadow_status() -> dict:
 
 @app.get("/api/p1/{ticker}")
 def p1_decision_intelligence(ticker: str) -> dict:
-    from .p1 import decision_summary
-    return decision_summary(ticker)
+    from .research_contract import read_inputs, forecast_projection
+    view = forecast_projection(*read_inputs(ticker.upper()))
+    # P1 challenger models have no independent source-bound qualification.
+    # A generic forecast or a model's own promotion flag cannot certify them.
+    metadata = {k: view[k] for k in ("ticker", "as_of", "generated_at", "forecast_id", "model_version", "research_contract") if k in view}
+    return {**metadata, "status": "WITHHELD", "reason":
+            "Prediction Lab estimates are withheld until its models have independently verified source and validation records.",
+            "output_withheld_reasons": ["P1_MODEL_QUALIFICATION_NOT_PERSISTED"]}
 
 
 @app.get("/api/events/{ticker}")

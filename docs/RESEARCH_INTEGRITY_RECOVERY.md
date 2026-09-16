@@ -110,3 +110,15 @@ The release then blocked on `ADMIN_TOKEN_NOT_CONFIGURED_PRODUCTION_INTEGRATION_U
 The first deployment introduced a read-only transaction failure because legacy monitoring reads executed DDL. Production returned HTTP 500. The correction moved table ownership to migration 0021, added a real PostgreSQL full-bundle regression, passed CI and restored HTTP 200. A further coverage fix makes UI and API read the durable PostgreSQL index, preserves pending names explicitly, and prevents public requests from rebuilding the universe. Worker publication aborts if any name fails.
 
 [Credential-free production evidence summary](evidence/production-release-2026-09-16.json). The original full release artifact remains attached to the workflow run.
+
+## Final verification and remaining release boundary
+
+The separate [latest filing reconciliation](LATEST_FILING_BALANCE_RECONCILIATION.md) now checks all 54 actual filing balance sheets: 53 exact identities and McDonald's $2 million residual within its $4.5 million declared rounding bound. This does not change the 3/54 production debt-and-cash qualification count. Recheck every cited inline fact, context, entity, unit, precision and arithmetic with `python -m scripts.verify_filing_balance_evidence --source-dir ORIGINAL_SEC_HTML_DIR` (audit environment requires `lxml`); omit the directory to retrieve the pinned SEC filings and verify their hashes.
+
+Production [release 35139576936](https://github.com/onjoroge1/fundermental-stock-analysis/actions/runs/35139576936) on `81f3faf14e7724aef7b608d63676b9bd3921283f` republished the complete index through the durable read path and again stopped at the missing admin credential. This is the blocking action, not an approval request. Journal capture remains disabled and its decision count is zero.
+
+Live HTTP and MCP calls verified matching VZ snapshot IDs in the report, bundle, versioned research API and coverage index. The browser loaded all 54 coverage names. [Recorded live checks](evidence/live-contract-verification-2026-09-16.json).
+
+A final route review found alternate forecast surfaces outside the initial guard: legacy `/api/predict`, Prediction Lab `/api/p1`, forecast-based option generation and expected-value scans. They now apply the dated contract and withhold estimates before any provider call. The versioned stock packet also omits unqualified model horizon numbers. Mechanical payoff calculations and historical source observations are separate from predictive guidance. P1 has no independently persisted model qualification, so its estimates remain withheld. Coverage labels now distinguish withheld guidance from an absent report.
+
+The browser also exposed contradictory stale peer metrics: VZ current EV/revenue was 2.7 while the peer snapshot showed 1.7, and ROIC was 8.1% versus 17.5%. Peer comparisons and historical setup estimates now remain withheld until their financial inputs carry verified source identities. Reverse-DCF estimates based on unqualified cash-flow proxies or valuation assumptions are withheld as well.

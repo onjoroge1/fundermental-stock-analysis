@@ -1,0 +1,57 @@
+{
+  "/api/report/VZ": {
+    "http": 200,
+    "version": "research-contract.v1",
+    "snapshot_id": "research_6b7896c0a982c0389effa02ca57cbd2248966b8e401813ff878b9fd4374fbb71",
+    "report_as_of": "2026-09-16T19:05:06.550641+00:00",
+    "price_date": "2026-09-15",
+    "guidance_eligible": false
+  },
+  "/api/v1/stocks/VZ/research": {
+    "http": 200,
+    "version": "research-contract.v1",
+    "snapshot_id": "research_6b7896c0a982c0389effa02ca57cbd2248966b8e401813ff878b9fd4374fbb71",
+    "report_as_of": "2026-09-16T19:05:06.550641+00:00",
+    "price_date": "2026-09-15",
+    "guidance_eligible": false
+  },
+  "/api/agent-lab": {
+    "http": 200,
+    "capture_enabled": false,
+    "counts": {
+      "total": 0,
+      "recorded": 0,
+      "blocked": 0,
+      "failed": 0
+    },
+    "execution": {
+      "status": "NOT_ENABLED",
+      "fills": null,
+      "pnl": null,
+      "reward": null
+    }
+  },
+  "/api/bundle/VZ": {
+    "http": 200,
+    "version": "research-contract.v1",
+    "snapshot_id": "research_6b7896c0a982c0389effa02ca57cbd2248966b8e401813ff878b9fd4374fbb71",
+    "report_as_of": "2026-09-16T19:05:06.550641+00:00",
+    "price_date": "2026-09-15",
+    "guidance_eligible": false
+  },
+  "MCP:get_stock_research": {
+    "http": 200,
+    "isError": false,
+    "version": "research-contract.v1",
+    "snapshot_id": "research_6b7896c0a982c0389effa02ca57cbd2248966b8e401813ff878b9fd4374fbb71",
+    "guidance_eligible": false
+  },
+  "coverage": {
+    "http": 200,
+    "count": 54,
+    "ready": 54,
+    "guidance_eligible": 0,
+    "VZ_snapshot_id": "research_6b7896c0a982c0389effa02ca57cbd2248966b8e401813ff878b9fd4374fbb71"
+  },
+  "verified_at": "2026-09-16T19:21:07.147242+00:00"
+}

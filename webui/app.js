@@ -557,7 +557,7 @@ function signalChips(c) {
 
 function rangeCell(c) {
   const r = c.report_12m;
-  if (!r || r.fair_value_low == null) return '<span class="mini">no report</span>';
+  if (!r || r.fair_value_low == null) return `<span class="mini" title="Saved research: ${esc(c.research_contract?.report_as_of || 'unavailable')}">guidance withheld</span>`;
   return `$${r.fair_value_low}–$${r.fair_value_high}`;
 }
 
