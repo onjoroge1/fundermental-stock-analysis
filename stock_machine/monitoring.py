@@ -224,7 +224,6 @@ def record_breaches(conn, ticker: str, report_id: str,
 
 def active_breaches(conn, ticker: str) -> list[dict]:
     with conn.cursor() as cur:
-        cur.execute(SCHEMA)
         cur.execute(
             """SELECT rule_id, report_id, observed, threshold, op,
                       description, triggered_at::text
