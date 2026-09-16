@@ -15,7 +15,7 @@ from psycopg.types.json import Jsonb
 
 from .config import DATABASE_URL
 
-REQUIRED_SCHEMA_VERSION = "0019_agent_lab"
+REQUIRED_SCHEMA_VERSION = "0020_research_integrity"
 
 
 def connect() -> psycopg.Connection:
@@ -373,6 +373,16 @@ def fetch_events(conn: psycopg.Connection, ticker: str) -> list[dict]:
         return [row[0] for row in cur.fetchall()]
 
 
+def latest_financial_filing(conn, ticker: str, as_of: str) -> dict | None:
+    with conn.cursor() as cur:
+        cur.execute("""SELECT accession_number,form,filed_at::text,report_date::text,primary_document
+            FROM filings WHERE ticker=%s AND form IN ('10-Q','10-K','10-Q/A','10-K/A')
+            AND filed_at < %s::date AND report_date <= %s::date
+            ORDER BY report_date DESC,filed_at DESC LIMIT 1""", (ticker, as_of[:10], as_of[:10]))
+        row = cur.fetchone()
+    return dict(zip(("accession_number", "form", "filed_at", "report_date", "primary_document"), row)) if row else None
+
+
 def list_companies(conn: psycopg.Connection) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute("SELECT ticker, cik, legal_name, sector FROM companies "
@@ -408,16 +418,30 @@ def latest_report(conn: psycopg.Connection, ticker: str) -> dict | None:
 
 
 def save_report(conn: psycopg.Connection, report_id: str, ticker: str,
-                as_of: str, report: dict) -> None:
+                as_of: str, report: dict, *, source_bundle: dict | None = None,
+                commit: bool = True) -> None:
+    from .report_schema import validate_analysis_report
+    if source_bundle is None and report.get("claims"):
+        from .bundle import build_bundle
+        source_bundle = build_bundle(ticker)
+    validate_analysis_report(report, expected_ticker=ticker, expected_as_of=as_of, source_bundle=source_bundle)
+    if source_bundle is not None:
+        from .claim_evidence import audit_claims
+        report["claim_validation"] = audit_claims(report, source_bundle)
     with conn.cursor() as cur:
         cur.execute(
             """INSERT INTO analysis_reports (report_id, ticker, as_of, report)
                VALUES (%s, %s, %s, %s)
-               ON CONFLICT (report_id) DO UPDATE SET report = EXCLUDED.report,
-                   saved_at = now()""",
+               ON CONFLICT (report_id) DO NOTHING""",
             (report_id, ticker, as_of, Jsonb(report)),
         )
-    conn.commit()
+        if cur.rowcount == 0:
+            cur.execute("SELECT ticker,as_of::text,report FROM analysis_reports WHERE report_id=%s", (report_id,))
+            prior = cur.fetchone()
+            if not prior or prior[0] != ticker or prior[2] != report:
+                raise ValueError("Report identity already exists with different immutable content")
+    if commit:
+        conn.commit()
 
 
 def save_prediction_forecast(conn: psycopg.Connection, payload: dict) -> str:

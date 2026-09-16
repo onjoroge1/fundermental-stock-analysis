@@ -33,6 +33,7 @@ def validate_analysis_report(
     *,
     expected_ticker: str | None = None,
     expected_as_of: str | None = None,
+    source_bundle: dict | None = None,
 ) -> None:
     """Validate schema plus request/report identity consistency."""
     errors = sorted(_validator().iter_errors(report), key=lambda e: list(e.path))
@@ -57,3 +58,11 @@ def validate_analysis_report(
             f"report as_of {report['as_of']!r} does not match request "
             f"as_of {expected_as_of!r}"
         )
+    factual = [c for c in report.get("claims", []) if c.get("classification") in ("FACT", "INFERENCE")]
+    if factual:
+        from .claim_evidence import audit_claims
+        if source_bundle is None:
+            raise AnalysisReportValidationError("actual source bundle required for factual claims")
+        result = audit_claims(report, source_bundle)
+        if result["status"] != "VERIFIED":
+            raise AnalysisReportValidationError("claim source/value/prose not verified: " + json.dumps(result["claims"]))

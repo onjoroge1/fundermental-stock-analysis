@@ -73,7 +73,12 @@ FIELD_MAP: dict[str, dict] = {
         "OtherShortTermBorrowings"]},
     "commercial_paper": {"kind": "instant", "tags": ["CommercialPaper"]},
     "long_term_debt": {"kind": "instant", "tags": [
-        "LongTermDebtNoncurrent", "LongTermDebt"]},
+        "LongTermDebtNoncurrent", "LongTermDebtAndCapitalLeaseObligations"]},
+    # LongTermDebt includes current maturities: it is NOT a noncurrent tag.
+    # Complete subtotals never add CommercialPaper again (it can be included).
+    "reported_total_debt": {"kind": "instant", "tags": ["DebtAndCapitalLeaseObligations"]},
+    "debt_current_total": {"kind": "instant", "tags": ["DebtCurrent"]},
+    "debt_noncurrent_total": {"kind": "instant", "tags": ["LongTermDebtAndCapitalLeaseObligations"]},
     "total_liabilities": {"kind": "instant", "tags": ["Liabilities"]},
     "shareholders_equity": {"kind": "instant", "tags": [
         "StockholdersEquity",

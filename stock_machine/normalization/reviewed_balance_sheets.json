@@ -1,0 +1,19 @@
+[
+  {
+    "ticker": "VZ",
+    "cik": "0000732712",
+    "period_end": "2026-06-30",
+    "accession_number": "0000732712-26-000046",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "ISSUER:VZ:2026Q2:DEBT",
+    "source_url": "https://www.verizon.com/about/sites/default/files/2026-07/vz_2q2026_non-gaap_072426.pdf",
+    "page": 5,
+    "reviewed_on": "2026-09-16",
+    "units": "USD",
+    "source_table_units": "USD millions",
+    "components": {"short_term_debt": 21783000000, "long_term_debt": 143448000000},
+    "total_debt": 165231000000,
+    "cash_and_equivalents": 1752000000,
+    "note": "Issuer disclosed total reconciles with same-accession SEC current debt and noncurrent debt/lease facts. This is disclosed total debt, not adjusted net unsecured debt. Applies only to this period and accession."
+  }
+]

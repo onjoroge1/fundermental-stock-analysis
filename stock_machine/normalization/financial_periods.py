@@ -365,6 +365,35 @@ def build_periods(companyfacts: dict) -> tuple[list[dict], list[dict], list[dict
 
     from .earnings_releases import supplement_quarters
     supplement_quarters(companyfacts.get('cik'), quarterly, events)
+    # Preserve tag semantics and source identity through the existing JSONB
+    # field store. Add after Q4 derivation so metadata is never treated as a
+    # financial input or an additive fact.
+    import hashlib
+    import json
+    from pathlib import Path
+    source_hash = hashlib.sha256(json.dumps(companyfacts, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    cik = str(companyfacts.get("cik", "")).zfill(10)
+    reviewed = json.loads(Path(__file__).with_name("reviewed_balance_sheets.json").read_text())
+    for p in quarterly + annual:
+        provenance = {}
+        for f in facts:
+            if (f["end"] == p["period_end"] and f["accn"] == p["field_sources"].get(f["field"])
+                    and p["fields"].get(f["field"]) == f["value"]
+                    and f["duration_type"] in (p["duration_type"], "instant")):
+                provenance[f["field"]] = {
+                    "tag": f["tag"], "accession_number": f["accn"], "filed_at": f["filed"],
+                    "period_end": f["end"], "period_start": f["start"],
+                    "source_id": "SEC:ACCESSION:" + str(f["accn"]),
+                    "source_url": f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
+                    "source_content_sha256": source_hash,
+                    "unit": units_for(f["field"])[0], "value": f["value"],
+                }
+        p["fields"]["_financial_provenance"] = provenance
+        for evidence in reviewed:
+            if (evidence["cik"] == cik and evidence["period_end"] == p["period_end"]
+                    and all(p["fields"].get(k) == v and p["field_sources"].get(k) == evidence["accession_number"]
+                            for k, v in evidence["components"].items())):
+                p["fields"]["_reviewed_debt"] = evidence
     return quarterly, annual, events
 
 

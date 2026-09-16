@@ -6,7 +6,7 @@ from __future__ import annotations
 
 FLOW_SUM_FIELDS = [
     "revenue", "cost_of_revenue", "gross_profit", "research_and_development",
-    "selling_general_and_administrative", "operating_income", "pretax_income",
+    "selling_general_and_administrative", "operating_income", "interest_expense", "pretax_income",
     "income_tax", "net_income", "operating_cash_flow", "capital_expenditures",
     "free_cash_flow", "share_repurchases", "dividends_paid",
     "stock_based_compensation", "acquisitions", "basic_eps", "diluted_eps",
@@ -102,6 +102,7 @@ def build_ttm(quarters: list[dict]) -> dict | None:
         "period_end": latest["period_end"],
         "period_start": last4[0].get("period_start"),
         "duration_type": "ttm", "fields": fields,
+        "field_sources": latest.get("field_sources", {}),
         "available_at": max(q.get("available_at") or "" for q in last4) or None,
         "source_periods": [q["period_end"] for q in last4],
         "eps_basis_status": 'MIXED_SPLIT_BASIS_WITHHELD' if mixed_eps_basis else 'NO_KNOWN_RELEASE_BASIS_CONFLICT',
@@ -109,21 +110,13 @@ def build_ttm(quarters: list[dict]) -> dict | None:
 
 
 def total_debt(period: dict) -> float | None:
-    parts = [_f(period, "short_term_debt"), _f(period, "commercial_paper"),
-             _f(period, "long_term_debt")]
-    present = [p for p in parts if p is not None]
-    return sum(present) if present else None
+    from ..financial_integrity import debt_evidence
+    return debt_evidence(period)["total_debt"]
 
 
 def net_debt(period: dict) -> float | None:
-    debt = total_debt(period)
-    cash_parts = [_f(period, "cash_and_equivalents"),
-                  _f(period, "marketable_securities_current")]
-    cash = sum(p for p in cash_parts if p is not None) if any(
-        p is not None for p in cash_parts) else None
-    if debt is None and cash is None:
-        return None
-    return (debt or 0) - (cash or 0)
+    from ..financial_integrity import debt_evidence
+    return debt_evidence(period)["net_debt"]
 
 
 def growth_metrics(quarters: list[dict], annuals: list[dict]) -> dict:
@@ -220,8 +213,8 @@ def financial_health_metrics(latest_q: dict | None, ttm: dict | None) -> dict:
     cl = _f(latest_q, "current_liabilities")
     inv = _f(latest_q, "inventory")
     quick = None
-    if ca is not None and cl not in (None, 0):
-        quick = _r((ca - (inv or 0)) / cl)
+    if ca is not None and inv is not None and cl not in (None, 0):
+        quick = _r((ca - inv) / cl)
     oi = _f(ttm, "operating_income")
     ie = _f(ttm, "interest_expense")
     ebitda_proxy = oi  # D&A not mapped yet; documented as operating-income proxy
@@ -247,8 +240,8 @@ def capital_allocation_metrics(ttm: dict | None, quarters: list[dict],
                                 if _div(buyback, market_cap) is not None else None),
         "dividend_yield_pct": _r((_div(divs, market_cap) or 0) * 100
                                  if _div(divs, market_cap) is not None else None),
-        "net_shareholder_yield_pct": _r(((buyback or 0) + (divs or 0)) / market_cap * 100
-                                        if market_cap and (buyback is not None or divs is not None) else None),
+        "net_shareholder_yield_pct": _r((buyback + divs) / market_cap * 100
+                                        if market_cap and buyback is not None and divs is not None else None),
         "diluted_share_change_yoy_pct": _pct(
             _f(q, "weighted_average_diluted_shares"),
             _f(q_yoy, "weighted_average_diluted_shares")),

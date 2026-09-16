@@ -13,7 +13,9 @@ def _quarter(end="2026-06-30"):
             "revenue": 100, "net_income": 10, "diluted_eps": 1,
             "operating_cash_flow": 12, "total_assets": 500,
             "shareholders_equity": 200,
+            "total_liabilities": 300, "reported_total_debt": 100, "cash_and_equivalents": 30,
         },
+        "field_sources": {k: "test-accession" for k in ("total_assets", "shareholders_equity", "total_liabilities", "reported_total_debt", "cash_and_equivalents")},
     }
 
 
@@ -51,7 +53,8 @@ def test_optional_vendor_data_is_pending_not_a_blocker():
     snapshots["prices"]["max_record_date"] = "2026-08-20"
     readiness = readiness_for_snapshots(snapshots, as_of=date(2026, 8, 21))
     assert readiness["status"] == "READY"
-    assert readiness["trade_eligible"] is True
+    assert readiness["research_data_eligible"] is True
+    assert readiness["trade_eligible"] is False  # data quality alone cannot qualify guidance
 
 
 def test_stale_required_manifest_blocks_trade_research():

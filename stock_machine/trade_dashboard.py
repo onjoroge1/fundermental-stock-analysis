@@ -88,22 +88,26 @@ def _position_rows(conn, proposal: dict | None, expressions: list[dict],
         thesis = report.get("investment_thesis") or {}
         conclusion = report.get("conclusion") or {}
         indexed = research.get(ticker) or {}
+        contract = indexed.get("research_contract") or {}
+        qualified = contract.get("guidance_eligible") is True
         expression = expression_by_ticker.get(ticker)
         rows.append({
             "ticker": ticker,
             "sector": position.get("sector") or indexed.get("sector"),
             "weight": position.get("weight"),
             "direction": "LONG" if float(position.get("weight") or 0) > 0 else "SHORT",
-            "expected_excess_return_pct": position.get("expected_excess_return_pct"),
-            "prob_outperform": position.get("prob_outperform"),
+            "research_contract": contract,
+            "status": "CURRENT_GUIDANCE" if qualified else "ARCHIVED_PROPOSAL_GUIDANCE_WITHHELD",
+            "expected_excess_return_pct": position.get("expected_excess_return_pct") if qualified else None,
+            "prob_outperform": position.get("prob_outperform") if qualified else None,
             "realized_vol": position.get("realized_vol"),
             "beta": position.get("beta"),
             "stock_expected_return_12m_pct": (indexed.get("report_12m") or {}).get("expected_return_pct"),
             "data_quality_status": indexed.get("data_quality_status"),
-            "classification": conclusion.get("classification") or (indexed.get("report_12m") or {}).get("classification"),
+            "classification": conclusion.get("classification") if qualified else "INSUFFICIENT_DATA",
             "thesis_summary": thesis.get("summary"),
             "invalidation_conditions": thesis.get("invalidation_conditions") or [],
-            "trade_expression": None if expression is None else expression.get("result"),
+            "trade_expression": expression.get("result") if qualified and expression else None,
             "option_recommendation_url": f"/api/v1/options/{ticker}/recommendation?direction={'bullish' if float(position.get('weight') or 0) > 0 else 'bearish'}&horizon=12m",
             "research_url": f"/api/v1/stocks/{ticker}/research",
         })

@@ -17,6 +17,8 @@ NOW = datetime(2024, 1, 6, 12, tzinfo=timezone.utc)
 def packet():
     version = {"status": "PASS", "content_hash": "a" * 64, "observed_at": "2024-01-06T10:00:00+00:00"}
     return {"ticker": "AAPL", "generated_at": "2024-01-06T11:00:00+00:00",
+            "research_contract": {"schema_version": "research-contract.v1", "snapshot_id": "research_test",
+                "research_observation_eligible": True, "report_expires_at": "2024-01-07T12:00:00Z"},
             "data_quality": {"status": "PASS", "dataset_versions": {key: dict(version) for key in ("fundamentals", "prices", "filings")}},
             "market_snapshot": {"price": 100.0, "price_date": "2024-01-05"},
             "analysis": {"report_available": True, "investment_thesis": {"summary": "Test fixture, not investment research.", "invalidation_conditions": ["Test condition"]}, "adversarial_review": {"argument": "Test counterargument"}},
@@ -51,6 +53,8 @@ def test_snapshot_is_attributed_watch_not_order_or_calibrated_forecast():
 
 
 @pytest.mark.parametrize("path,value,blocker", [
+    (("research_contract",), {}, "DATED_RESEARCH_CONTRACT_MISSING"),
+    (("research_contract", "report_expires_at"), "2024-01-05T00:00:00Z", "REPORT_EXPIRED_AT_CAPTURE"),
     (("ticker",), "MSFT", "PACKET_IDENTITY_MISMATCH"),
     (("generated_at",), "2030-01-01T00:00:00Z", "INVALID_OR_FUTURE_PACKET_TIMESTAMP"),
     (("generated_at",), "2024-01-01", "INVALID_OR_FUTURE_PACKET_TIMESTAMP"),

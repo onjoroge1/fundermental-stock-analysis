@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,12 @@ def save_raw(
     identical) version."""
     body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     content_hash = _sha256(body)
+    if os.getenv("RESEARCH_ARCHIVE_RAW", "").lower() == "true":
+        # Durable, content-addressed payloads survive ephemeral job files.
+        # Archive only the response, never request parameters or API keys.
+        from . import db, research_store
+        with db.connect() as conn:
+            research_store.save(conn, "RAW_SOURCE", content_hash.split(":")[1], payload)
     target_dir = RAW_DIR / provider
     for part in path_parts:
         target_dir = target_dir / part

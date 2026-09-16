@@ -1,0 +1,47 @@
+name: Research Integrity Release 0020
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/research-integrity-release-0020.yml
+      - scripts/release_research_integrity_0020.py
+
+permissions:
+  contents: read
+  actions: read
+  statuses: read
+
+concurrency:
+  group: daily-data-forecast-refresh
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    environment: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      STOCK_MACHINE_ADMIN_TOKEN: ${{ secrets.STOCK_MACHINE_ADMIN_TOKEN }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      RESEARCH_ARCHIVE_RAW: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -e .
+      - name: Verify, migrate, reconcile, index and exercise research
+        run: python -m scripts.release_research_integrity_0020
+      - name: Preserve credential-free release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-integrity-release-${{ github.run_id }}
+          path: research-integrity-release-report.json
+          retention-days: 90

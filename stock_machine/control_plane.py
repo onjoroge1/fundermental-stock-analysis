@@ -25,6 +25,9 @@ JOB_TYPES = {
     "strategy_lab_v2",
     "forward_paper_sync",
     "forward_paper_mark",
+    "research_index_refresh",
+    "research_cycle",
+    "research_experiment",
 }
 TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,14}$")
 LEASE_MINUTES = 15
@@ -281,12 +284,13 @@ def _events_one(ticker: str) -> dict:
     }
 
 
-def build_index_row(ticker: str) -> dict:
-    from .bundle import build_bundle
-    bundle = build_bundle(ticker)
-    with db.connect() as conn:
-        report = db.latest_report(conn, ticker) or {}
-        prediction = db.latest_prediction_forecast(conn, ticker) or {}
+def build_index_row(ticker: str, *, bundle=None, report=None, prediction=None) -> dict:
+    if bundle is None:
+        from .research_contract import read_inputs
+        bundle, report, prediction = read_inputs(ticker)
+    report, prediction = report or {}, prediction or {}
+    from .research_contract import evaluate
+    contract = evaluate(bundle, report, prediction)
     market = bundle.get("market_snapshot") or {}
     derived = bundle.get("derived_metrics") or {}
     scores = bundle.get("fundamental_scores") or {}
@@ -294,6 +298,7 @@ def build_index_row(ticker: str) -> dict:
     conclusion = report.get("conclusion") or {}
     return {
         "ticker": ticker,
+        "research_contract": contract,
         "legal_name": (bundle.get("company") or {}).get("legal_name"),
         "sector": (bundle.get("company") or {}).get("sector"),
         "price": market.get("price"),
@@ -307,14 +312,15 @@ def build_index_row(ticker: str) -> dict:
             "fair_value_low": fc12.get("fair_value_low"),
             "fair_value_high": fc12.get("fair_value_high"),
             "classification": conclusion.get("classification"),
-        } if fc12 else None),
-        "prediction_status": prediction.get("status") if prediction else "MISSING",
+        } if fc12 and contract["guidance_eligible"] else None),
+        "prediction_status": contract["model_status"],
         "indexed_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
-def save_index_row(conn, ticker: str, row: dict) -> None:
-    ensure_schema(conn)
+def save_index_row(conn, ticker: str, row: dict, *, commit=True) -> None:
+    if commit:
+        ensure_schema(conn)
     with conn.cursor() as cur:
         cur.execute(
             """INSERT INTO stock_research_index (ticker,as_of,snapshot)
@@ -323,14 +329,16 @@ def save_index_row(conn, ticker: str, row: dict) -> None:
                    as_of=EXCLUDED.as_of,snapshot=EXCLUDED.snapshot,updated_at=now()""",
             (ticker, date.today(), Jsonb(row)),
         )
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def research_index(conn) -> list[dict]:
     ensure_schema(conn)
     with conn.cursor() as cur:
         cur.execute("SELECT snapshot FROM stock_research_index ORDER BY ticker")
-        return [row[0] for row in cur.fetchall()]
+        from .research_contract import guard_coverage_row
+        return [guard_coverage_row(row[0]) for row in cur.fetchall()]
 
 
 def _ticker_refresh(ticker: str) -> dict:
@@ -410,6 +418,20 @@ def _forward_mark() -> dict:
 def execute(job: dict) -> dict:
     kind = job["job_type"]
     payload = job.get("payload") or {}
+    if kind == "research_index_refresh":
+        ticker = normalize_ticker(job.get("ticker"))
+        if not ticker:
+            raise ValueError("research_index_refresh requires ticker")
+        row = build_index_row(ticker)
+        with db.connect() as conn:
+            save_index_row(conn, ticker, row)
+        return {"ticker": ticker, "status": "INDEXED", "research_contract": row["research_contract"]}
+    if kind == "research_cycle":
+        from .research_cycle import run
+        return run(job.get("ticker"), job["idempotency_key"])
+    if kind == "research_experiment":
+        from .prospective_experiment import run
+        return run()
     if kind == "ticker_refresh":
         if not job.get("ticker"):
             raise ValueError("ticker_refresh requires ticker")

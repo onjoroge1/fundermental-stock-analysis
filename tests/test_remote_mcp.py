@@ -43,6 +43,7 @@ def harness(monkeypatch):
         calls.append(("GET", request.url.path, dict(request.query_params), dict(request.headers)))
         return {"ticker": ticker, "generated_at": "2026-09-16T16:00:00Z",
                 "market_snapshot": {"price_date": "2026-09-15"},
+                "research_contract": {"schema_version": "research-contract.v1", "snapshot_id": "test-only", "report_as_of": report["as_of"], "price_date": "2026-09-15", "guidance_eligible": False},
                 "analysis": {"report_available": True, **{k: v for k, v in report.items() if k not in {"ticker", "as_of", "analysis_id"}}}}
 
     @app.get("/api/predict/{ticker}")
@@ -124,7 +125,7 @@ def test_dated_report_does_not_become_current_because_packet_was_rebuilt(harness
     app, calls, _ = harness
     with TestClient(app) as client:
         result = payload(tool(client, "get_stock_research", {"ticker": "aapl"}))
-    assert result["component_dates"]["analysis_as_of"].startswith("2026-08-08")
+    assert result["component_dates"]["report_as_of"].startswith("2026-08-08")
     assert result["component_dates"]["price_date"] == "2026-09-15"
     assert result["data"]["generated_at"].startswith("2026-09-16")
     assert calls[0][2]["include_live_quote"] == "false"
@@ -139,9 +140,8 @@ def test_inconsistent_separate_reads_do_not_fabricate_analysis_vintage(harness):
             return {"analysis": {"investment_thesis": {"summary": "old"}}}
         return {"investment_thesis": {"summary": "new"}, "as_of": "2026-09-16"}
     api._read = reader
-    result = asyncio.run(api.stock_research("AAPL"))
-    assert result["component_dates"]["status"] == "UNVERIFIED"
-    assert result["component_dates"]["analysis_as_of"] is None
+    with pytest.raises(APIReadError, match="DATED_RESEARCH_CONTRACT_MISSING"):
+        asyncio.run(api.stock_research("AAPL"))
 
 
 def test_forecast_projection_keeps_readiness_and_explicit_omissions(harness):

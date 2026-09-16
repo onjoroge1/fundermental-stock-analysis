@@ -45,7 +45,8 @@ def schedule_due(now: datetime | None = None) -> dict[str, Any]:
     """Enqueue bounded due work without executing it.
 
     Every call schedules at most:
-      * one ticker refresh (unindexed first, then stalest),
+      * one pilot evidence cycle on weekdays (five unique names/day),
+      * one index refresh (unindexed first, then stalest),
       * one Forward Paper mark job when cohorts exist,
       * one Strategy Lab run on Sundays.
 
@@ -57,15 +58,22 @@ def schedule_due(now: datetime | None = None) -> dict[str, Any]:
 
     with db.connect() as conn:
         ensure_schema(conn)
+        # At most five evidence cycles per UTC day, two provider calls each.
+        # Duplicate hourly deliveries reuse the same immutable request key.
+        from .agents.contracts import PILOT
+        pilot = PILOT[now.hour % len(PILOT)]
+        if now.weekday() < 5:
+            scheduled.append(enqueue(conn, "research_cycle", ticker=pilot,
+                idempotency_key=f"auto:research_cycle:{pilot}:{today}"))
         companies = db.list_companies(conn)
         indexed = research_index(conn)
         ticker = choose_refresh_ticker(companies, indexed)
         if ticker:
             scheduled.append(enqueue(
                 conn,
-                "ticker_refresh",
+                "research_index_refresh",
                 ticker=ticker,
-                idempotency_key=f"auto:ticker_refresh:{ticker}:{today}",
+                idempotency_key=f"auto:research_index_refresh:{ticker}:{today}",
             ))
 
         if _has_forward_cohorts(conn):

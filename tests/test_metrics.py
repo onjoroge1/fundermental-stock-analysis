@@ -50,8 +50,27 @@ def test_growth_yoy():
 
 def test_net_debt_sign():
     q = _q("2025-03-31", "2025-01-01", cash_and_equivalents=500.0,
-           long_term_debt=200.0)
+           reported_total_debt=200.0)
+    q["field_sources"] = {k: "test-accession" for k in q["fields"]}
     assert metrics.net_debt(q) == -300.0  # net cash is negative net debt
+
+
+def test_partial_debt_is_not_total_debt_and_missing_cash_is_not_zero():
+    q = _q("2025-03-31", "2025-01-01", cash_and_equivalents=500.0, long_term_debt=200.0)
+    assert metrics.total_debt(q) is None
+    assert metrics.net_debt(q) is None
+    q["fields"]["reported_total_debt"] = 200
+    q["field_sources"] = {"reported_total_debt": "test-accession"}
+    assert metrics.total_debt(q) == 200
+    assert metrics.net_debt(q) is None
+
+
+def test_interest_coverage_uses_four_quarters_of_interest():
+    qs = make_quarters(4)
+    for q in qs:
+        q["fields"]["interest_expense"] = 10
+    ttm = metrics.build_ttm(qs)
+    assert ttm["fields"]["interest_expense"] == 40
 
 
 def test_valuation_none_safe_when_no_price():

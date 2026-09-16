@@ -3,6 +3,7 @@
 "use strict";
 
 const $ = (sel, el = document) => el.querySelector(sel);
+const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"}[c]));
 const COLORS = { blue: "#3987e5", orange: "#d95926", aqua: "#199e70" };
 const state = { companies: [], view: "home", ticker: null };
 
@@ -580,7 +581,7 @@ function renderHome() {
         <div class="tile" style="cursor:pointer" data-t="${c.ticker}">
           <div class="lbl">${c.ticker} · ${c.signal_count}/5 signals</div>
           <div style="margin:4px 0">${signalChips(c)}</div>
-          <div class="sub">${c.report_12m ? `12m E[r] ${fmtSignedPct(c.report_12m.expected_return_pct)} · range ${rangeCell(c)}` : "no analyst report yet"}</div>
+          <div class="sub">${c.report_12m ? `12m E[r] ${fmtSignedPct(c.report_12m.expected_return_pct)} · range ${rangeCell(c)}` : `Guidance withheld · report ${esc(c.research_contract?.report_as_of?.slice(0,10) || 'unavailable')}`}</div>
           ${c.next_earnings_date ? `<div class="sub">earnings ${c.next_earnings_date}</div>` : ""}
         </div>`).join("")}
       </div>
@@ -947,9 +948,19 @@ const ratio = (a, b) => (a == null || !b ? null : (a / b) * 100);
 
 /* ---------------- analysis report ---------------- */
 function renderReport(root, r, latestAvailableAt) {
+  const contract = r.research_contract || {};
+  const permitted = contract.guidance_eligible === true;
+  const originalDate = r.as_of;
+  r = permitted ? r : {...r, forecasts: {}, scenarios: [],
+    conclusion: {classification: "INSUFFICIENT_DATA", conviction: "LOW"}};
   const stale = latestAvailableAt && r.as_of &&
     latestAvailableAt > r.as_of.slice(0, 10);
-  const staleBanner = stale
+  const staleBanner = !permitted
+    ? `<div class="banner"><b>Guidance withheld.</b> Saved research: ${esc(originalDate || "date unavailable")}.
+       Price date: ${esc(contract.price_date || "unverified")}.<br>
+       ${esc((contract.guidance_reasons || ["DATED_RESEARCH_CONTRACT_MISSING"]).join(" · "))}
+       <br>The text below is dated source context. Targets and recommendations are withheld.</div>`
+    : stale
     ? `<div class="banner">⚠ This analysis predates the newest filing
        (data available ${latestAvailableAt}, report as of ${r.as_of.slice(0, 10)}).
        Numbers in the narrative may no longer match the bundle — re-run the
@@ -972,29 +983,30 @@ function renderReport(root, r, latestAvailableAt) {
     <div class="panel wide report-block" style="margin-top:14px">
       ${breachBanner}${staleBanner}
       <div class="page-head" style="margin-bottom:8px">
-        <h2 style="margin:0">Machine analysis</h2>
+        <h2 style="margin:0">Dated research</h2>
         <span class="chip ${concls}">${(con.classification || "").replace("_", " ")}</span>
         <span class="chip neutral">conviction ${con.conviction || "—"}</span>
         <span class="chip neutral">horizon ${(con.time_horizon || "").replace("_", " ").toLowerCase()}</span>
-        <span class="mini">as of ${r.as_of?.slice(0, 10)} · analyst layer output, evidence-cited · not investment advice</span>
+        <span class="mini">as of ${esc(r.as_of?.slice(0, 10))} · ${r.claim_validation?.verified || 0}/${r.claim_validation?.total || 0} source facts verified</span>
       </div>
-      <p>${t.summary || ""}</p>
+      <p>${esc(t.summary || "")}</p>
       ${section("Fundamental trend", `<p><b>${r.fundamental_trend?.direction || ""}</b> (${r.fundamental_trend?.strength || ""}) —
         drivers: ${(r.fundamental_trend?.primary_drivers || []).join("; ")}
         ${r.fundamental_trend?.primary_deteriorations?.length ? "· deteriorations: " + r.fundamental_trend.primary_deteriorations.join("; ") : ""}</p>`)}
       ${scen.length ? section("Scenarios (12-month)", scenTable(scen, fc)) : ""}
-      ${r.forecasts ? section("Projected price by horizon", horizonTable(r.forecasts)) : ""}
+      ${permitted && Object.keys(r.forecasts || {}).length ? section("Projected price by horizon", horizonTable(r.forecasts)) : ""}
       ${list("What is already priced in", t.what_is_already_priced_in)}
       ${list("Catalysts", t.catalysts)}
       ${list("Risks", t.risks)}
       ${list("Invalidation conditions", t.invalidation_conditions)}
-      ${section("Adversarial review", `<p><b>Strongest bear case:</b> ${adv.strongest_bear_case || "—"}</p>
+      ${section("Adversarial review", `<p><b>Strongest bear case:</b> ${esc(adv.strongest_bear_case || "—")}</p>
         ${list("Fragile assumptions", adv.fragile_assumptions, true)}
         ${list("Valuation concerns", adv.valuation_concerns, true)}
         ${list("Unresolved questions", adv.unresolved_questions, true)}`)}
       ${r.claims?.length ? section("Claims register", `<div class="claims">${r.claims.map((c) => `
         <div class="claim"><span class="chip ${{ FACT: "good", INFERENCE: "warn", FORECAST: "neutral" }[c.classification] || "neutral"}">${c.classification}</span>
-        <span>${c.claim} <span class="src">${(c.source_ids || []).join(" ")}</span></span></div>`).join("")}</div>`) : ""}
+        <span>${esc(c.claim)} <span class="src">${esc((c.source_ids || []).join(" "))}</span></span></div>`).join("")}</div>`) : ""}
+      ${r.news_context ? section("News metadata · unreviewed", `<p>${esc(r.news_context.status || 'Unavailable')} · ${esc(r.news_context.observed_at || '')}</p><ul>${(r.news_context.articles || []).map(a => `<li>${esc(a.published_utc)} · ${esc(a.publisher || '')} · ${esc(a.title)}<br>${esc(a.source_url)}</li>`).join('')}</ul>`) : ''}
     </div>`;
 }
 const section = (title, inner) => `<div class="report-block"><h3 style="color:var(--text-1);font-size:13px;margin-bottom:6px">${title}</h3>${inner}</div>`;
