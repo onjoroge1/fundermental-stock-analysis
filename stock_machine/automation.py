@@ -45,7 +45,8 @@ def schedule_due(now: datetime | None = None) -> dict[str, Any]:
     """Enqueue bounded due work without executing it.
 
     Every call schedules at most:
-      * one ticker refresh (unindexed first, then stalest),
+      * one pilot evidence cycle on weekdays (five unique names/day),
+      * one index refresh (unindexed first, then stalest),
       * one Forward Paper mark job when cohorts exist,
       * one Strategy Lab run on Sundays.
 

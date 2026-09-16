@@ -26,6 +26,8 @@ def protocol(universe):
             "lookback_sessions": 63, "holding_sessions": 20, "tail_fraction": .2,
             "entry": "next exchange open strictly after forecast persistence", "exit": "20th holding-session close",
             "cost_bps_each_side": 25, "stress_cost_bps_each_side": 50,
+            "research_notional_usd": 100000, "gross_exposure": 1.0,
+            "position_sizing": "equal initial dollar weights; no leverage; cash between cohorts",
             "minimum_nonoverlapping_cohorts": 12, "minimum_excess_pct": 0,
             "minimum_mean_stress_net_return_pct": 0,
             "max_cohort_drawdown_pct": -20, "confidence": "paired cohort bootstrap lower 95% bound must exceed zero against both controls",
@@ -34,7 +36,7 @@ def protocol(universe):
             "controls": ["SPY", "equal_weight_frozen_universe"],
             "qualification": "EXPERIMENT_ONLY_NO_TRADE_OR_PAPER_PROMOTION",
             "limitations": ["Universe selected from current coverage, not an unbiased historical universe",
-                            "Costs are explicit assumptions, not measured execution",
+                            "Costs assume a $100,000 research portfolio in the covered listed stocks; spreads and market impact are not measured execution",
                             "No shorting, leverage or options; no borrowing assumption",
                             "A passing result requires independent review and does not authorize orders"]}
 

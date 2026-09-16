@@ -66,17 +66,20 @@ def daily_observation(ticker: str, market_date: str, *, client=None) -> dict:
     end = date.fromisoformat(market_date)
     path = f"/v2/aggs/ticker/{ticker}/range/1/day/{end - timedelta(days=10)}/{end}"
     raw = _get(path, {"adjusted": "true", "sort": "asc", "limit": 20}, client=client)
-    if raw.get("ticker") != ticker or raw.get("adjusted") is not True or raw.get("next_url"):
+    if raw.get("ticker") != ticker or raw.get("adjusted") is not True or raw.get("next_url") or len(raw["results"]) > 20:
         raise MassiveUnavailable("MASSIVE_IDENTITY_BASIS_OR_PAGINATION_INVALID")
     rows = []
     for r in raw["results"]:
-        if not all(number(r.get(k)) is not None for k in ("o", "h", "l", "c", "v", "t")):
+        if not isinstance(r, dict) or not all(number(r.get(k)) is not None for k in ("o", "h", "l", "c", "v", "t")):
             raise MassiveUnavailable("MASSIVE_BAR_FIELDS_INVALID")
-        day = datetime.fromtimestamp(r["t"] / 1000, timezone.utc).astimezone(ZoneInfo("America/New_York")).date().isoformat()
-        if day > market_date or r["l"] <= 0 or r["h"] < max(r["o"], r["c"], r["l"]) or r["l"] > min(r["o"], r["c"]) or r["v"] < 0:
+        try:
+            day = datetime.fromtimestamp(r["t"] / 1000, timezone.utc).astimezone(ZoneInfo("America/New_York")).date().isoformat()
+        except (ValueError, OverflowError, OSError):
+            raise MassiveUnavailable("MASSIVE_BAR_TIMESTAMP_INVALID") from None
+        if not (end - timedelta(days=10)).isoformat() <= day <= market_date or r["l"] <= 0 or r["h"] < max(r["o"], r["c"], r["l"]) or r["l"] > min(r["o"], r["c"]) or r["v"] < 0:
             raise MassiveUnavailable("MASSIVE_BAR_INVALID_OR_FUTURE")
         rows.append({"date": day, "open": r["o"], "high": r["h"], "low": r["l"], "close": r["c"], "volume": r["v"]})
-    if len({r["date"] for r in rows}) != len(rows) or not rows or rows[-1]["date"] != market_date:
+    if len({r["date"] for r in rows}) != len(rows) or rows != sorted(rows, key=lambda r: r["date"]) or not rows or rows[-1]["date"] != market_date:
         raise MassiveUnavailable("MASSIVE_LATEST_COMPLETED_SESSION_MISSING")
     return {"provider": "MASSIVE", "ticker": ticker, "market_date": market_date,
             "observed_at": datetime.now(timezone.utc).isoformat(), "status": "OBSERVED",
@@ -90,8 +93,12 @@ def news_observation(ticker: str, *, now=None, client=None) -> dict:
     start = now - timedelta(days=7)
     raw = _get("/v2/reference/news", {"ticker": ticker, "published_utc.gte": start.isoformat(),
                "published_utc.lte": now.isoformat(), "sort": "published_utc", "order": "desc", "limit": 5}, client=client)
+    if len(raw["results"]) > 5:
+        raise MassiveUnavailable("MASSIVE_NEWS_LIMIT_EXCEEDED")
     articles = []
     for item in raw["results"]:
+        if not isinstance(item, dict):
+            raise MassiveUnavailable("MASSIVE_NEWS_SCHEMA_INVALID")
         published = timestamp(item.get("published_utc"))
         if (not published or not start <= published <= now or ticker not in item.get("tickers", [])
                 or not str(item.get("article_url", "")).startswith("https://") or not item.get("id")):

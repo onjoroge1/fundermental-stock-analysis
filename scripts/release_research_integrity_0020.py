@@ -23,9 +23,23 @@ def preflight(gh, sha):
             statuses = request(gh, "GET", f"/repos/{REPO}/commits/{sha}/status")["statuses"]
             vc = [s for s in statuses if s["context"] == "Vercel"]
             if vc and vc[0]["state"] == "success":
-                return
+                break
         time.sleep(10)
-    raise ReleaseError("MATCHING_CI_OR_DEPLOYMENT_NOT_READY")
+    else:
+        raise ReleaseError("MATCHING_CI_OR_DEPLOYMENT_NOT_READY")
+    # Preserve the earlier release's protection against old active writers.
+    for state in ("in_progress", "queued", "waiting", "pending", "requested"):
+        for page in range(1, 6):
+            runs = request(gh, "GET", f"/repos/{REPO}/actions/runs", params={"status": state, "per_page": 100, "page": page})["workflow_runs"]
+            for row in runs:
+                if str(row["id"]) == os.getenv("GITHUB_RUN_ID") or row["path"] == ".github/workflows/ci.yml":
+                    continue
+                require(row["head_sha"] == sha, "OTHER_WORKER_ACTIVE_REVIEW_REQUIRED")
+            if len(runs) < 100:
+                break
+        else:
+            raise ReleaseError("ACTIVE_WORKER_LIST_INCOMPLETE")
+    current_main(gh, sha)
 
 
 def run(report):
