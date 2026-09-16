@@ -7,7 +7,6 @@ strategy guidance.  It never writes data or places trades.
 """
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -15,14 +14,12 @@ from fastapi import APIRouter, HTTPException, Query
 
 from . import db
 from .bundle import build_bundle
-from .config import DATA_DIR
 from .prediction import MODEL_VERSION
 from .research_contract import evaluate, safe_analysis, guard_coverage_row, read_inputs
 
 router = APIRouter(prefix="/api/v1", tags=["agent-api-v1"])
 
 API_VERSION = "1.1.0"
-COVERAGE_SNAPSHOT = DATA_DIR / "coverage_snapshot.json"
 
 
 def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
@@ -179,51 +176,12 @@ def bear_strategy_guidance(
 
 
 def _load_coverage_rows() -> tuple[list[dict[str, Any]], str | None]:
-    """Prefer the persisted fast snapshot; fall back to a live DB/bundle read."""
-    if COVERAGE_SNAPSHOT.exists():
-        try:
-            payload = json.loads(COVERAGE_SNAPSHOT.read_text(encoding="utf-8"))
-            return [guard_coverage_row(r) for r in payload.get("rows") or []], payload.get("generated_at")
-        except Exception:
-            pass
-
-    conn = db.connect()
-    try:
-        companies = db.list_companies(conn)
-        reports = db.latest_reports_map(conn)
-    finally:
-        conn.close()
-
-    rows: list[dict[str, Any]] = []
-    for company in companies:
-        ticker = company["ticker"].upper()
-        try:
-            bundle = build_bundle(ticker)
-        except Exception:
-            continue
-        report = reports.get(ticker) or {}
-        fc12 = (report.get("forecasts") or {}).get("twelve_month") or {}
-        derived = bundle.get("derived_metrics") or {}
-        valuation = derived.get("valuation") or {}
-        growth = derived.get("growth") or {}
-        rows.append({
-            "ticker": ticker,
-            "legal_name": company.get("legal_name"),
-            "sector": company.get("sector"),
-            "price": (bundle.get("market_snapshot") or {}).get("price"),
-            "revenue_yoy_pct": growth.get("revenue_yoy_pct"),
-            "fcf_yield_pct": valuation.get("fcf_yield_pct"),
-            "pe_ttm": valuation.get("pe_ttm"),
-            "composite_score": (bundle.get("fundamental_scores") or {}).get("composite_score"),
-            "data_quality_status": (bundle.get("data_quality") or {}).get("status"),
-            "report_12m": {
-                "expected_return_pct": fc12.get("expected_return_pct"),
-                "fair_value_low": fc12.get("fair_value_low"),
-                "fair_value_high": fc12.get("fair_value_high"),
-                "classification": (report.get("conclusion") or {}).get("classification"),
-            } if fc12 else None,
-        })
-    return [guard_coverage_row(r) for r in rows], None
+    """Use the same durable rows as the UI; no on-request bundle fan-out."""
+    from .control_plane import coverage_rows
+    with db.connect() as conn:
+        rows = coverage_rows(conn)
+    dates = [row["indexed_at"] for row in rows if row.get("indexed_at")]
+    return rows, min(dates) if dates else None
 
 
 def _latest_report_and_prediction(ticker: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:

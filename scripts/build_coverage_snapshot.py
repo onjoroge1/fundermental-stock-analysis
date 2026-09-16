@@ -1,9 +1,6 @@
-"""Materialise the coverage table to disk.
+"""Publish complete coverage to PostgreSQL and a secondary local artifact.
 
-Building 53 bundles takes ~5 minutes; doing it inside a web request makes the
-app feel broken. This precomputes the exact payload /api/companies serves and
-writes it with an as-of stamp, so the UI is instant and always states how
-fresh the snapshot is. Run from the daily refresh (or by hand after ingest).
+UI and API reads use PostgreSQL. Only explicit workers build bundles.
 """
 from __future__ import annotations
 
@@ -16,14 +13,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from stock_machine.config import DATA_DIR
-from stock_machine.webapp import companies
+from stock_machine.webapp import _companies_live
 
 SNAPSHOT = DATA_DIR / "coverage_snapshot.json"
 
 
 def main() -> int:
     started = time.monotonic()
-    rows = companies(persisted=False)
+    rows = _companies_live()
     # The web coverage and trade dashboard consume the same dated rows.
     # A per-ticker failure cannot silently produce a successful partial index.
     from stock_machine import db

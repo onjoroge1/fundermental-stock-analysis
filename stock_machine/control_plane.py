@@ -284,6 +284,31 @@ def _events_one(ticker: str) -> dict:
     }
 
 
+def _signals(b: dict) -> dict:
+    """Transparent, boolean evidence signals — a convergence CHECKLIST, not a
+    calibrated probability. Each maps to inspectable bundle evidence."""
+    pie = b.get("price_implied_expectations") or {}
+    ins = (b.get("insider_activity") or {}).get("signal")
+    br = b.get("base_rates") or {}
+    comps = (b.get("fundamental_scores") or {}).get("components") or {}
+    peer = b.get("peer_group") or {}
+    pe_pctile = None
+    for row in peer.get("comparison") or []:
+        if row["metric"] == "pe_ttm":
+            pe_pctile = row["percentile"]
+    return {
+        "low_embedded_expectations": (
+            pie.get("gap_vs_achieved_pct") is not None
+            and pie["gap_vs_achieved_pct"] < 0),
+        "insider_buying": ins in ("MULTIPLE_DISCRETIONARY_BUYERS",
+                                  "NET_DISCRETIONARY_BUYING"),
+        "favorable_base_rate": (br.get("status") == "OK"
+                                and (br.get("median_excess_12m_pct") or 0) > 0),
+        "beats_expectations": (comps.get("expectations") or 0) >= 70,
+        "cheap_vs_sector": pe_pctile is not None and pe_pctile <= 40,
+    }
+
+
 def build_index_row(ticker: str, *, bundle=None, report=None, prediction=None) -> dict:
     if bundle is None:
         from .research_contract import read_inputs
@@ -296,12 +321,27 @@ def build_index_row(ticker: str, *, bundle=None, report=None, prediction=None) -
     scores = bundle.get("fundamental_scores") or {}
     fc12 = (report.get("forecasts") or {}).get("twelve_month") or {}
     conclusion = report.get("conclusion") or {}
-    return {
+    signals = _signals(bundle)
+    row = {
         "ticker": ticker,
         "research_contract": contract,
         "legal_name": (bundle.get("company") or {}).get("legal_name"),
         "sector": (bundle.get("company") or {}).get("sector"),
         "price": market.get("price"),
+        "market_cap": market.get("market_cap"),
+        "twelve_month_pct": (market.get("price_change") or {}).get("twelve_month_pct"),
+        "ev_to_revenue_ttm": (derived.get("valuation") or {}).get("ev_to_revenue_ttm"),
+        "pe_5y_percentile": (derived.get("valuation") or {}).get("pe_5y_percentile"),
+        "gross_margin_pct": (derived.get("profitability") or {}).get("gross_margin_pct"),
+        "operating_margin_pct": (derived.get("profitability") or {}).get("operating_margin_pct"),
+        "fcf_margin_pct": (derived.get("profitability") or {}).get("fcf_margin_pct"),
+        "components": scores.get("components") or {},
+        "has_report": bool(report),
+        "signals": signals,
+        "signal_count": sum(signals.values()),
+        "implied_vs_achieved_gap_pct": (bundle.get("price_implied_expectations") or {}).get("gap_vs_achieved_pct"),
+        "insider_signal": (bundle.get("insider_activity") or {}).get("signal"),
+        "next_earnings_date": (bundle.get("catalyst_calendar") or {}).get("next_earnings_date"),
         "revenue_yoy_pct": (derived.get("growth") or {}).get("revenue_yoy_pct"),
         "fcf_yield_pct": (derived.get("valuation") or {}).get("fcf_yield_pct"),
         "pe_ttm": (derived.get("valuation") or {}).get("pe_ttm"),
@@ -316,6 +356,9 @@ def build_index_row(ticker: str, *, bundle=None, report=None, prediction=None) -
         "prediction_status": contract["model_status"],
         "indexed_at": datetime.now(timezone.utc).isoformat(),
     }
+
+    from .research_contract import guard_coverage_row
+    return guard_coverage_row(row)
 
 
 def save_index_row(conn, ticker: str, row: dict, *, commit=True) -> None:
@@ -334,11 +377,33 @@ def save_index_row(conn, ticker: str, row: dict, *, commit=True) -> None:
 
 
 def research_index(conn) -> list[dict]:
-    ensure_schema(conn)
+    """Read only; migrations own the storage schema."""
     with conn.cursor() as cur:
         cur.execute("SELECT snapshot FROM stock_research_index ORDER BY ticker")
         from .research_contract import guard_coverage_row
         return [guard_coverage_row(row[0]) for row in cur.fetchall()]
+
+
+def coverage_rows(conn) -> list[dict]:
+    """Serve indexed evidence and explicit pending rows in a single read view."""
+    from .control_plane_bootstrap import merge_research_universe
+    from .research_contract import guard_coverage_row, VERSION
+    conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+    merged = merge_research_universe(db.list_companies(conn), research_index(conn))
+    rows = []
+    for row in merged["stocks"]:
+        if row["index_status"] == "PENDING":
+            row["research_contract"] = {
+                "schema_version": VERSION, "research_status": "WITHHELD",
+                "guidance_eligible": False, "research_observation_eligible": False,
+                "report_as_of": None, "price_date": None, "snapshot_id": None,
+                "financial_integrity": {"status": "WITHHELD"},
+                "reasons": ["RESEARCH_INDEX_PENDING"],
+                "guidance_reasons": ["RESEARCH_INDEX_PENDING"],
+            }
+        row["snapshot_generated_at"] = row.get("indexed_at")
+        rows.append(guard_coverage_row(row))
+    return rows
 
 
 def _ticker_refresh(ticker: str) -> dict:
