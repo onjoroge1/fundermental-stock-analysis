@@ -9,11 +9,15 @@ from .options.recommendation_api import router as option_recommendation_router
 from .trade_dashboard_api import router as trade_dashboard_router
 from .agents.api import router as agent_lab_router
 from .webapp_ops import app
+from .mcp_server.http import ResearchMCP
 
 app.include_router(automation_router)
 app.include_router(option_recommendation_router)
 app.include_router(trade_dashboard_router)
 app.include_router(agent_lab_router)
+
+# Separate read-only network facade; never mount the legacy report-writing MCP.
+app.mount("/mcp", ResearchMCP(app), name="research-mcp")
 
 
 @app.get("/trades")
