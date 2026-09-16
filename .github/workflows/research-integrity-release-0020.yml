@@ -45,3 +45,5 @@ jobs:
           name: research-integrity-release-${{ github.run_id }}
           path: research-integrity-release-report.json
           retention-days: 90
+
+# 2026-09-17: retrigger current-main verification after production credential rotation.
