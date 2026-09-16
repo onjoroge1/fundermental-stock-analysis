@@ -7,8 +7,8 @@ dependencies = [
     "duckdb>=1.0",
     "pydantic>=2.5",
     "httpx>=0.27",
-    # FastMCP import path used by stock_machine.mcp_server is a 1.x API.
-    "mcp>=1.0,<2.0",
+    # Keep the maintained FastMCP 1.x API; HTTP and transport protection required.
+    "mcp>=1.28.1,<2.0",
     "psycopg[binary]>=3.1",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
