@@ -1,0 +1,660 @@
+{
+  "status": "BLOCKED",
+  "commit": "31419757f3750879f8e6ad069d36c48c75af458c",
+  "preflight": "CURRENT_MAIN_CI_AND_DEPLOYMENT_VERIFIED",
+  "migration": {
+    "before": [
+      "0020_research_integrity"
+    ],
+    "after": "0021_monitoring_storage",
+    "audit_triggers": 12,
+    "transaction_scoped_lock": true
+  },
+  "index": "ALL_CONFIGURED_NAMES_PUBLISHED",
+  "error_code": "ADMIN_TOKEN_NOT_CONFIGURED_PRODUCTION_INTEGRATION_UNEXERCISED",
+  "evidence_origin": {
+    "workflow_run": 35138074070,
+    "artifact_id": 10464277149,
+    "artifact_url": "https://github.com/onjoroge1/fundermental-stock-analysis/actions/runs/35138074070",
+    "full_report_sha256": "d0e8db2de09eeb992e5b520be71409b1c52b75128bb58b53603c979694723627"
+  },
+  "reconciliation": {
+    "status": "AUDITED",
+    "expected": 54,
+    "audited": 54,
+    "financially_verified": 3,
+    "rows": [
+      {
+        "ticker": "AAL",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED",
+          "CASH_AND_EQUIVALENTS_MISSING_OR_INVALID"
+        ],
+        "balance_record": "evidence_328a3939a254527a23e0580f875a334d05aaa57376b3923a8a751df05be55d03",
+        "claim_record": "evidence_c4e9ef9d4cf7d92ad7976e45e36c62b8ae2893c58a3950fe8c66ee211011ebc8"
+      },
+      {
+        "ticker": "AAPL",
+        "status": "WITHHELD",
+        "period_end": "2026-06-27",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_f32c30132d7338e5dd30d72ff825bc0ab5e1940eaf86b3ff5a20f65873a1c34c",
+        "claim_record": "evidence_92999b41e5706a483dbd073c40ad661cd65e58cb6ebe1809be97d81229469ad2"
+      },
+      {
+        "ticker": "ABNB",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_b1b45b34f85a84c5ec8d805c43f1a09349b9df57ff0ab6880181b78722587817",
+        "claim_record": "evidence_673ea9920eedd33a0439c3ed29d6082c27d7b05ad9e165d448af37a347c25c10"
+      },
+      {
+        "ticker": "ADBE",
+        "status": "WITHHELD",
+        "period_end": "2026-05-29",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_fe56875bf1704480ecd71a080d100643d56e0a95fddcc9cf6b058d9188544192",
+        "claim_record": "evidence_5fb1cd18619138ca5a1589d70510805974ae635b238e7a16f387e70c86c54d2f"
+      },
+      {
+        "ticker": "ADI",
+        "status": "WITHHELD",
+        "period_end": "2026-08-01",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_ec4a50946ce821daf0fd28d58e624225821b0a2dcc61b98dc01cd2a5fc2f8901",
+        "claim_record": "evidence_ad25f38babc12fcc8b8d38888e7dc6470244b17878ce82d8353e8f6ecdf21a6a"
+      },
+      {
+        "ticker": "AMAT",
+        "status": "WITHHELD",
+        "period_end": "2026-07-26",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_7c840431a07ea5643effc604b8c919b745edd8edc219c2ad877c0bdf6b3f36ce",
+        "claim_record": "evidence_d409f3101db88fd88d4d4290ef088f8bf5c59b51242b64ff8130def8f9e2bd5f"
+      },
+      {
+        "ticker": "AMD",
+        "status": "WITHHELD",
+        "period_end": "2026-06-27",
+        "reasons": [
+          "MISSING_BALANCE_FIELD:total_liabilities",
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_3af4607624073e9c83a508926b2dd3d5a3d602c0c4b1626828f25d3759891da3",
+        "claim_record": "evidence_dd27c892eb30f6e394650f5e0d233434bc00f505e46ab7969c39f7fec018ac73"
+      },
+      {
+        "ticker": "AMZN",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "MISSING_BALANCE_FIELD:total_liabilities",
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_7f4adfe990572ae1e7c6028510ed7466b8271bc133655348476adeb6e236e1ae",
+        "claim_record": "evidence_e522504ad9dfa7ede2a0bbf2a68daf73675c0ca78e0ddcb0a350bc7c9f9164db"
+      },
+      {
+        "ticker": "AVGO",
+        "status": "VERIFIED",
+        "period_end": "2026-08-02",
+        "reasons": [],
+        "balance_record": "evidence_a636d2172550e610cd2faf5783d5c1262cb2893b2ed7b502c3b647bd73df007d",
+        "claim_record": "evidence_3ae03ccdc3a9dd69330388de39ec727021a98d48955f2e47c374ee7d61fb96f9"
+      },
+      {
+        "ticker": "BKNG",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_c4038916a8c800e76603fe3103ab54bcb86620181816bf2e949b0537da60e521",
+        "claim_record": "evidence_d2df185d3fbb89e5a237c50c0cde71b548c1f2aa9b9e37724992c16a26fcca4b"
+      },
+      {
+        "ticker": "CMCSA",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "MISSING_BALANCE_FIELD:total_liabilities"
+        ],
+        "balance_record": "evidence_fbec1ae0eaeef0bae0dde02b8d05d75f9e6530508f1b8b15b09dbb303304ebac",
+        "claim_record": "evidence_fcc0cdc84a7e9a4508a61e93b8ca9390a895f1a6be9eef5f4ab607ac885385f0"
+      },
+      {
+        "ticker": "CMG",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_b454dea29a0649f65cc3e868432f3654288528ba561c365768d24dcc8bd38af7",
+        "claim_record": "evidence_7d8767c92deeb312fff79c6d24ab57ed1ea2958cd030403dd39f1d68534ea2de"
+      },
+      {
+        "ticker": "COST",
+        "status": "WITHHELD",
+        "period_end": "2026-05-10",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_1a4525354c4ee8804327562a8d50a6af1aa07cf9d24c9d099290a81e132adbf4",
+        "claim_record": "evidence_735b4321adab6ca3bb2f19debd257f066a1cb4f99a0caeb33685bf878795e23d"
+      },
+      {
+        "ticker": "CRM",
+        "status": "WITHHELD",
+        "period_end": "2026-07-31",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_1899ad87c702c073a752c817af0a9bc9abbbeb54da7d1dc599f9dccb610cd506",
+        "claim_record": "evidence_96ef1a2032a1066c5b431a1f91c71f553624844a179261c1e41b88b9370be670"
+      },
+      {
+        "ticker": "CSCO",
+        "status": "WITHHELD",
+        "period_end": "2026-07-25",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_329c31675e3967b77de04c960ad4db0fdf91b3b2990d1393a008b0680bcb6619",
+        "claim_record": "evidence_50ff420616eac7495f7c5163ab49e3c85985b8011fd2a8c5b8d59abd0ee02595"
+      },
+      {
+        "ticker": "DAL",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_f4f067debae29c25b65b9f1cb3515308cc578cce4c1ba629ac29ac01fc47cedf",
+        "claim_record": "evidence_81393d4db65e47301aafc7fc08fbc6fe0bb3a821797a189b2f84ff5737346c43"
+      },
+      {
+        "ticker": "DELL",
+        "status": "WITHHELD",
+        "period_end": "2026-07-31",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_74c3156625059c0e36bad31bcf37b1daaf9f6f44cce71bc5a8776cf700127023",
+        "claim_record": "evidence_7b158d08819b8255654d0f21cfaeea2c7b6aa4d7e70954a840611f22ebf9f62c"
+      },
+      {
+        "ticker": "DIS",
+        "status": "WITHHELD",
+        "period_end": "2026-06-27",
+        "reasons": [
+          "MISSING_BALANCE_FIELD:total_liabilities",
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_6ad087bcb394e5b5599c8a81ff679cebb3562600e0fc4523cccd3099594fe145",
+        "claim_record": "evidence_494fbb954a8f342be50910c582e9048f27e9110b39f872e8ce6eb49ac9e26309"
+      },
+      {
+        "ticker": "F",
+        "status": "WITHHELD",
+        "period_end": "2026-03-31",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED",
+          "NEWER_FINANCIAL_FILING_NOT_NORMALIZED"
+        ],
+        "balance_record": "evidence_726f35a73761b25652f4d8cd9791b96975300813f3b958e241eccbaba9e965bc",
+        "claim_record": "evidence_fe9f06b30756e33d7a5bf557674d70f1add2357a3cd90128a7bc8abc77efc32d"
+      },
+      {
+        "ticker": "GM",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_017f48449c1e102afbdbf1884a8bafb9cf2895837617bc7376e2653d7e399d10",
+        "claim_record": "evidence_6c2790063461219ec229ec09ed2580d67783e1c12805a0507d737aed766099c8"
+      },
+      {
+        "ticker": "GOOGL",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_48fc650a56a2ea378c049940971dacbf1c6f7f99569b4eb24933254b058362fe",
+        "claim_record": "evidence_f09ce6d6d5c6e67238625a60eede725936b851bcbb76579dc377774ba66042cf"
+      },
+      {
+        "ticker": "HD",
+        "status": "WITHHELD",
+        "period_end": "2026-08-02",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_b9a763e007ac19202c414b29ed294147905e1ab7534e0d4040346ff79f483a48",
+        "claim_record": "evidence_1ff58dd842283a4fe7cc85798d0245e1105f8bd07714171b32c3cce186585aa9"
+      },
+      {
+        "ticker": "HIMS",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_622e8afd2b93f5611f132728dd79a80981d5df7c6d5101fcd01a2a40585c9f7e",
+        "claim_record": "evidence_95340ab1767e7a14dc8300d64e24fc675a9cd01ca07829a68c4e161401938b41"
+      },
+      {
+        "ticker": "HPQ",
+        "status": "WITHHELD",
+        "period_end": "2026-07-31",
+        "reasons": [
+          "MISSING_BALANCE_FIELD:total_liabilities"
+        ],
+        "balance_record": "evidence_5ae2a514c907d5f360aac9029e3bf9b4b02102b6b29b880b300de3b5eb5122b1",
+        "claim_record": "evidence_c41e857219213628461308256352157a91c15dff8dc0776c9c27bf87dfbfd0b9"
+      },
+      {
+        "ticker": "IBM",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_1179703d55ceafe3c097eef27ffe4059efb0c67eea65b4458b5d86199dfea351",
+        "claim_record": "evidence_87552156fee4f8bc29620f1a10e109c2ac042b643b41480542698828e3424854"
+      },
+      {
+        "ticker": "INTC",
+        "status": "WITHHELD",
+        "period_end": "2026-06-27",
+        "reasons": [
+          "MISSING_BALANCE_FIELD:total_liabilities",
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_d3d071027c187c761dc7bed21d8a33653b0b685f7572d9b558c190273bfc8303",
+        "claim_record": "evidence_90b1bd74c1af6d332cbc562450fd22388e4b46eed8828f448e2eb4dd21ee4488"
+      },
+      {
+        "ticker": "INTU",
+        "status": "WITHHELD",
+        "period_end": "2026-07-31",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_2567cfa94594151483b92c564b1aca63e25d91537229bab075c10b931e045cdc",
+        "claim_record": "evidence_5b928f9038442818dcaf22ec0583de136fd6d978da89e0e3f79851482cbc5942"
+      },
+      {
+        "ticker": "KLAC",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_0b9bcaa9a787a8543b66720e474418aecaf727a58a36c47e965f8f713ff68523",
+        "claim_record": "evidence_8bddd44407d908b34a1843219b3a89b5d798b0df70c1a2b9570986ae6220545d"
+      },
+      {
+        "ticker": "LOW",
+        "status": "WITHHELD",
+        "period_end": "2026-07-31",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_23b44563a4f9842a5c892b418d56afc3d171523ac110418f2e2dc8c9117b9e97",
+        "claim_record": "evidence_69ae34cce3cfaaad58099b0adec5a130e42b24dab2e9b28b028bf2b727cd3de5"
+      },
+      {
+        "ticker": "LRCX",
+        "status": "WITHHELD",
+        "period_end": "2026-06-28",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_a5e6889bb0822b694bb249dddc34d633c8be0f7cab5647dbae5146bc31bb7feb",
+        "claim_record": "evidence_67a303b4c7b83720b9115037d7d9916306b693b7c72414e65481b5a4d89aa2a3"
+      },
+      {
+        "ticker": "LUV",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "MISSING_BALANCE_FIELD:total_liabilities",
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_31d1e58f4f3d56c734d404e178bf0d13324f942e855b0e2d64499072ca6231c9",
+        "claim_record": "evidence_c9381f9fbfba7eaa41b2ef75d2a28b2d13b77193bc6fc0e3a0aa5d65444a695c"
+      },
+      {
+        "ticker": "MCD",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "MISSING_BALANCE_FIELD:total_liabilities",
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_229b89b0173515aa28bcf3aaae4535744f968db1e58577f370016b5cf4a12d3b",
+        "claim_record": "evidence_4c2245fe9dc5618900ed91b0144b5b7c20a9d2637af426fa8914b1263d698e10"
+      },
+      {
+        "ticker": "META",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_3f8900408274c85654f5a2c67097e16f3c38655e93ab801c97932ed4b3c5baf8",
+        "claim_record": "evidence_bc671563cdf9c1f74222ba11f189e02453604c739001ed25788a4975b1557e6a"
+      },
+      {
+        "ticker": "MSFT",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_ed330dc5209bdf6842b03c1ecbaa4cdce5c1047075f83c7cdd66ed1b8f536b9b",
+        "claim_record": "evidence_fb26de11a0a14fbcf3919f23137a1c3d5f40541ebf56bea149b69942565cc31f"
+      },
+      {
+        "ticker": "MU",
+        "status": "VERIFIED",
+        "period_end": "2026-05-28",
+        "reasons": [],
+        "balance_record": "evidence_b7549ac0bfb25e5c92b01300ef119f0d70e2f7f3f97120992cefbb8347200c1d",
+        "claim_record": "evidence_f698395eaa16583798fa9f12959ce59b19464f9f865dad06af50a0c951ad345c"
+      },
+      {
+        "ticker": "NFLX",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_f3a5043bb0a94a480092ffd658effd7f72198be6f19e2323339df36ef803f291",
+        "claim_record": "evidence_60b3262693f8b0cfe7ecc03cfb9e7dff1a662e0729e2c2b2cce266a7e14cdcfe"
+      },
+      {
+        "ticker": "NKE",
+        "status": "WITHHELD",
+        "period_end": "2026-05-31",
+        "reasons": [
+          "MISSING_BALANCE_FIELD:total_liabilities",
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_6818311b5b65a0898bf9210ae3d824ec7e9aa840a6d873d0db3f9536226ea902",
+        "claim_record": "evidence_e2d0af6b98b6dbe61af5c4069746a51d134a35123c68b532bd3c153d606f553d"
+      },
+      {
+        "ticker": "NOW",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_15dcf9a2e97fede16dc2ca6c70d8d93d6d894edae8f4902479d3a0794f3f2d73",
+        "claim_record": "evidence_2484d05ee1ad7444696093ec493fdb746fe5b7884784859a2e0b59cd4d257dd1"
+      },
+      {
+        "ticker": "NVDA",
+        "status": "WITHHELD",
+        "period_end": "2026-07-26",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_dcea18ab27f8abb44a83ea6bd734be25a4700da0d908ff726d1fd375826e0d2c",
+        "claim_record": "evidence_29e4fecc289185bda14b72d92892d3708db895c9745fadc0da8a42c4dbf18eb6"
+      },
+      {
+        "ticker": "ORCL",
+        "status": "WITHHELD",
+        "period_end": "2026-08-31",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_e0100524994aaeff79efe14a5cff60fb17b48e024589d14cfbd560b29fabdc9f",
+        "claim_record": "evidence_c08447ec04f1eae8e0f9dc44c82038337567ef7403e7d9a63d994e6cd5edbb49"
+      },
+      {
+        "ticker": "PLTR",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_7f5d470185d53e4f7e86a4f241792fe8fad1d9bd458a12e1f83951eeaac73329",
+        "claim_record": "evidence_4135885065fcd35155f48199223325c7b05c1bb508173aa74489e9085d4b88a5"
+      },
+      {
+        "ticker": "QCOM",
+        "status": "WITHHELD",
+        "period_end": "2026-06-28",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_3deb23aec638c404f8c02cb40174462ea92e136f1fceda8cc138ca848085645a",
+        "claim_record": "evidence_632a83f2291fabae0466fc6c216954e635d48c708a23703b8a36108cb9cf1b76"
+      },
+      {
+        "ticker": "RIVN",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_d2b9196896ca94980f56d13f426ebecd4464a22a70e2a968189eee0b61bd93fe",
+        "claim_record": "evidence_41e902bae378d72b807d4bb575416533dc57619fc346d2689198e5b1acd3f9b5"
+      },
+      {
+        "ticker": "SBUX",
+        "status": "WITHHELD",
+        "period_end": "2026-06-28",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED",
+          "CASH_AND_EQUIVALENTS_MISSING_OR_INVALID"
+        ],
+        "balance_record": "evidence_57e1d808e370cad336640a3f46380e237d278b8595be4573c9b01b263841ae65",
+        "claim_record": "evidence_ad12eddf3820958030e3b5414560f881197257580f968383eb9e84b2b9cc4db1"
+      },
+      {
+        "ticker": "SOFI",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_00cb06afc462b631dd92441da302fa4891f94aab91a91367e3933bb64d3edc7c",
+        "claim_record": "evidence_2e84f1baa45fd1337eec2a4fb01420c4026cfa35d1337c5e289099790ed2d9c0"
+      },
+      {
+        "ticker": "T",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "MISSING_BALANCE_FIELD:total_liabilities"
+        ],
+        "balance_record": "evidence_d28388bfcb3a19ab418f32054abaa6efc275fa377147d353eb435a7dcd27030d",
+        "claim_record": "evidence_bbdd6b1435775ff8955617152af420c4a67da77121633c183f5a8f3395da2a45"
+      },
+      {
+        "ticker": "TGT",
+        "status": "WITHHELD",
+        "period_end": "2026-08-01",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED",
+          "CASH_AND_EQUIVALENTS_MISSING_OR_INVALID"
+        ],
+        "balance_record": "evidence_009ee6c3f78ae133ebadce8ff2a93f9aed853a7d4d7bfde5e5e956bb47db49bc",
+        "claim_record": "evidence_840d34bb859d174c060662a9e5b053a81cc23422a6f8b16dfc8b50f3cbdddc5b"
+      },
+      {
+        "ticker": "TMUS",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_d6602d1b3fc9763a27161f184ba21510a1064abae7ecf83f86321771061f14cd",
+        "claim_record": "evidence_ac846f1be5bf0b0dcd2103ff179cf6de1998e7861b8bafa61482a7c0435062cf"
+      },
+      {
+        "ticker": "TSLA",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_ce7f809be8b23056b43a90fa221a2cccd9d62c807c0d8064756940a030ca88fd",
+        "claim_record": "evidence_abac9384922626126bd4762e1f727513f0a0096e838736214bf07ffb3f048355"
+      },
+      {
+        "ticker": "TXN",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_6f63504828ef93181ec23bf8da185444556969eb49e5b80abacbf3a16ff57a0e",
+        "claim_record": "evidence_3496f999c2b40eff37a81e515652c20c44c259c2be6700393692081fb756215f"
+      },
+      {
+        "ticker": "UAL",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_98bf94db77ec3b7a611eca84dd8e795243077dfc62c9ca8ed3455f36fda86827",
+        "claim_record": "evidence_a300b16168685e60bb9571ab9d6e1df3dc63f71b5accf76bd8d6bbbc655ecc44"
+      },
+      {
+        "ticker": "UBER",
+        "status": "WITHHELD",
+        "period_end": "2026-06-30",
+        "reasons": [
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_e93fcae0be204823a358e1b73d1bd9708c96ee2e0bc3bbc6f0e64dee6d4dabb9",
+        "claim_record": "evidence_8d37dffea81f4b0545107c4798d34afe02c7b21b424b48c05b359dd47f519501"
+      },
+      {
+        "ticker": "VZ",
+        "status": "VERIFIED",
+        "period_end": "2026-06-30",
+        "reasons": [],
+        "balance_record": "evidence_45a13cb76c0ff0f74dad10f68ccea3ccb3a8e33c94344cbc0a6dce799ee42420",
+        "claim_record": "evidence_8a40741b37436b511cecc3b64a5abb566a41a750abba10578211b8cf1ddb862d"
+      },
+      {
+        "ticker": "WMT",
+        "status": "WITHHELD",
+        "period_end": "2026-07-31",
+        "reasons": [
+          "MISSING_BALANCE_FIELD:total_liabilities",
+          "TOTAL_DEBT_NOT_SOURCE_RECONCILED"
+        ],
+        "balance_record": "evidence_5a3c481a3a88df2b68627cef0dd9cb1ae70a873e874211a0e354102799e26783",
+        "claim_record": "evidence_271118bef7b7d00908addd00e20b6605b668cc7c90a649dc517c043c75cc156f"
+      }
+    ]
+  },
+  "cycles": [
+    {
+      "ticker": "AAPL",
+      "status": "COMPLETED_WITH_WITHHELD_OUTPUTS",
+      "report_id": "brief_4671118dffcdc90d861c6bd789e3d857e1887c53a526dfe7d4fb376f2d28a89b",
+      "claims_verified": 7,
+      "provider_status": "NOT_REQUESTED",
+      "news_status": "NOT_REQUESTED",
+      "completed_at": "2026-09-16T19:05:04.283328+00:00",
+      "order_submission": false
+    },
+    {
+      "ticker": "MSFT",
+      "status": "COMPLETED_WITH_WITHHELD_OUTPUTS",
+      "report_id": "brief_fbd3de0b839477423b5114df6c5252bcc672bc2c2dbce4b3e726b9a7a3f38523",
+      "claims_verified": 4,
+      "provider_status": "NOT_REQUESTED",
+      "news_status": "NOT_REQUESTED",
+      "completed_at": "2026-09-16T19:05:05.428602+00:00",
+      "order_submission": false
+    },
+    {
+      "ticker": "UBER",
+      "status": "COMPLETED_WITH_WITHHELD_OUTPUTS",
+      "report_id": "brief_330aabb105b6756b612717d41215afd474674bbf05a12694bc764a506d7ad257",
+      "claims_verified": 7,
+      "provider_status": "NOT_REQUESTED",
+      "news_status": "NOT_REQUESTED",
+      "completed_at": "2026-09-16T19:05:05.752821+00:00",
+      "order_submission": false
+    },
+    {
+      "ticker": "HIMS",
+      "status": "COMPLETED_WITH_WITHHELD_OUTPUTS",
+      "report_id": "brief_aa228cbd64cf68f335c88b625923ab8898c2a0718c59092154da304bb3a025ba",
+      "claims_verified": 6,
+      "provider_status": "NOT_REQUESTED",
+      "news_status": "NOT_REQUESTED",
+      "completed_at": "2026-09-16T19:05:06.103390+00:00",
+      "order_submission": false
+    },
+    {
+      "ticker": "VZ",
+      "status": "COMPLETED",
+      "report_id": "brief_6a241c6e306592f828ce7310211d8911d5626117305d3b16a210ec57244e5062",
+      "claims_verified": 6,
+      "provider_status": "NOT_REQUESTED",
+      "news_status": "NOT_REQUESTED",
+      "completed_at": "2026-09-16T19:05:06.550641+00:00",
+      "order_submission": false
+    }
+  ],
+  "experiment": {
+    "experiment_id": "momentum63-hold20-prospective-v1",
+    "evaluation": {
+      "status": "PENDING_MATURITY",
+      "cohorts": 0,
+      "required": 12
+    },
+    "new_forecast": true,
+    "forecast_record": "evidence_971aa95cc90c4c1bad1164f2add301470df76ab9f88d7cb1f1b30278d1e4fce4",
+    "active_forecast": {
+      "status": "FROZEN",
+      "as_of": "2026-09-15",
+      "created_at": "2026-09-16T19:05:21.312831+00:00",
+      "entry_date": "2026-09-17",
+      "exit_date": "2026-10-14",
+      "selected": [
+        "CRM",
+        "HPQ",
+        "NOW",
+        "DELL",
+        "PLTR",
+        "ADBE",
+        "MSFT",
+        "ABNB",
+        "INTU",
+        "TGT",
+        "T"
+      ],
+      "protocol_sha256": "c7a8e5f66cfc1fd274b1d89bf7be22ec1ad578401fb2d67b850028451e80eec6",
+      "trade_execution": false,
+      "fill_status": "FUTURE_OBSERVATION_NOT_A_FILL"
+    }
+  }
+}

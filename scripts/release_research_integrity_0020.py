@@ -58,6 +58,13 @@ def run(report):
         report["cycles"] = [cycle(t, "release-0020-source-brief", collect_market_data=False) for t in PILOT]
         from scripts.build_coverage_snapshot import main as index
         require(index() == 0, "INDEX_BUILD_FAILED")
+        from stock_machine import db
+        from stock_machine.control_plane import coverage_rows
+        with db.connect() as conn:
+            published = coverage_rows(conn)
+        require(len(published) == report["reconciliation"]["expected"] and
+                all(row["index_status"] == "READY" for row in published),
+                "DURABLE_COVERAGE_INDEX_INCOMPLETE")
         report["index"] = "ALL_CONFIGURED_NAMES_PUBLISHED"
         from stock_machine.prospective_experiment import run as experiment
         report["experiment"] = experiment()

@@ -31,108 +31,20 @@ def _bundle(ticker: str) -> dict:
     return b
 
 
-def _signals(b: dict) -> dict:
-    """Transparent, boolean evidence signals — a convergence CHECKLIST, not a
-    calibrated probability. Each maps to inspectable bundle evidence."""
-    pie = b.get("price_implied_expectations") or {}
-    ins = (b.get("insider_activity") or {}).get("signal")
-    br = b.get("base_rates") or {}
-    comps = b["fundamental_scores"]["components"]
-    peer = b.get("peer_group") or {}
-    pe_pctile = None
-    for row in peer.get("comparison") or []:
-        if row["metric"] == "pe_ttm":
-            pe_pctile = row["percentile"]
-    return {
-        "low_embedded_expectations": (
-            pie.get("gap_vs_achieved_pct") is not None
-            and pie["gap_vs_achieved_pct"] < 0),
-        "insider_buying": ins in ("MULTIPLE_DISCRETIONARY_BUYERS",
-                                  "NET_DISCRETIONARY_BUYING"),
-        "favorable_base_rate": (br.get("status") == "OK"
-                                and (br.get("median_excess_12m_pct") or 0) > 0),
-        "beats_expectations": (comps.get("expectations") or 0) >= 70,
-        "cheap_vs_sector": pe_pctile is not None and pe_pctile <= 40,
-    }
-
-
-COVERAGE_SNAPSHOT = DATA_DIR / "coverage_snapshot.json"
-
-
 @app.get("/api/companies")
-def companies(persisted: bool = True) -> list[dict]:
-    """Coverage rows. Serves the precomputed snapshot when one exists —
-    rebuilding 53 bundles takes minutes and must never block a page load.
-    Each row carries snapshot_generated_at so the UI can state its age."""
-    if persisted and COVERAGE_SNAPSHOT.exists():
-        try:
-            payload = json.loads(COVERAGE_SNAPSHOT.read_text())
-            for row in payload["rows"]:
-                row["snapshot_generated_at"] = payload["generated_at"]
-            from .research_contract import guard_coverage_row
-            return [guard_coverage_row(row) for row in payload["rows"]]
-        except Exception:
-            pass  # corrupt snapshot: fall through to a live rebuild
-    return _companies_live()
+def companies() -> list[dict]:
+    """Read the durable index; public requests never rebuild the universe."""
+    from .control_plane import coverage_rows
+    with db.connect() as conn:
+        return coverage_rows(conn)
 
 
 def _companies_live() -> list[dict]:
-    conn = db.connect()
-    try:
+    """Explicit worker build. One failed name aborts publication."""
+    from .control_plane import build_index_row
+    with db.connect() as conn:
         names = db.list_companies(conn)
-    finally:
-        conn.close()
-    out = []
-    for c in names:
-        try:
-            from .research_contract import read_inputs
-            b, report, prediction = read_inputs(c["ticker"])
-        except Exception:
-            continue
-        d = b["derived_metrics"]
-        signals = _signals(b)
-        from .research_contract import evaluate
-        contract = evaluate(b, report, prediction)
-        fc12 = ((report or {}).get("forecasts") or {}).get("twelve_month") or {}
-        out.append({
-            "ticker": c["ticker"],
-            "research_contract": contract,
-            "legal_name": c["legal_name"],
-            "sector": c.get("sector"),
-            "price": b["market_snapshot"]["price"],
-            "market_cap": b["market_snapshot"]["market_cap"],
-            "twelve_month_pct": b["market_snapshot"]["price_change"]["twelve_month_pct"],
-            "pe_ttm": d["valuation"]["pe_ttm"],
-            "fcf_yield_pct": d["valuation"]["fcf_yield_pct"],
-            "ev_to_revenue_ttm": d["valuation"]["ev_to_revenue_ttm"],
-            "pe_5y_percentile": d["valuation"]["pe_5y_percentile"],
-            "revenue_yoy_pct": d["growth"]["revenue_yoy_pct"],
-            "gross_margin_pct": d["profitability"]["gross_margin_pct"],
-            "operating_margin_pct": d["profitability"]["operating_margin_pct"],
-            "fcf_margin_pct": d["profitability"]["fcf_margin_pct"],
-            "composite_score": b["fundamental_scores"]["composite_score"],
-            "components": b["fundamental_scores"]["components"],
-            "data_quality_status": b["data_quality"]["status"],
-            "has_report": bool(report),
-            "prediction_status": contract["model_status"],
-            "signals": signals,
-            "signal_count": sum(signals.values()),
-            "implied_vs_achieved_gap_pct": (
-                (b.get("price_implied_expectations") or {})
-                .get("gap_vs_achieved_pct")),
-            "insider_signal": (b.get("insider_activity") or {}).get("signal"),
-            "next_earnings_date": (b.get("catalyst_calendar") or {})
-                .get("next_earnings_date"),
-            "report_12m": ({
-                "expected_return_pct": fc12.get("expected_return_pct"),
-                "fair_value_low": fc12.get("fair_value_low"),
-                "fair_value_high": fc12.get("fair_value_high"),
-                "classification": ((report or {}).get("conclusion") or {})
-                    .get("classification"),
-            } if fc12 and contract["guidance_eligible"] else None),
-        })
-    from .research_contract import guard_coverage_row
-    return [guard_coverage_row(row) for row in out]
+    return [build_index_row(c["ticker"]) for c in names]
 
 
 @app.get("/api/bundle/{ticker}")

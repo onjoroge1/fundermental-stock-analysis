@@ -98,3 +98,15 @@ Local verification: 498 tests passed before final integration additions; Postgre
 51 balance sheets still require issuer-specific completion of debt/cash/liability source evidence. Ford requires its missing latest statement. The new cycle is a bounded source-fact/change review, not an independent analyst or learned agent. No forecast or recommendation is financially qualified by this release. Provider entitlements, production capture and prospective registration require successful live release evidence. An intraday/live quote product is not implemented by this EOD integration.
 
 Full claim-by-claim results, source hashes, exact balance values and the five exercise records are in [the machine-readable evidence](evidence/research-recovery-2026-09-16.json). Reproduce with `python -m scripts.audit_source_recovery --source-dir CAPTURED_SEC_DIR --live-dir CAPTURED_APP_DIR --as-of TIMESTAMP --output AUDIT.json`.
+
+## Production evidence at 19:05 UTC
+
+Release run [35138074070](https://github.com/onjoroge1/fundermental-stock-analysis/actions/runs/35138074070), commit `31419757f3750879f8e6ad069d36c48c75af458c`, verified matching main CI and deployment, migrated PostgreSQL to `0021_monitoring_storage`, audited all 54 configured names and published all 54 index rows. This confirms execution, not financial qualification: 3 verified, 51 withheld.
+
+All five source briefs were committed in production: AAPL 7, MSFT 4, UBER 7, HIMS 6 and VZ 6 verified facts. Their provider status is `NOT_REQUESTED`; the source-only exercise does not verify Massive. The prospective protocol and first forecast were frozen at 19:05:21 UTC, with a future September 17 entry observation and October 14 exit observation. No observed fills or returns exist. Evaluation is `PENDING_MATURITY`, 0 of 12 required cohorts.
+
+The release then blocked on `ADMIN_TOKEN_NOT_CONFIGURED_PRODUCTION_INTEGRATION_UNEXERCISED`. Production provider entitlement and authenticated journal capture remain unverified. The release environment needs its existing application admin credential; enabling capture may additionally require the existing Vercel deployment credential. These credentials are not synthesized or exposed by the implementation.
+
+The first deployment introduced a read-only transaction failure because legacy monitoring reads executed DDL. Production returned HTTP 500. The correction moved table ownership to migration 0021, added a real PostgreSQL full-bundle regression, passed CI and restored HTTP 200. A further coverage fix makes UI and API read the durable PostgreSQL index, preserves pending names explicitly, and prevents public requests from rebuilding the universe. Worker publication aborts if any name fails.
+
+[Credential-free production evidence summary](evidence/production-release-2026-09-16.json). The original full release artifact remains attached to the workflow run.

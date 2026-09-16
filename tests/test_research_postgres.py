@@ -100,3 +100,25 @@ def test_full_bundle_reader_is_read_only_with_all_real_dependencies(pg):
     assert bundle["company"]["ticker"] == "VZ"
     assert bundle["market_snapshot"]["net_debt"] == 163479000000
     assert report is None and forecast is None
+
+
+def test_public_coverage_uses_read_only_index_and_keeps_pending_names(pg, monkeypatch, source_bundle):
+    from stock_machine import control_plane, webapp, api_v1
+    def forbid_rebuild(*args, **kwargs):
+        raise AssertionError("public coverage rebuilt a bundle")
+    monkeypatch.setattr(webapp, "_companies_live", forbid_rebuild)
+    monkeypatch.setattr(control_plane, "build_index_row", forbid_rebuild)
+    with pg() as conn:
+        conn.execute("INSERT INTO companies(ticker,cik,legal_name) VALUES ('AAPL','0000320193','Apple')")
+        control_plane.save_index_row(conn, "VZ", {"ticker": "VZ", "price": 49.5, "indexed_at": "2026-09-16T19:05:00+00:00"}, commit=False)
+    rows = webapp.companies()
+    api_rows, generated = api_v1._load_coverage_rows()
+    assert rows == api_rows
+    assert len(rows) == 2 and generated == "2026-09-16T19:05:00+00:00"
+    by_ticker = {r["ticker"]: r for r in rows}
+    assert by_ticker["AAPL"]["index_status"] == "PENDING"
+    assert not by_ticker["AAPL"]["research_contract"]["guidance_eligible"]
+    assert by_ticker["VZ"]["price"] == 49.5
+    with pg() as conn:
+        control_plane.coverage_rows(conn)
+        assert conn.execute("SHOW transaction_read_only").fetchone()[0] == "on"
