@@ -4,6 +4,22 @@
     {
       "path": "/api/admin/cron",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/admin/prices/cron/0/18",
+      "schedule": "0 22 * * 1-5"
+    },
+    {
+      "path": "/api/admin/prices/cron/18/18",
+      "schedule": "20 22 * * 1-5"
+    },
+    {
+      "path": "/api/admin/prices/cron/36/18",
+      "schedule": "40 22 * * 1-5"
+    },
+    {
+      "path": "/api/admin/prices/cron/0/25",
+      "schedule": "0 23 * * 1-5"
     }
   ],
   "functions": {

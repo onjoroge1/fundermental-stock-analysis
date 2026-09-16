@@ -39,6 +39,77 @@ def test_cron_route_requires_processor_secret(monkeypatch):
     assert allowed.json()["processor"]["status"] == "IDLE"
 
 
+def test_price_cron_requires_secret_and_refreshes_bounded_shard(monkeypatch):
+    monkeypatch.setenv("CRON_SECRET", "abcdef0123456789abcdef0123456789")
+    monkeypatch.delenv("STOCK_MACHINE_ADMIN_TOKEN", raising=False)
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    captured = {}
+
+    def fake_refresh(conn, tickers, **kwargs):
+        captured.update(tickers=list(tickers), kwargs=kwargs)
+        return {"status": "OK", "requested": len(tickers), "refreshed": len(tickers),
+                "failures": [], "results": [], "health": {"status": "HEALTHY"}}
+
+    from stock_machine import db, market_health
+    monkeypatch.setattr(db, "connect", lambda: FakeConn())
+    monkeypatch.setattr(
+        db,
+        "list_companies",
+        lambda conn: [{"ticker": ticker} for ticker in ("VZ", "AAPL", "MSFT", "HIMS")],
+    )
+    monkeypatch.setattr(market_health, "refresh_prices", fake_refresh)
+
+    from stock_machine.webapp_automation import app
+    client = TestClient(app, raise_server_exceptions=False)
+
+    assert client.get("/api/admin/prices/cron/1/2").status_code == 401
+    response = client.get(
+        "/api/admin/prices/cron/1/2",
+        headers={"Authorization": "Bearer abcdef0123456789abcdef0123456789"},
+    )
+    assert response.status_code == 200
+    assert response.json()["batch"] == ["HIMS", "MSFT"]
+    assert captured == {
+        "tickers": ["HIMS", "MSFT"],
+        "kwargs": {"only_if_stale": True, "limit": 2},
+    }
+
+
+def test_price_cron_surfaces_partial_refresh_as_failure(monkeypatch):
+    monkeypatch.setenv("CRON_SECRET", "abcdef0123456789abcdef0123456789")
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    from stock_machine import db, market_health
+    monkeypatch.setattr(db, "connect", lambda: FakeConn())
+    monkeypatch.setattr(db, "list_companies", lambda conn: [{"ticker": "AAPL"}])
+    monkeypatch.setattr(
+        market_health,
+        "refresh_prices",
+        lambda *args, **kwargs: {"status": "PARTIAL", "failures": [{"ticker": "AAPL"}]},
+    )
+
+    from stock_machine.webapp_automation import app
+    response = TestClient(app, raise_server_exceptions=False).get(
+        "/api/admin/prices/cron/0/18",
+        headers={"Authorization": "Bearer abcdef0123456789abcdef0123456789"},
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"]["status"] == "PARTIAL"
+
+
 def test_sunday_scheduler_never_auto_syncs_forward_paper(monkeypatch):
     scheduled = []
 
