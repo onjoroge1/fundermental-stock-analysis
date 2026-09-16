@@ -371,7 +371,8 @@ def build_periods(companyfacts: dict) -> tuple[list[dict], list[dict], list[dict
     import hashlib
     import json
     from pathlib import Path
-    source_hash = hashlib.sha256(json.dumps(companyfacts, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    raw_provenance = companyfacts.get("_source_provenance") or {}
+    source_hash = raw_provenance.get("source_content_sha256") or hashlib.sha256(json.dumps(companyfacts, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     cik = str(companyfacts.get("cik", "")).zfill(10)
     reviewed = json.loads(Path(__file__).with_name("reviewed_balance_sheets.json").read_text())
     for p in quarterly + annual:
@@ -384,7 +385,7 @@ def build_periods(companyfacts: dict) -> tuple[list[dict], list[dict], list[dict
                     "tag": f["tag"], "accession_number": f["accn"], "filed_at": f["filed"],
                     "period_end": f["end"], "period_start": f["start"],
                     "source_id": "SEC:ACCESSION:" + str(f["accn"]),
-                    "source_url": f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
+                    "source_url": raw_provenance.get("source_url") or f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
                     "source_content_sha256": source_hash,
                     "unit": units_for(f["field"])[0], "value": f["value"],
                 }
