@@ -1,0 +1,3925 @@
+{
+  "as_of": "2026-09-16",
+  "expected": 54,
+  "retrieved": 54,
+  "exact_balance_identities": 53,
+  "scope": "Actual latest filing consolidated assets = liabilities + permanent equity + temporary equity. Debt, cash restrictions, financial metric eligibility and forward guidance require separate checks; an accounting identity does not qualify them. No assets-minus-equity liability inference.",
+  "rows": [
+    {
+      "ticker": "AAL",
+      "cik": "0000006201",
+      "accession_number": "0000006201-26-000052",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-23",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/6201/000000620126000052/aal-20260630.htm",
+      "sha256": "e9e9f0c885958da6c767f0af5616879f4e6a7df748d626ffaf6dc35ed633b07e",
+      "values": {
+        "assets": 64233000000,
+        "liabilities": 68205000000,
+        "equity_including_noncontrolling": -3972000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 64233000000,
+            "unit": "usd",
+            "context_id": "c-22",
+            "dimensions": [],
+            "element_id": "f-217",
+            "label": "Total assets $ 64,233 $ 61,774",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 26756000000,
+            "unit": "usd",
+            "context_id": "c-22",
+            "dimensions": [],
+            "element_id": "f-235",
+            "label": "Total current liabilities 26,756 24,492",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:LiabilitiesNoncurrent",
+            "value": 41449000000,
+            "unit": "usd",
+            "context_id": "c-22",
+            "dimensions": [],
+            "element_id": "f-247",
+            "label": "Total noncurrent liabilities 41,449 41,009",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": -3972000000,
+            "unit": "usd",
+            "context_id": "c-22",
+            "dimensions": [],
+            "element_id": "f-267",
+            "label": "Total stockholders\u2019 deficit ( 3,972 ) ( 3,727 )",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 2000000.0
+    },
+    {
+      "ticker": "AAPL",
+      "cik": "0000320193",
+      "accession_number": "0000320193-26-000020",
+      "period_end": "2026-06-27",
+      "filed_at": "2026-07-31",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/aapl-20260627.htm",
+      "sha256": "4ad5bea67cedfa7542d623900355cc8d143ef95c1acc135a597f2eedabdb9177",
+      "values": {
+        "assets": 383266000000,
+        "liabilities": 275746000000,
+        "equity_including_noncontrolling": 107520000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 383266000000,
+            "unit": "usd",
+            "context_id": "c-21",
+            "dimensions": [],
+            "element_id": "f-188",
+            "label": "Total assets $ 383,266 $ 359,241",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 275746000000,
+            "unit": "usd",
+            "context_id": "c-21",
+            "dimensions": [],
+            "element_id": "f-208",
+            "label": "Total liabilities 275,746 285,508",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 107520000000,
+            "unit": "usd",
+            "context_id": "c-21",
+            "dimensions": [],
+            "element_id": "f-226",
+            "label": "Total shareholders\u2019 equity 107,520 73,733",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "ABNB",
+      "cik": "0001559720",
+      "accession_number": "0001559720-26-000027",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-08-06",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1559720/000155972026000027/abnb-20260630.htm",
+      "sha256": "1369d236b787c4c5bb7d46fddaee0979cfc416492f5e88e009a311008b6ef0a7",
+      "values": {
+        "assets": 28754000000,
+        "liabilities": 20955000000,
+        "equity_including_noncontrolling": 7799000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 28754000000,
+            "unit": "usd",
+            "context_id": "c-7",
+            "dimensions": [],
+            "element_id": "f-50",
+            "label": "Total assets $ 22,208 $ 28,754",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 20955000000,
+            "unit": "usd",
+            "context_id": "c-7",
+            "dimensions": [],
+            "element_id": "f-66",
+            "label": "Total liabilities 14,009 20,955",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 7799000000,
+            "unit": "usd",
+            "context_id": "c-7",
+            "dimensions": [],
+            "element_id": "f-104",
+            "label": "Total stockholders\u2019 equity 8,199 7,799",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "ADBE",
+      "cik": "0000796343",
+      "accession_number": "0000796343-26-000112",
+      "period_end": "2026-05-29",
+      "filed_at": "2026-06-15",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/796343/000079634326000112/adbe-20260529.htm",
+      "sha256": "dd3ab5e0a1b3c881e60b98dfd8de540b120b97f5f39ec2dac43bbf5028c6142a",
+      "values": {
+        "assets": 29933000000,
+        "liabilities": 18415000000,
+        "equity_including_noncontrolling": 11518000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 29933000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-54",
+            "label": "Total assets $ 29,933 $ 29,496",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 18415000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-80",
+            "label": "Total liabilities 18,415 17,873",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 11518000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-110",
+            "label": "Total stockholders\u2019 equity 11,518 11,623",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "ADI",
+      "cik": "0000006281",
+      "accession_number": "0000006281-26-000073",
+      "period_end": "2026-08-01",
+      "filed_at": "2026-08-19",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/6281/000000628126000073/adi-20260801.htm",
+      "sha256": "9a64bf7fb82c290183404e9ac29876f30a2f20e02bd6193d3a9c145f1a8932d5",
+      "values": {
+        "assets": 48424417000,
+        "liabilities": 14873520000,
+        "equity_including_noncontrolling": 33550897000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 48424417000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-158",
+            "label": "TOTAL ASSETS $ 48,424,417 $ 47,992,712",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 5656254000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-170",
+            "label": "Total current liabilities 5,656,254 3,245,801",
+            "declared_decimals": "-3",
+            "scale": "3"
+          },
+          {
+            "tag": "us-gaap:LiabilitiesNoncurrent",
+            "value": 9217266000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-180",
+            "label": "Total non-current liabilities 9,217,266 10,931,156",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 33550897000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-204",
+            "label": "Total shareholders\u2019 equity 33,550,897 33,815,755",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 2000.0
+    },
+    {
+      "ticker": "AMAT",
+      "cik": "0000006951",
+      "accession_number": "0001628280-26-058235",
+      "period_end": "2026-07-26",
+      "filed_at": "2026-08-20",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/6951/000162828026058235/amat-20260726.htm",
+      "sha256": "01ac4a9a2f6765fd3a498937583b94afb05b8d05733cea78319fea0889fd00c1",
+      "values": {
+        "assets": 43522000000,
+        "liabilities": 17896000000,
+        "equity_including_noncontrolling": 25626000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 43522000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-149",
+            "label": "Total assets $ 43,522 $ 36,299",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 17896000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-165",
+            "label": "Total liabilities 17,896 15,884",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 25626000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-177",
+            "label": "Total stockholders\u2019 equity 25,626 20,415",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "AMD",
+      "cik": "0000002488",
+      "accession_number": "0000002488-26-000123",
+      "period_end": "2026-06-27",
+      "filed_at": "2026-08-05",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/2488/000000248826000123/amd-20260627.htm",
+      "sha256": "1050bc4dcf2b23a3a07ff62279451637e3893f15564e719d82bd8e76772899b7",
+      "values": {
+        "assets": 84464000000,
+        "liabilities": 17240000000,
+        "equity_including_noncontrolling": 67224000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 84464000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-172",
+            "label": "Total assets $ 84,464 $ 76,926",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 12081000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-182",
+            "label": "Total current liabilities 12,081 9,455",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:LongTermDebtNoncurrent",
+            "value": 2351000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-184",
+            "label": "Long-term debt, net 2,351 2,348",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:OperatingLeaseLiabilityNoncurrent",
+            "value": 1050000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-186",
+            "label": "Long-term operating lease liabilities 1,050 625",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:DeferredIncomeTaxLiabilitiesNet",
+            "value": 300000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-188",
+            "label": "Deferred tax liabilities 300 313",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:OtherLiabilitiesNoncurrent",
+            "value": 1458000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-190",
+            "label": "Other long-term liabilities 1,458 1,186",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 67224000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-214",
+            "label": "Total stockholders\u2019 equity 67,224 62,999",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 3500000.0
+    },
+    {
+      "ticker": "AMZN",
+      "cik": "0001018724",
+      "accession_number": "0001018724-26-000026",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-31",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000026/amzn-20260630.htm",
+      "sha256": "d07b8a88fa442c2c55bd65b3f1d336ca16e7d1e9fda831e1063d24adea60e4eb",
+      "values": {
+        "assets": 1095689000000,
+        "liabilities": 544069000000,
+        "equity_including_noncontrolling": 551620000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 1095689000000,
+            "unit": "usd",
+            "context_id": "c-23",
+            "dimensions": [],
+            "element_id": "f-395",
+            "label": "Total assets $ 818,042 $ 1,095,689",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 241274000000,
+            "unit": "usd",
+            "context_id": "c-23",
+            "dimensions": [],
+            "element_id": "f-403",
+            "label": "Total current liabilities 218,005 241,274",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "amzn:LeaseLiabilityNoncurrent",
+            "value": 94338000000,
+            "unit": "usd",
+            "context_id": "c-23",
+            "dimensions": [],
+            "element_id": "f-405",
+            "label": "Long-term lease liabilities 87,339 94,338",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:LongTermDebtNoncurrent",
+            "value": 128894000000,
+            "unit": "usd",
+            "context_id": "c-23",
+            "dimensions": [],
+            "element_id": "f-407",
+            "label": "Long-term debt 65,648 128,894",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:OtherLiabilitiesNoncurrent",
+            "value": 79563000000,
+            "unit": "usd",
+            "context_id": "c-23",
+            "dimensions": [],
+            "element_id": "f-409",
+            "label": "Other long-term liabilities 35,985 79,563",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 551620000000,
+            "unit": "usd",
+            "context_id": "c-23",
+            "dimensions": [],
+            "element_id": "f-441",
+            "label": "Total stockholders\u2019 equity 411,065 551,620",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 3000000.0
+    },
+    {
+      "ticker": "AVGO",
+      "cik": "0001730168",
+      "accession_number": "0001730168-26-000080",
+      "period_end": "2026-08-02",
+      "filed_at": "2026-09-10",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1730168/000173016826000080/avgo-20260802.htm",
+      "sha256": "8e1dfc5d2c1da6d6125640924dc6d16b39684042b1cdf22035eae62e1ae02a07",
+      "values": {
+        "assets": 188148000000,
+        "liabilities": 88458000000,
+        "equity_including_noncontrolling": 99690000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 188148000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-48",
+            "label": "Total assets $ 188,148 $ 171,092",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 88458000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-64",
+            "label": "Total liabilities 88,458 89,800",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": 99690000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-94",
+            "label": "Total stockholders\u2019 equity 99,690 81,292",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "BKNG",
+      "cik": "0001075531",
+      "accession_number": "0001075531-26-000037",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-08-04",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1075531/000107553126000037/bkng-20260630.htm",
+      "sha256": "bb26b903de5986430b7234fdfeca37d7cf4ac423b38934193a7471a4f33b7dc4",
+      "values": {
+        "assets": 29682000000,
+        "liabilities": 40465000000,
+        "equity_including_noncontrolling": -10783000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 29682000000,
+            "unit": "usd",
+            "context_id": "c-29",
+            "dimensions": [],
+            "element_id": "f-126",
+            "label": "Total assets $ 29,682 $ 29,264",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 40465000000,
+            "unit": "usd",
+            "context_id": "c-29",
+            "dimensions": [],
+            "element_id": "f-144",
+            "label": "Total liabilities 40,465 34,842",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": -10783000000,
+            "unit": "usd",
+            "context_id": "c-29",
+            "dimensions": [],
+            "element_id": "f-166",
+            "label": "Total stockholders' deficit ( 10,783 ) ( 5,578 )",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "CMCSA",
+      "cik": "0001166691",
+      "accession_number": "0001628280-26-049360",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-23",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1166691/000162828026049360/cmcsa-20260630.htm",
+      "sha256": "c390b896c81b540cb5525846ed6c258fdd757fa2035858511739b4e91229a479",
+      "values": {
+        "assets": 257548000000,
+        "liabilities": 167593000000,
+        "equity_including_noncontrolling": 89770000000,
+        "temporary_equity": 185000000
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 257548000000,
+            "unit": "usd",
+            "context_id": "c-22",
+            "dimensions": [],
+            "element_id": "f-277",
+            "label": "Total assets $ 257,548 $ 272,631",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 33093000000,
+            "unit": "usd",
+            "context_id": "c-22",
+            "dimensions": [],
+            "element_id": "f-287",
+            "label": "Total current liabilities 33,093 33,524",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:LongTermDebtAndCapitalLeaseObligations",
+            "value": 84264000000,
+            "unit": "usd",
+            "context_id": "c-22",
+            "dimensions": [],
+            "element_id": "f-289",
+            "label": "Noncurrent portion of debt 84,264 92,979",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:DeferredIncomeTaxLiabilitiesNet",
+            "value": 28940000000,
+            "unit": "usd",
+            "context_id": "c-22",
+            "dimensions": [],
+            "element_id": "f-291",
+            "label": "Deferred income taxes 28,940 27,788",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:OtherLiabilitiesNoncurrent",
+            "value": 21296000000,
+            "unit": "usd",
+            "context_id": "c-22",
+            "dimensions": [],
+            "element_id": "f-293",
+            "label": "Other noncurrent liabilities 21,296 20,965",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": 89770000000,
+            "unit": "usd",
+            "context_id": "c-22",
+            "dimensions": [],
+            "element_id": "f-339",
+            "label": "Total equity 89,770 97,151",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": [
+          {
+            "tag": "us-gaap:RedeemableNoncontrollingInterestEquityCarryingAmount",
+            "value": 185000000,
+            "unit": "usd",
+            "context_id": "c-22",
+            "dimensions": [],
+            "element_id": "f-297",
+            "label": "Redeemable noncontrolling interests 185 224",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ]
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 3500000.0
+    },
+    {
+      "ticker": "CMG",
+      "cik": "0001058090",
+      "accession_number": "0001058090-26-000066",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-31",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1058090/000105809026000066/cmg-20260630.htm",
+      "sha256": "154985742995a1ca7a971fb549e7482c46e8fb6f8a71f86e1a4491416b084efc",
+      "values": {
+        "assets": 8864585000,
+        "liabilities": 6664794000,
+        "equity_including_noncontrolling": 2199791000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 8864585000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-57",
+            "label": "Total assets $ 8,864,585 $ 8,994,531",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 6664794000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-81",
+            "label": "Total liabilities 6,664,794 6,163,924",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 2199791000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-97",
+            "label": "Total shareholders' equity 2,199,791 2,830,607",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500.0
+    },
+    {
+      "ticker": "COST",
+      "cik": "0000909832",
+      "accession_number": "0000909832-26-000051",
+      "period_end": "2026-05-10",
+      "filed_at": "2026-06-03",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/909832/000090983226000051/cost-20260510.htm",
+      "sha256": "14ecc7f63923d938cccec04db33e90f86b2270dd7a09a68f891f06c6337ed624",
+      "values": {
+        "assets": 86430000000,
+        "liabilities": 52921000000,
+        "equity_including_noncontrolling": 33509000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 86430000000,
+            "unit": "usd",
+            "context_id": "c-14",
+            "dimensions": [],
+            "element_id": "f-120",
+            "label": "TOTAL ASSETS $ 86,430 $ 77,099",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 52921000000,
+            "unit": "usd",
+            "context_id": "c-14",
+            "dimensions": [],
+            "element_id": "f-140",
+            "label": "TOTAL LIABILITIES 52,921 47,935",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 33509000000,
+            "unit": "usd",
+            "context_id": "c-14",
+            "dimensions": [],
+            "element_id": "f-152",
+            "label": "TOTAL EQUITY 33,509 29,164",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "CRM",
+      "cik": "0001108524",
+      "accession_number": "0001108524-26-000190",
+      "period_end": "2026-07-31",
+      "filed_at": "2026-08-27",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1108524/000110852426000190/crm-20260731.htm",
+      "sha256": "a6d4da1fbe51d6a2296bfc4c42e9fb1f0d971a57b5b46c891db0b45a85e8a478",
+      "values": {
+        "assets": 109620000000,
+        "liabilities": 71242000000,
+        "equity_including_noncontrolling": 38378000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 109620000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-57",
+            "label": "Total assets $ 109,620 $ 112,305",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 71242000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-75",
+            "label": "Total liabilities 71,242 53,163",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 38378000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-87",
+            "label": "Total stockholders\u2019 equity 38,378 59,142",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "CSCO",
+      "cik": "0000858877",
+      "accession_number": "0000858877-26-000132",
+      "period_end": "2026-07-25",
+      "filed_at": "2026-09-02",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/858877/000085887726000132/csco-20260725.htm",
+      "sha256": "9a1a1bac10a3bc20572d5ee1e0a9d1539f3d87b52f583aa0991094d1f536bdbb",
+      "values": {
+        "assets": 129637000000,
+        "liabilities": 79352000000,
+        "equity_including_noncontrolling": 50285000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 129637000000,
+            "unit": "usd",
+            "context_id": "c-4",
+            "dimensions": [],
+            "element_id": "f-82",
+            "label": "TOTAL ASSETS $ 129,637 $ 122,291",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 79352000000,
+            "unit": "usd",
+            "context_id": "c-4",
+            "dimensions": [],
+            "element_id": "f-106",
+            "label": "Total liabilities 79,352 75,448",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 50285000000,
+            "unit": "usd",
+            "context_id": "c-4",
+            "dimensions": [],
+            "element_id": "f-134",
+            "label": "Total equity 50,285 46,843",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "DAL",
+      "cik": "0000027904",
+      "accession_number": "0000027904-26-000031",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-10",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/27904/000002790426000031/dal-20260630.htm",
+      "sha256": "74cdc4e02784a0c1cffb55b87cae88f319f92ef283a075c1268db523f9fc9fe6",
+      "values": {
+        "assets": 86321000000,
+        "liabilities": 64506000000,
+        "equity_including_noncontrolling": 21815000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 86321000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-66",
+            "label": "Total assets $ 86,321 $ 81,317",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 33604000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-84",
+            "label": "Total current liabilities 33,604 27,624",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:LiabilitiesNoncurrent",
+            "value": 30902000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-98",
+            "label": "Total noncurrent liabilities 30,902 32,840",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 21815000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-120",
+            "label": "Total stockholders' equity 21,815 20,853",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 2000000.0
+    },
+    {
+      "ticker": "DELL",
+      "cik": "0001571996",
+      "accession_number": "0001571996-26-000046",
+      "period_end": "2026-07-31",
+      "filed_at": "2026-09-08",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1571996/000157199626000046/dell-20260731.htm",
+      "sha256": "220b9a4cb670e8be2fffe66204bcbc6331a0ff4d4615617151f086d1de959e9d",
+      "values": {
+        "assets": 127393000000,
+        "liabilities": 128820000000,
+        "equity_including_noncontrolling": -1427000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 127393000000,
+            "unit": "usd",
+            "context_id": "c-5",
+            "dimensions": [],
+            "element_id": "f-62",
+            "label": "Total assets $ 127,393 $ 101,286",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 128820000000,
+            "unit": "usd",
+            "context_id": "c-5",
+            "dimensions": [],
+            "element_id": "f-80",
+            "label": "Total liabilities $ 128,820 $ 103,756",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": -1427000000,
+            "unit": "usd",
+            "context_id": "c-5",
+            "dimensions": [],
+            "element_id": "f-302",
+            "label": "Balances as of July 31, 2026 852 $ 9,277 212 $ ( 20,010 ) $ 10,065 $ ( 759 ) $ ( 1,427 ) $ \u2014 $ ( 1,427 )",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "DIS",
+      "cik": "0001744489",
+      "accession_number": "0001744489-26-000057",
+      "period_end": "2026-06-27",
+      "filed_at": "2026-08-05",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1744489/000174448926000057/dis-20260627.htm",
+      "sha256": "a311635b277d90e7c6fdd2700f56882ce78aeaad90af480629a38c5317884d87",
+      "values": {
+        "assets": 204740000000,
+        "liabilities": 87898000000,
+        "equity_including_noncontrolling": 116842000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 204740000000,
+            "unit": "usd",
+            "context_id": "c-14",
+            "dimensions": [],
+            "element_id": "f-180",
+            "label": "Total assets $ 204,740 $ 197,514",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 35105000000,
+            "unit": "usd",
+            "context_id": "c-14",
+            "dimensions": [],
+            "element_id": "f-188",
+            "label": "Total current liabilities 35,105 34,162",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:LongTermDebtNoncurrent",
+            "value": 37414000000,
+            "unit": "usd",
+            "context_id": "c-14",
+            "dimensions": [],
+            "element_id": "f-190",
+            "label": "Borrowings 37,414 35,315",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:DeferredTaxAndOtherLiabilitiesNoncurrent",
+            "value": 5219000000,
+            "unit": "usd",
+            "context_id": "c-14",
+            "dimensions": [],
+            "element_id": "f-192",
+            "label": "Deferred income taxes 5,219 3,524",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:OtherLiabilitiesNoncurrent",
+            "value": 10160000000,
+            "unit": "usd",
+            "context_id": "c-14",
+            "dimensions": [],
+            "element_id": "f-194",
+            "label": "Other long-term liabilities 10,160 9,901",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": 116842000000,
+            "unit": "usd",
+            "context_id": "c-14",
+            "dimensions": [],
+            "element_id": "f-212",
+            "label": "Total equity 116,842 114,612",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 3000000.0
+    },
+    {
+      "ticker": "F",
+      "cik": "0000037996",
+      "accession_number": "0000037996-26-000156",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-29",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/37996/000003799626000156/f-20260630.htm",
+      "sha256": "827292262926efa9a1bb6e96fb980a308c1aec8593279e7df332915dba7c8dfd",
+      "values": {
+        "assets": 285531000000,
+        "liabilities": 249776000000,
+        "equity_including_noncontrolling": 35755000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 285531000000,
+            "unit": "usd",
+            "context_id": "c-20",
+            "dimensions": [],
+            "element_id": "f-189",
+            "label": "Total assets $ 289,160 $ 285,531",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 249776000000,
+            "unit": "usd",
+            "context_id": "c-20",
+            "dimensions": [],
+            "element_id": "f-209",
+            "label": "Total liabilities 253,180 249,776",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": 35755000000,
+            "unit": "usd",
+            "context_id": "c-20",
+            "dimensions": [],
+            "element_id": "f-233",
+            "label": "Total equity 35,980 35,755",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "GM",
+      "cik": "0001467858",
+      "accession_number": "0001467858-26-000051",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-21",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1467858/000146785826000051/gm-20260630.htm",
+      "sha256": "450ce0b60e5bbf9e036a5e8da29ccbadaf3d4a368b74fe97e93c580477643710",
+      "values": {
+        "assets": 282742000000,
+        "liabilities": 219101000000,
+        "equity_including_noncontrolling": 63641000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 282742000000,
+            "unit": "usd",
+            "context_id": "c-14",
+            "dimensions": [],
+            "element_id": "f-182",
+            "label": "Total Assets $ 282,742 $ 281,284",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 219101000000,
+            "unit": "usd",
+            "context_id": "c-14",
+            "dimensions": [],
+            "element_id": "f-206",
+            "label": "Total Liabilities 219,101 218,116",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": 63641000000,
+            "unit": "usd",
+            "context_id": "c-14",
+            "dimensions": [],
+            "element_id": "f-224",
+            "label": "Total Equity 63,641 63,168",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "GOOGL",
+      "cik": "0001652044",
+      "accession_number": "0001652044-26-000071",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-23",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000071/goog-20260630.htm",
+      "sha256": "fecfbc2683f630380b17937278ce3745eca150eb90e21a945fd6b78fe19728c7",
+      "values": {
+        "assets": 921983000000,
+        "liabilities": 281503000000,
+        "equity_including_noncontrolling": 640480000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 921983000000,
+            "unit": "usd",
+            "context_id": "c-32",
+            "dimensions": [],
+            "element_id": "f-136",
+            "label": "Total assets $ 595,281 $ 921,983",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 281503000000,
+            "unit": "usd",
+            "context_id": "c-32",
+            "dimensions": [],
+            "element_id": "f-160",
+            "label": "Total liabilities 180,016 281,503",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 640480000000,
+            "unit": "usd",
+            "context_id": "c-32",
+            "dimensions": [],
+            "element_id": "f-210",
+            "label": "Total stockholders\u2019 equity 415,265 640,480",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "HD",
+      "cik": "0000354950",
+      "accession_number": "0001628280-26-058715",
+      "period_end": "2026-08-02",
+      "filed_at": "2026-08-25",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/354950/000162828026058715/hd-20260802.htm",
+      "sha256": "29d1b481d785ecb9e4331dcedd56342788a182e680cabc66538bf3556502a8cb",
+      "values": {
+        "assets": 109384000000,
+        "liabilities": 92767000000,
+        "equity_including_noncontrolling": 16617000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 109384000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-50",
+            "label": "Total assets $ 109,384 $ 105,095",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 92767000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-80",
+            "label": "Total liabilities 92,767 92,282",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 16617000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-104",
+            "label": "Total stockholders\u2019 equity 16,617 12,813",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "HIMS",
+      "cik": "0001773751",
+      "accession_number": "0001773751-26-000163",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-08-10",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1773751/000177375126000163/hims-20260630.htm",
+      "sha256": "c2debdfb1df6703f0c37eb49ba0855c3870a79aae80484daf3c9054abe972eaf",
+      "values": {
+        "assets": 3628814000,
+        "liabilities": 3304742000,
+        "equity_including_noncontrolling": 324072000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 3628814000,
+            "unit": "usd",
+            "context_id": "c-4",
+            "dimensions": [],
+            "element_id": "f-57",
+            "label": "Total assets $ 3,628,814 $ 2,154,705",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 3304742000,
+            "unit": "usd",
+            "context_id": "c-4",
+            "dimensions": [],
+            "element_id": "f-85",
+            "label": "Total liabilities 3,304,742 1,613,777",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 324072000,
+            "unit": "usd",
+            "context_id": "c-4",
+            "dimensions": [],
+            "element_id": "f-113",
+            "label": "Total stockholders' equity 324,072 540,928",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500.0
+    },
+    {
+      "ticker": "HPQ",
+      "cik": "0000047217",
+      "accession_number": "0000047217-26-000051",
+      "period_end": "2026-07-31",
+      "filed_at": "2026-08-27",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/47217/000004721726000051/hpq-20260731.htm",
+      "sha256": "fc4ef709b36ee747ddd9217284a05c6b1631ff942262fd0a378b40f8727e6228",
+      "values": {
+        "assets": 45701000000,
+        "liabilities": 45793000000,
+        "equity_including_noncontrolling": -92000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 45701000000,
+            "unit": "usd",
+            "context_id": "c-14",
+            "dimensions": [],
+            "element_id": "f-192",
+            "label": "Total assets $ 45,701 $ 41,769",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 33963000000,
+            "unit": "usd",
+            "context_id": "c-14",
+            "dimensions": [],
+            "element_id": "f-200",
+            "label": "Total current liabilities 33,963 29,258",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:LongTermDebtNoncurrent",
+            "value": 7868000000,
+            "unit": "usd",
+            "context_id": "c-14",
+            "dimensions": [],
+            "element_id": "f-202",
+            "label": "Long-term debt 7,868 8,821",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:OtherLiabilitiesNoncurrent",
+            "value": 3962000000,
+            "unit": "usd",
+            "context_id": "c-14",
+            "dimensions": [],
+            "element_id": "f-204",
+            "label": "Other non-current liabilities 3,962 4,036",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": -92000000,
+            "unit": "usd",
+            "context_id": "c-14",
+            "dimensions": [],
+            "element_id": "f-230",
+            "label": "Total stockholders\u2019 deficit ( 92 ) ( 346 )",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 2500000.0
+    },
+    {
+      "ticker": "IBM",
+      "cik": "0000051143",
+      "accession_number": "0000051143-26-000078",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-23",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/51143/000005114326000078/ibm-20260630.htm",
+      "sha256": "84458f9e2d4eb751290c5b5c9635ca013da77d68cb821d739c635b4920f972eb",
+      "values": {
+        "assets": 152099000000,
+        "liabilities": 117558000000,
+        "equity_including_noncontrolling": 34541000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 152099000000,
+            "unit": "usd",
+            "context_id": "c-32",
+            "dimensions": [],
+            "element_id": "f-349",
+            "label": "Total assets $ 152,099 $ 151,880",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 117558000000,
+            "unit": "usd",
+            "context_id": "c-32",
+            "dimensions": [],
+            "element_id": "f-377",
+            "label": "Total liabilities $ 117,558 $ 119,139",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": 34541000000,
+            "unit": "usd",
+            "context_id": "c-32",
+            "dimensions": [],
+            "element_id": "f-399",
+            "label": "Total equity 34,541 32,740",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "INTC",
+      "cik": "0000050863",
+      "accession_number": "0000050863-26-000157",
+      "period_end": "2026-06-27",
+      "filed_at": "2026-07-24",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/50863/000005086326000157/intc-20260627.htm",
+      "sha256": "23bf9b8f45c8a4412245f9919fcbf124d0aa1af3bd949af671a4cce68fc2acda",
+      "values": {
+        "assets": 202439000000,
+        "liabilities": 99296000000,
+        "equity_including_noncontrolling": 103143000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 202439000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-162",
+            "label": "Total assets $ 202,439 $ 211,429",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 35670000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-172",
+            "label": "Total current liabilities 35,670 31,575",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:LongTermDebtNoncurrent",
+            "value": 48549000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-174",
+            "label": "Debt 48,549 44,086",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:OtherLiabilitiesNoncurrent",
+            "value": 15077000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-176",
+            "label": "Other long-term liabilities 15,077 9,408",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": 103143000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-195",
+            "label": "Total stockholders' equity 103,143 126,360",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 2500000.0
+    },
+    {
+      "ticker": "INTU",
+      "cik": "0000896878",
+      "accession_number": "0000896878-26-000037",
+      "period_end": "2026-07-31",
+      "filed_at": "2026-09-09",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/896878/000089687826000037/intu-20260731.htm",
+      "sha256": "d5c8746a7232ebbc871cdd784b669a41d1623fa82815fbd8e5c72f3daba631a0",
+      "values": {
+        "assets": 36786000000,
+        "liabilities": 17794000000,
+        "equity_including_noncontrolling": 18992000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 36786000000,
+            "unit": "usd",
+            "context_id": "c-12",
+            "dimensions": [],
+            "element_id": "f-177",
+            "label": "Total assets $ 36,786 $ 36,958",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 17794000000,
+            "unit": "usd",
+            "context_id": "c-12",
+            "dimensions": [],
+            "element_id": "f-203",
+            "label": "Total liabilities 17,794 17,248",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 18992000000,
+            "unit": "usd",
+            "context_id": "c-12",
+            "dimensions": [],
+            "element_id": "f-243",
+            "label": "Total stockholders\u2019 equity 18,992 19,710",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "KLAC",
+      "cik": "0000319201",
+      "accession_number": "0000319201-26-000027",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-08-06",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/319201/000031920126000027/klac-20260630.htm",
+      "sha256": "b300ebc7ba2fad7d6818ce1793782e87451eb1235053837612d73242e91ae566",
+      "values": {
+        "assets": 17951535000,
+        "liabilities": 11601715000,
+        "equity_including_noncontrolling": 6349820000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 17951535000,
+            "unit": "usd",
+            "context_id": "c-4",
+            "dimensions": [],
+            "element_id": "f-74",
+            "label": "Total assets $ 17,951,535 $ 16,067,926",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 11601715000,
+            "unit": "usd",
+            "context_id": "c-4",
+            "dimensions": [],
+            "element_id": "f-94",
+            "label": "Total liabilities 11,601,715 11,375,473",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": 6349820000,
+            "unit": "usd",
+            "context_id": "c-4",
+            "dimensions": [],
+            "element_id": "f-286",
+            "label": "Balances as of June 30, 2026 1,306,983 $ 2,700,409 $ 3,683,864 $ ( 34,453 ) $ 6,349,820",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500.0
+    },
+    {
+      "ticker": "LOW",
+      "cik": "0000060667",
+      "accession_number": "0000060667-26-000117",
+      "period_end": "2026-07-31",
+      "filed_at": "2026-08-27",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/60667/000006066726000117/low-20260731.htm",
+      "sha256": "fdcfc145c88789cd9dd6b1b463e01ed6a7e06eb7355b240b10b66fc7dae6e81c",
+      "values": {
+        "assets": 55881000000,
+        "liabilities": 63318000000,
+        "equity_including_noncontrolling": -7437000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 55881000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-205",
+            "label": "Total assets $ 55,881 $ 46,614 $ 54,144",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 63318000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-244",
+            "label": "Total liabilities 63,318 58,014 64,061",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": -7437000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-286",
+            "label": "Total shareholders' deficit ( 7,437 ) ( 11,400 ) ( 9,917 )",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "LRCX",
+      "cik": "0000707549",
+      "accession_number": "0000707549-26-000037",
+      "period_end": "2026-06-28",
+      "filed_at": "2026-08-07",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/707549/000070754926000037/lrcx-20260628.htm",
+      "sha256": "1efe9ac795b5bcd16a163133d86dec15fcbb0be34c1ea5004bc912eda66658cc",
+      "values": {
+        "assets": 23529743000,
+        "liabilities": 11058822000,
+        "equity_including_noncontrolling": 12470921000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 23529743000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-157",
+            "label": "Total assets $ 23,529,743 $ 21,345,260",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 11058822000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-175",
+            "label": "Total liabilities 11,058,822 11,483,641",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 12470921000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-207",
+            "label": "Total stockholders\u2019 equity 12,470,921 9,861,619",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500.0
+    },
+    {
+      "ticker": "LUV",
+      "cik": "0000092380",
+      "accession_number": "0000092380-26-000077",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-23",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/92380/000009238026000077/luv-20260630.htm",
+      "sha256": "6175c676bbabce1be2ee18fe5a73db35ff2308006225533287db27bc8180cd54",
+      "values": {
+        "assets": 30122000000,
+        "liabilities": 23040000000,
+        "equity_including_noncontrolling": 7082000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 30122000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-60",
+            "label": "$ 30,122 $ 29,061",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 13268000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-72",
+            "label": "Total current liabilities 13,268 10,921",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:LongTermDebtAndCapitalLeaseObligations",
+            "value": 3790000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-74",
+            "label": "Long-term debt less current maturities 3,790 4,577",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:ContractWithCustomerLiabilityNoncurrent",
+            "value": 1674000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-76",
+            "label": "Air traffic liability - noncurrent 1,674 1,219",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:DeferredIncomeTaxLiabilitiesNet",
+            "value": 2421000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-78",
+            "label": "Deferred income taxes 2,421 2,289",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:OperatingLeaseLiabilityNoncurrent",
+            "value": 660000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-80",
+            "label": "Noncurrent operating lease liabilities 660 768",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:OtherLiabilitiesNoncurrent",
+            "value": 1227000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-82",
+            "label": "Other noncurrent liabilities 1,227 1,306",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 7082000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-94",
+            "label": "Total stockholders' equity 7,082 7,981",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 4000000.0
+    },
+    {
+      "ticker": "MCD",
+      "cik": "0000063908",
+      "accession_number": "0000063908-26-000073",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-08-07",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/63908/000006390826000073/mcd-20260630.htm",
+      "sha256": "c38fa0c79163efa015412767bb118b0adf478ef46f15557693b84871816e8386",
+      "values": {
+        "assets": 59920000000,
+        "liabilities": 60941000000,
+        "equity_including_noncontrolling": -1023000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 2000000,
+      "status": "RECONCILED_WITHIN_DECLARED_ROUNDING",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 59920000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-57",
+            "label": "Total assets $ 59,920 $ 59,515",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 4018000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-71",
+            "label": "Total current liabilities 4,018 4,361",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:LongTermDebtNoncurrent",
+            "value": 39863000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-73",
+            "label": "Long-term debt 39,863 39,973",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:OperatingLeaseLiabilityNoncurrent",
+            "value": 14039000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-75",
+            "label": "Long-term lease liability 14,039 14,147",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:AccruedIncomeTaxesNoncurrent",
+            "value": 176000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-77",
+            "label": "Long-term income taxes 176 139",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:DeferredRevenueNoncurrent",
+            "value": 946000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-79",
+            "label": "Deferred revenues - initial franchise fees 946 945",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:OtherLiabilitiesNoncurrent",
+            "value": 677000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-81",
+            "label": "Other long-term liabilities 677 704",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:DeferredIncomeTaxLiabilitiesNet",
+            "value": 1222000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-83",
+            "label": "Deferred income taxes 1,222 1,038",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": -1023000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-111",
+            "label": "Total shareholders\u2019 equity (deficit) ( 1,023 ) ( 1,791 )",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 4500000.0
+    },
+    {
+      "ticker": "META",
+      "cik": "0001326801",
+      "accession_number": "0001628280-26-050705",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-30",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1326801/000162828026050705/meta-20260630.htm",
+      "sha256": "b294c4f08edb78d0700cb82c86a0141a2cef38e4f1c2bb02b16ff1ce564a8492",
+      "values": {
+        "assets": 449956000000,
+        "liabilities": 188735000000,
+        "equity_including_noncontrolling": 261221000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 449956000000,
+            "unit": "usd",
+            "context_id": "c-4",
+            "dimensions": [],
+            "element_id": "f-51",
+            "label": "Total assets $ 449,956 $ 366,021",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 188735000000,
+            "unit": "usd",
+            "context_id": "c-4",
+            "dimensions": [],
+            "element_id": "f-69",
+            "label": "Total liabilities 188,735 148,778",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 261221000000,
+            "unit": "usd",
+            "context_id": "c-4",
+            "dimensions": [],
+            "element_id": "f-93",
+            "label": "Total stockholders' equity 261,221 217,243",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "MSFT",
+      "cik": "0000789019",
+      "accession_number": "0001193125-26-323660",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-29",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft-20260630.htm",
+      "sha256": "4bcf2da2871acc19e32c5a62f36f6d83d6aae03cdc4aaa9a86a9a21ee8223f02",
+      "values": {
+        "assets": 758376000000,
+        "liabilities": 315989000000,
+        "equity_including_noncontrolling": 442387000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 758376000000,
+            "unit": "U_USD",
+            "context_id": "C_ca004a37-7abb-4b0e-8638-a7c6b14ebb45",
+            "dimensions": [],
+            "element_id": "F_4095b133-5f81-429c-b153-b2151268bddd",
+            "label": "Total assets $ 758,376 $ 619,003",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 315989000000,
+            "unit": "U_USD",
+            "context_id": "C_ca004a37-7abb-4b0e-8638-a7c6b14ebb45",
+            "dimensions": [],
+            "element_id": "F_f3e1112d-3756-43f0-af11-f0f2655ee431",
+            "label": "Total liabilities 315,989 275,524",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 442387000000,
+            "unit": "U_USD",
+            "context_id": "C_ca004a37-7abb-4b0e-8638-a7c6b14ebb45",
+            "dimensions": [],
+            "element_id": "F_20e5e11f-f61a-4613-bcc1-f349de6c079f",
+            "label": "Total stockholders\u2019 equity 442,387 343,479",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "MU",
+      "cik": "0000723125",
+      "accession_number": "0000723125-26-000015",
+      "period_end": "2026-05-28",
+      "filed_at": "2026-06-25",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/723125/000072312526000015/mu-20260528.htm",
+      "sha256": "bf4c3fb1833243d1c41c0426c4e0332d3a2f61a2b44e534fe8ff13648f205e20",
+      "values": {
+        "assets": 134112000000,
+        "liabilities": 33388000000,
+        "equity_including_noncontrolling": 100724000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 134112000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-152",
+            "label": "Total assets $ 134,112 $ 82,798",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 33388000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-170",
+            "label": "Total liabilities 33,388 28,633",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 100724000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-194",
+            "label": "Total equity 100,724 54,165",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "NFLX",
+      "cik": "0001065280",
+      "accession_number": "0001065280-26-000212",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-17",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1065280/000106528026000212/nflx-20260630.htm",
+      "sha256": "3788192096c4b7844008f4803ae0ad64efebc2d0c6fab64b97bc94a728ffb5c2",
+      "values": {
+        "assets": 58450441000,
+        "liabilities": 28298389000,
+        "equity_including_noncontrolling": 30152052000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 58450441000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-280",
+            "label": "Total assets $ 58,450,441 $ 55,596,993",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 28298389000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-300",
+            "label": "Total liabilities 28,298,389 28,981,505",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 30152052000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-322",
+            "label": "Total stockholders\u2019 equity 30,152,052 26,615,488",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500.0
+    },
+    {
+      "ticker": "NKE",
+      "cik": "0000320187",
+      "accession_number": "0000320187-26-000088",
+      "period_end": "2026-05-31",
+      "filed_at": "2026-07-15",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/320187/000032018726000088/nke-20260531.htm",
+      "sha256": "6dd837804f1ede7b42ea6511402f3d01e59331ed3a362a88e1e4fc7269d7d41a",
+      "values": {
+        "assets": 38410000000,
+        "liabilities": 23545000000,
+        "equity_including_noncontrolling": 14865000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 38410000000,
+            "unit": "usd",
+            "context_id": "c-9",
+            "dimensions": [],
+            "element_id": "f-141",
+            "label": "TOTAL ASSETS $ 38,410 $ 36,579",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 12547000000,
+            "unit": "usd",
+            "context_id": "c-9",
+            "dimensions": [],
+            "element_id": "f-153",
+            "label": "Total current liabilities 12,547 10,566",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:LongTermDebtNoncurrent",
+            "value": 5942000000,
+            "unit": "usd",
+            "context_id": "c-9",
+            "dimensions": [],
+            "element_id": "f-155",
+            "label": "Long-term debt 5,942 7,961",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:OperatingLeaseLiabilityNoncurrent",
+            "value": 2613000000,
+            "unit": "usd",
+            "context_id": "c-9",
+            "dimensions": [],
+            "element_id": "f-157",
+            "label": "Operating lease liabilities 2,613 2,550",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:DeferredIncomeTaxesAndOtherLiabilitiesNoncurrent",
+            "value": 2443000000,
+            "unit": "usd",
+            "context_id": "c-9",
+            "dimensions": [],
+            "element_id": "f-159",
+            "label": "Deferred income taxes and other liabilities 2,443 2,289",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 14865000000,
+            "unit": "usd",
+            "context_id": "c-9",
+            "dimensions": [],
+            "element_id": "f-179",
+            "label": "Total shareholders' equity 14,865 13,213",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": [
+          {
+            "tag": "us-gaap:TemporaryEquityCarryingAmountAttributableToParent",
+            "value": 0,
+            "unit": "usd",
+            "context_id": "c-9",
+            "dimensions": [],
+            "element_id": "f-163",
+            "label": "Redeemable preferred stock \u2014 \u2014",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ]
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 3500000.0
+    },
+    {
+      "ticker": "NOW",
+      "cik": "0001373715",
+      "accession_number": "0001373715-26-000076",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-23",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1373715/000137371526000076/now-20260630.htm",
+      "sha256": "038d700534ab64dedae753a9f224d80a466b77ba7e516474329daf76dcf38835",
+      "values": {
+        "assets": 31666000000,
+        "liabilities": 19150000000,
+        "equity_including_noncontrolling": 12516000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 31666000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-60",
+            "label": "Total assets $ 31,666 $ 26,038",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 19150000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-82",
+            "label": "Total liabilities 19,150 13,074",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 12516000000,
+            "unit": "usd",
+            "context_id": "c-2",
+            "dimensions": [],
+            "element_id": "f-116",
+            "label": "Total stockholders\u2019 equity 12,516 12,964",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "NVDA",
+      "cik": "0001045810",
+      "accession_number": "0001045810-26-000075",
+      "period_end": "2026-07-26",
+      "filed_at": "2026-08-26",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000075/nvda-20260726.htm",
+      "sha256": "e2634e509c241c5f45e3f6c115dc38a85645e5fdbee760b4a04f5e9035f6f7a9",
+      "values": {
+        "assets": 320272000000,
+        "liabilities": 91288000000,
+        "equity_including_noncontrolling": 228984000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 320272000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-138",
+            "label": "Total assets $ 320,272 $ 206,803",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 91288000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-154",
+            "label": "Total liabilities 91,288 49,510",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 228984000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-168",
+            "label": "Total shareholders\u2019 equity 228,984 157,293",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "ORCL",
+      "cik": "0001341439",
+      "accession_number": "0001193125-26-389274",
+      "period_end": "2026-08-31",
+      "filed_at": "2026-09-11",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1341439/000119312526389274/orcl-20260831.htm",
+      "sha256": "4c34984f16e5677bfd11fc585bc5c39e38c63a02eb15e60fe11ac121c390802c",
+      "values": {
+        "assets": 303259000000,
+        "liabilities": 236063000000,
+        "equity_including_noncontrolling": 67196000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 303259000000,
+            "unit": "U_USD",
+            "context_id": "C_6aa4717d-0551-43f7-9cf4-c8a0049a656e",
+            "dimensions": [],
+            "element_id": "F_2f2b3dff-b187-465f-9e0d-6dc3c8dc3373",
+            "label": "Total assets $ 303,259 $ 261,759",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 47514000000,
+            "unit": "U_USD",
+            "context_id": "C_6aa4717d-0551-43f7-9cf4-c8a0049a656e",
+            "dimensions": [],
+            "element_id": "F_0f8e28f0-571f-417d-b078-59a1995b831f",
+            "label": "Total current liabilities 47,514 41,764",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:LiabilitiesNoncurrent",
+            "value": 188549000000,
+            "unit": "U_USD",
+            "context_id": "C_6aa4717d-0551-43f7-9cf4-c8a0049a656e",
+            "dimensions": [],
+            "element_id": "F_a840d458-e18b-46f2-a7d4-f1577f8c648f",
+            "label": "Total non-current liabilities 188,549 176,939",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": 67196000000,
+            "unit": "U_USD",
+            "context_id": "C_6aa4717d-0551-43f7-9cf4-c8a0049a656e",
+            "dimensions": [],
+            "element_id": "F_7510879c-7bc4-49ce-ba67-c7bbc3e03900",
+            "label": "Total stockholders\u2019 equity 67,196 43,056",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 2000000.0
+    },
+    {
+      "ticker": "PLTR",
+      "cik": "0001321655",
+      "accession_number": "0001321655-26-000041",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-08-04",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1321655/000132165526000041/pltr-20260630.htm",
+      "sha256": "a36c04dc261071a706cc84f0e94ed1bff7ce7745b73ac2af03a0e07118a5e741",
+      "values": {
+        "assets": 11678564000,
+        "liabilities": 1793680000,
+        "equity_including_noncontrolling": 9884884000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 11678564000,
+            "unit": "usd",
+            "context_id": "c-5",
+            "dimensions": [],
+            "element_id": "f-48",
+            "label": "Total assets $ 11,678,564 $ 8,900,392",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 1793680000,
+            "unit": "usd",
+            "context_id": "c-5",
+            "dimensions": [],
+            "element_id": "f-66",
+            "label": "Total liabilities 1,793,680 1,412,381",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": 9884884000,
+            "unit": "usd",
+            "context_id": "c-5",
+            "dimensions": [],
+            "element_id": "f-106",
+            "label": "Total equity 9,884,884 7,488,011",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500.0
+    },
+    {
+      "ticker": "QCOM",
+      "cik": "0000804328",
+      "accession_number": "0000804328-26-000086",
+      "period_end": "2026-06-28",
+      "filed_at": "2026-07-29",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/804328/000080432826000086/qcom-20260628.htm",
+      "sha256": "3b460b26dff13a28bfda17b4676f6a2bd3686989d4fb5ffff445102fb1455224",
+      "values": {
+        "assets": 57367000000,
+        "liabilities": 29709000000,
+        "equity_including_noncontrolling": 27658000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 57367000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-54",
+            "label": "Total assets $ 57,367 $ 50,143",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 29709000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-74",
+            "label": "Total liabilities 29,709 28,937",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": 27658000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-100",
+            "label": "Total stockholders\u2019 equity 27,658 21,206",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "RIVN",
+      "cik": "0001874178",
+      "accession_number": "0001874178-26-000054",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-30",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1874178/000187417826000054/rivn-20260630.htm",
+      "sha256": "4fe9021f34b9a4b099e3afbb6b4c7642c2b877352f4a88c64b0753a9d4b4ba9b",
+      "values": {
+        "assets": 15140000000,
+        "liabilities": 10013000000,
+        "equity_including_noncontrolling": 5127000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 15140000000,
+            "unit": "usd",
+            "context_id": "c-5",
+            "dimensions": [],
+            "element_id": "f-52",
+            "label": "Total assets $ 14,864 $ 15,140",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 10013000000,
+            "unit": "usd",
+            "context_id": "c-5",
+            "dimensions": [],
+            "element_id": "f-68",
+            "label": "Total liabilities 10,270 10,013",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": 5127000000,
+            "unit": "usd",
+            "context_id": "c-5",
+            "dimensions": [],
+            "element_id": "f-100",
+            "label": "Total stockholders' equity 4,594 5,127",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "SBUX",
+      "cik": "0000829224",
+      "accession_number": "0000829224-26-000130",
+      "period_end": "2026-06-28",
+      "filed_at": "2026-07-29",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/829224/000082922426000130/sbux-20260628.htm",
+      "sha256": "105f0074c11367fa4e356ba061b5b4a1324492e8358467ed5321f83449a7fc40",
+      "values": {
+        "assets": 28294700000,
+        "liabilities": 35961800000,
+        "equity_including_noncontrolling": -7667100000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 28294700000,
+            "unit": "usd",
+            "context_id": "c-40",
+            "dimensions": [],
+            "element_id": "f-215",
+            "label": "TOTAL ASSETS $ 28,294.7 $ 32,019.7",
+            "declared_decimals": "-5",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 35961800000,
+            "unit": "usd",
+            "context_id": "c-40",
+            "dimensions": [],
+            "element_id": "f-239",
+            "label": "Total liabilities 35,961.8 40,108.9",
+            "declared_decimals": "-5",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": -7667100000,
+            "unit": "usd",
+            "context_id": "c-40",
+            "dimensions": [],
+            "element_id": "f-259",
+            "label": "Total deficit ( 7,667.1 ) ( 8,089.2 )",
+            "declared_decimals": "-5",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 150000.0
+    },
+    {
+      "ticker": "SOFI",
+      "cik": "0001818874",
+      "accession_number": "0001818874-26-000054",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-08-06",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1818874/000181887426000054/sofi-20260630.htm",
+      "sha256": "d7f2190d2e8682349665a9e7d422a35548e5cec63497a104663e549c91ffca90",
+      "values": {
+        "assets": 60947548000,
+        "liabilities": 49871321000,
+        "equity_including_noncontrolling": 11076227000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 60947548000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-64",
+            "label": "Total assets $ 60,947,548 $ 50,660,478",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 49871321000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-80",
+            "label": "Total liabilities 49,871,321 40,170,983",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 11076227000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-100",
+            "label": "Total equity 11,076,227 10,489,495",
+            "declared_decimals": "-3",
+            "scale": "3"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500.0
+    },
+    {
+      "ticker": "T",
+      "cik": "0000732717",
+      "accession_number": "0000732717-26-000297",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-22",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/732717/000073271726000297/t-20260630.htm",
+      "sha256": "863666dc564189add1f0eda2ccf30652bacd7f87ff59307ea783dac680d77254",
+      "values": {
+        "assets": 428359000000,
+        "liabilities": 299920000000,
+        "equity_including_noncontrolling": 126434000000,
+        "temporary_equity": 2005000000
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 428359000000,
+            "unit": "usd",
+            "context_id": "c-45",
+            "dimensions": [],
+            "element_id": "f-342",
+            "label": "Total Assets $ 428,359 $ 420,198",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 53382000000,
+            "unit": "usd",
+            "context_id": "c-45",
+            "dimensions": [],
+            "element_id": "f-352",
+            "label": "Total current liabilities 53,382 53,780",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:LongTermDebtAndCapitalLeaseObligations",
+            "value": 134631000000,
+            "unit": "usd",
+            "context_id": "c-45",
+            "dimensions": [],
+            "element_id": "f-354",
+            "label": "Long-Term Debt 134,631 127,089",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:DeferredCreditsAndOtherLiabilitiesNoncurrent",
+            "value": 111907000000,
+            "unit": "usd",
+            "context_id": "c-45",
+            "dimensions": [],
+            "element_id": "f-364",
+            "label": "Total deferred credits and other noncurrent liabilities 111,907 110,837",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": 126434000000,
+            "unit": "usd",
+            "context_id": "c-45",
+            "dimensions": [],
+            "element_id": "f-410",
+            "label": "Total stockholders\u2019 equity 126,434 126,491",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": [
+          {
+            "tag": "us-gaap:RedeemableNoncontrollingInterestEquityCarryingAmount",
+            "value": 2005000000,
+            "unit": "usd",
+            "context_id": "c-45",
+            "dimensions": [],
+            "element_id": "f-366",
+            "label": "Redeemable Noncontrolling Interest 2,005 2,001",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ]
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 3000000.0
+    },
+    {
+      "ticker": "TGT",
+      "cik": "0000027419",
+      "accession_number": "0000027419-26-000042",
+      "period_end": "2026-08-01",
+      "filed_at": "2026-08-28",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/27419/000002741926000042/tgt-20260801.htm",
+      "sha256": "fef5491f50ff0a069b7c8cd2ff89047e740d5a974e6cd78be91c8bd2da08283e",
+      "values": {
+        "assets": 61235000000,
+        "liabilities": 43392000000,
+        "equity_including_noncontrolling": 17843000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 61235000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-131",
+            "label": "Total assets $ 61,235 $ 59,490 $ 57,851",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 21180000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-143",
+            "label": "Total current liabilities 21,180 21,230 19,223",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:LiabilitiesNoncurrent",
+            "value": 22212000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-158",
+            "label": "Total noncurrent liabilities 22,212 22,095 23,208",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 17843000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-173",
+            "label": "Total shareholders\u2019 investment 17,843 16,165 15,420",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 2000000.0
+    },
+    {
+      "ticker": "TMUS",
+      "cik": "0001283699",
+      "accession_number": "0001283699-26-000101",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-23",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1283699/000128369926000101/tmus-20260630.htm",
+      "sha256": "31e2eb999ef55b6a7fa59292dd457a089bd3084a6c1feeeffea3c046f480cde2",
+      "values": {
+        "assets": 213553000000,
+        "liabilities": 157288000000,
+        "equity_including_noncontrolling": 56265000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 213553000000,
+            "unit": "usd",
+            "context_id": "c-16",
+            "dimensions": [],
+            "element_id": "f-102",
+            "label": "Total assets $ 213,553 $ 219,237",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 23554000000,
+            "unit": "usd",
+            "context_id": "c-16",
+            "dimensions": [],
+            "element_id": "f-116",
+            "label": "Total current liabilities 23,554 24,500",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:LiabilitiesNoncurrent",
+            "value": 133734000000,
+            "unit": "usd",
+            "context_id": "c-16",
+            "dimensions": [],
+            "element_id": "f-132",
+            "label": "Total long-term liabilities 133,734 135,534",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 56265000000,
+            "unit": "usd",
+            "context_id": "c-16",
+            "dimensions": [],
+            "element_id": "f-156",
+            "label": "Total stockholders' equity 56,265 59,203",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 2000000.0
+    },
+    {
+      "ticker": "TSLA",
+      "cik": "0001318605",
+      "accession_number": "0001628280-26-049270",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-23",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1318605/000162828026049270/tsla-20260630.htm",
+      "sha256": "8f562b36769e31c93590b7e97d1df69640dee8d7708f330785cd6f40b14c6101",
+      "values": {
+        "assets": 148524000000,
+        "liabilities": 61005000000,
+        "equity_including_noncontrolling": 87465000000,
+        "temporary_equity": 54000000
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 148524000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-56",
+            "label": "Total assets $ 148,524 $ 137,806",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 61005000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-74",
+            "label": "Total liabilities 61,005 54,941",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": 87465000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-308",
+            "label": "Balance as of June 30, 2026 $ 54 3,949 $ 4 $ 45,859 $ 401 $ 40,594 $ 86,858 $ 607 $ 87,465",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": [
+          {
+            "tag": "us-gaap:TemporaryEquityCarryingAmountIncludingPortionAttributableToNoncontrollingInterests",
+            "value": 54000000,
+            "unit": "usd",
+            "context_id": "c-3",
+            "dimensions": [],
+            "element_id": "f-300",
+            "label": "Balance as of June 30, 2026 $ 54 3,949 $ 4 $ 45,859 $ 401 $ 40,594 $ 86,858 $ 607 $ 87,465",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ]
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 2000000.0
+    },
+    {
+      "ticker": "TXN",
+      "cik": "0000097476",
+      "accession_number": "0000097476-26-000152",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-24",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/97476/000009747626000152/txn-20260630.htm",
+      "sha256": "fae79f7e6a775bd84b54827e7cfde89fe8ea1b5e9c154537e6a5051618320553",
+      "values": {
+        "assets": 35882000000,
+        "liabilities": 17875000000,
+        "equity_including_noncontrolling": 18007000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 35882000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-178",
+            "label": "Total assets $ 35,882 $ 34,585",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 17875000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-200",
+            "label": "Total liabilities 17,875 18,312",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 18007000000,
+            "unit": "usd",
+            "context_id": "c-6",
+            "dimensions": [],
+            "element_id": "f-228",
+            "label": "Total stockholders\u2019 equity 18,007 16,273",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 1500000.0
+    },
+    {
+      "ticker": "UAL",
+      "cik": "0000100517",
+      "accession_number": "0000100517-26-000139",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-16",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/100517/000010051726000139/ual-20260630.htm",
+      "sha256": "04dcb87990451c625da5c99ff2cb89c491fa8a1d291c30b5551347ead7770c83",
+      "values": {
+        "assets": 84569000000,
+        "liabilities": 67872000000,
+        "equity_including_noncontrolling": 16697000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 84569000000,
+            "unit": "usd",
+            "context_id": "c-22",
+            "dimensions": [],
+            "element_id": "f-201",
+            "label": "Total assets $ 84,569 $ 76,448",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 27764000000,
+            "unit": "usd",
+            "context_id": "c-22",
+            "dimensions": [],
+            "element_id": "f-217",
+            "label": "Total current liabilities 27,764 26,133",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:LiabilitiesNoncurrent",
+            "value": 40108000000,
+            "unit": "usd",
+            "context_id": "c-22",
+            "dimensions": [],
+            "element_id": "f-231",
+            "label": "Total noncurrent liabilities 40,108 35,033",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquity",
+            "value": 16697000000,
+            "unit": "usd",
+            "context_id": "c-22",
+            "dimensions": [],
+            "element_id": "f-255",
+            "label": "Total stockholders' equity 16,697 15,282",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 2000000.0
+    },
+    {
+      "ticker": "UBER",
+      "cik": "0001543151",
+      "accession_number": "0001543151-26-000032",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-08-05",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1543151/000154315126000032/uber-20260630.htm",
+      "sha256": "5aa56769ca3e3d8735d1122e85269a5b9cd68fcb4bd2fa58fa6b19b65b019ffa",
+      "values": {
+        "assets": 65801000000,
+        "liabilities": 37402000000,
+        "equity_including_noncontrolling": 28219000000,
+        "temporary_equity": 180000000
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 65801000000,
+            "unit": "usd",
+            "context_id": "c-4",
+            "dimensions": [],
+            "element_id": "f-63",
+            "label": "Total assets $ 61,802 $ 65,801",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:Liabilities",
+            "value": 37402000000,
+            "unit": "usd",
+            "context_id": "c-4",
+            "dimensions": [],
+            "element_id": "f-85",
+            "label": "Total liabilities 33,719 37,402",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": 28219000000,
+            "unit": "usd",
+            "context_id": "c-4",
+            "dimensions": [],
+            "element_id": "f-111",
+            "label": "Total equity 27,918 28,219",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": [
+          {
+            "tag": "us-gaap:RedeemableNoncontrollingInterestEquityCarryingAmount",
+            "value": 180000000,
+            "unit": "usd",
+            "context_id": "c-4",
+            "dimensions": [],
+            "element_id": "f-89",
+            "label": "Redeemable non-controlling interests 165 180",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ]
+      },
+      "liabilities_method": "REPORTED_TOTAL",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 2000000.0
+    },
+    {
+      "ticker": "VZ",
+      "cik": "0000732712",
+      "accession_number": "0000732712-26-000046",
+      "period_end": "2026-06-30",
+      "filed_at": "2026-07-31",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/732712/000073271226000046/vz-20260630.htm",
+      "sha256": "bef955f7946430f4463a1bc5ab383faeff8d9fec39880d628621885dfd611eb7",
+      "values": {
+        "assets": 410186000000,
+        "liabilities": 304990000000,
+        "equity_including_noncontrolling": 105196000000,
+        "temporary_equity": 0
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 410186000000,
+            "unit": "usd",
+            "context_id": "c-39",
+            "dimensions": [],
+            "element_id": "f-322",
+            "label": "Total assets $ 410,186 $ 404,258",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 62211000000,
+            "unit": "usd",
+            "context_id": "c-39",
+            "dimensions": [],
+            "element_id": "f-332",
+            "label": "Total current liabilities 62,211 62,370",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:LiabilitiesNoncurrent",
+            "value": 242779000000,
+            "unit": "usd",
+            "context_id": "c-39",
+            "dimensions": [],
+            "element_id": "f-344",
+            "label": "Total long-term liabilities 242,779 236,147",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": 105196000000,
+            "unit": "usd",
+            "context_id": "c-39",
+            "dimensions": [],
+            "element_id": "f-378",
+            "label": "Total equity 105,196 105,741",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": []
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 2000000.0
+    },
+    {
+      "ticker": "WMT",
+      "cik": "0000104169",
+      "accession_number": "0000104169-26-000154",
+      "period_end": "2026-07-31",
+      "filed_at": "2026-08-28",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/104169/000010416926000154/wmt-20260731.htm",
+      "sha256": "2ced9efbff155829771aed8b8aaeef0fab3a66ea6c1d95031953245cb071c5f6",
+      "values": {
+        "assets": 293914000000,
+        "liabilities": 189115000000,
+        "equity_including_noncontrolling": 104506000000,
+        "temporary_equity": 293000000
+      },
+      "identity_residual": 0,
+      "status": "EXACT_RECONCILIATION",
+      "evidence": {
+        "assets": [
+          {
+            "tag": "us-gaap:Assets",
+            "value": 293914000000,
+            "unit": "usd",
+            "context_id": "c-15",
+            "dimensions": [],
+            "element_id": "f-204",
+            "label": "Total assets $ 293,914 $ 284,668 $ 270,837",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "liabilities": [
+          {
+            "tag": "us-gaap:LiabilitiesCurrent",
+            "value": 115630000000,
+            "unit": "usd",
+            "context_id": "c-15",
+            "dimensions": [],
+            "element_id": "f-231",
+            "label": "Total current liabilities 115,630 107,469 103,566",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:LongTermDebtNoncurrent",
+            "value": 36462000000,
+            "unit": "usd",
+            "context_id": "c-15",
+            "dimensions": [],
+            "element_id": "f-234",
+            "label": "Long-term debt 36,462 34,624 35,640",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:OperatingLeaseLiabilityNoncurrent",
+            "value": 14798000000,
+            "unit": "usd",
+            "context_id": "c-15",
+            "dimensions": [],
+            "element_id": "f-237",
+            "label": "Long-term operating lease obligations 14,798 13,941 13,171",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:FinanceLeaseLiabilityNoncurrent",
+            "value": 5952000000,
+            "unit": "usd",
+            "context_id": "c-15",
+            "dimensions": [],
+            "element_id": "f-240",
+            "label": "Long-term finance lease obligations 5,952 5,905 5,947",
+            "declared_decimals": "-6",
+            "scale": "6"
+          },
+          {
+            "tag": "us-gaap:DeferredIncomeTaxesAndOtherLiabilitiesNoncurrent",
+            "value": 16273000000,
+            "unit": "usd",
+            "context_id": "c-15",
+            "dimensions": [],
+            "element_id": "f-243",
+            "label": "Deferred income taxes and other 16,273 16,549 15,656",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "equity": [
+          {
+            "tag": "us-gaap:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "value": 104506000000,
+            "unit": "usd",
+            "context_id": "c-15",
+            "dimensions": [],
+            "element_id": "f-270",
+            "label": "Total shareholders' equity 104,506 105,887 96,550",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ],
+        "temporary_equity": [
+          {
+            "tag": "us-gaap:RedeemableNoncontrollingInterestEquityCarryingAmount",
+            "value": 293000000,
+            "unit": "usd",
+            "context_id": "c-15",
+            "dimensions": [],
+            "element_id": "f-249",
+            "label": "Redeemable noncontrolling interest 293 293 307",
+            "declared_decimals": "-6",
+            "scale": "6"
+          }
+        ]
+      },
+      "liabilities_method": "SUM_OF_REVIEWED_FACE_STATEMENT_LIABILITY_LINES",
+      "debt_and_cash_qualification": "SEPARATE_CHECK_NOT_ESTABLISHED_BY_ACCOUNTING_IDENTITY",
+      "declared_rounding_bound": 4000000.0
+    }
+  ],
+  "reconciled_including_declared_rounding": 54
+}

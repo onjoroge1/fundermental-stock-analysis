@@ -23,7 +23,8 @@ renderPredict = async function (ticker) {
   try { r = await fetchJSON(`/api/p1/${sel}`); }
   catch (e) { $("#pred-body").innerHTML = `<div class="banner">P1 load failed: ${e.message}</div>`; return; }
   if (r.status !== "OK") {
-    $("#pred-body").innerHTML = `<div class="banner">No P1 view: ${r.reason || r.status}</div>`;
+    const contract = r.research_contract || {};
+    $("#pred-body").innerHTML = `<div class="banner"><b>Forecast guidance withheld.</b> ${esc(r.reason || r.status)}<br>Saved research: ${esc(contract.report_as_of || "unavailable")} · Price session: ${esc(contract.price_date || "unavailable")}</div>`;
     return;
   }
 

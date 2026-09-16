@@ -552,9 +552,17 @@ def build_bundle(ticker: str, as_of: str | None = None, *, connection=None) -> d
             "period_count": {"quarters": len(quarterly), "years": len(annual)},
         },
         "consensus": consensus_section,
-        "peer_group": peer_comparison,
-        "price_implied_expectations": price_implied,
-        "base_rates": base_rates,
+        # Legacy peer/panel snapshots predate the financial reconciliation and
+        # have no source-bound calculation version. They can contradict the
+        # current metrics (e.g. VZ net debt, EV/revenue and ROIC). Do not expose
+        # those numbers as a current comparison or return expectation.
+        "peer_group": {"available": False, "status": "WITHHELD",
+                       "sector": peer_comparison.get("sector"),
+                       "peers": peer_comparison.get("peers", []), "comparison": [],
+                       "reason": "Peer metric snapshots lack verified financial input identities."},
+        "price_implied_expectations": {"status": "WITHHELD", "basis": None,
+                       "reverse_dcf": {"note": "Withheld: cash-flow basis and valuation assumptions are not independently qualified."}},
+        "base_rates": {"status": "WITHHELD", "reason": "Historical comparison inputs lack the current financial source qualification."},
         "catalyst_calendar": catalyst_calendar,
         "insider_activity": insiders,
         "invalidation_breaches": breaches,

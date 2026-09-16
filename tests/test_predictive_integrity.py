@@ -95,6 +95,9 @@ def test_stale_forecast_cannot_be_served_ok_when_stored_prices_are_also_stale(mo
     monkeypatch.setattr(db, "fetch_prices", lambda *a: [{"date": "2025-01-02"}])
     monkeypatch.setattr(db, "latest_prediction_forecast", lambda *a: {
         "status": "OK", "ticker": "TEST", "as_of": "2025-01-02", "model_version": prediction.MODEL_VERSION})
+    monkeypatch.setattr("stock_machine.research_contract.read_inputs", lambda *a: (
+        {"company": {"ticker": "TEST"}, "market_snapshot": {"price_date": "2025-01-02"}},
+        None, {"status": "OK", "ticker": "TEST", "as_of": "2025-01-02", "model_version": prediction.MODEL_VERSION}))
     assert webapp.predict("TEST")["status"] == "STALE"
 
 

@@ -118,7 +118,7 @@ class ResearchAPI:
         # input identities; omit large graph/fold arrays, never relabel a model.
         keys = ("status", "ticker", "as_of", "generated_at", "forecast_id", "model_version",
                 "primary_model", "reason", "data_freshness", "data_quality", "methodology",
-                "forecast_distribution", "input_data_versions", "alpha_input_coverage")
+                "forecast_distribution", "input_data_versions", "alpha_input_coverage", "research_contract")
         compact = {k: value[k] for k in keys if k in value}
         validation = value.get("validation") or {}
         compact["validation_summary"] = {k: validation[k] for k in

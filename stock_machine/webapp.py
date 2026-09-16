@@ -86,48 +86,9 @@ def paper_status() -> dict:
 
 @app.get("/api/predict/{ticker}")
 def predict(ticker: str) -> dict:
-    """Return the latest completed forecast without computing or writing."""
-    from .prediction import MODEL_VERSION
-    ticker = ticker.upper()
-    conn = db.connect()
-    try:
-        rows = db.fetch_prices(conn, ticker)
-        stored = db.latest_prediction_forecast(conn, ticker)
-    finally:
-        conn.close()
-    latest_price_date = rows[-1]["date"] if rows else None
-    if stored is None:
-        return {
-            "status": "PENDING",
-            "ticker": ticker,
-            "model_version": MODEL_VERSION,
-            "reason": "no precomputed forecast; run scripts/predict_all.py",
-        }
-    if stored.get("model_version") != MODEL_VERSION:
-        return {
-            "status": "STALE",
-            "ticker": ticker,
-            "model_version": MODEL_VERSION,
-            "as_of": stored.get("as_of"),
-            "reason": "stored forecast uses an older model version",
-        }
-    if latest_price_date and stored.get("as_of") != latest_price_date:
-        return {
-            "status": "STALE",
-            "ticker": ticker,
-            "model_version": MODEL_VERSION,
-            "as_of": stored.get("as_of"),
-            "latest_price_date": latest_price_date,
-            "reason": "forecast predates the latest available price",
-        }
-    from .market_calendar import price_freshness
-    freshness = price_freshness(latest_price_date)
-    if freshness["status"] != "CURRENT":
-        return {"status": "STALE", "ticker": ticker,
-                "model_version": MODEL_VERSION, "as_of": stored.get("as_of"),
-                "reason": "stored price history has no current completed session",
-                "data_freshness": freshness}
-    return stored
+    """One dated view; no unqualified distributions or on-request training."""
+    from .research_contract import read_inputs, forecast_projection
+    return forecast_projection(*read_inputs(ticker.upper()))
 
 
 @app.get("/api/report/{ticker}")
@@ -258,12 +219,19 @@ def option_scan(
 ) -> dict:
     """Search every strike combination for the best structures by a stated
     objective. `strikes` is the candidate ladder to search within."""
-    import json as _json
-
-    from .config import DATA_DIR
     from .market_data import get_provider
     from .options.scanner import ScanPolicy, scan
     from .options.simulator import StrategyBuildError
+
+    forecast = None
+    contract = None
+    if objective == "expected_value":
+        from .research_contract import read_inputs, forecast_projection
+        forecast = forecast_projection(*read_inputs(ticker.upper()))
+        contract = forecast["research_contract"]
+        if forecast["status"] != "OK" or not contract["guidance_eligible"]:
+            return {"status": "WITHHELD", "research_contract": contract,
+                    "candidates": [], "results": [], "reason": forecast["reason"]}
 
     ladder = [float(v) for v in strikes.split(",") if v.strip()]
     provider = get_provider()
@@ -274,16 +242,8 @@ def option_scan(
     finally:
         provider.close()
 
-    forecast = None
-    if objective == "expected_value":
-        from datetime import date as _date
-
-        path = (DATA_DIR / "predictions"
-                / f"{ticker.upper()}_{_date.today().isoformat()}.json")
-        if path.exists():
-            forecast = _json.loads(path.read_text())
     try:
-        return scan(
+        result = scan(
             chain, strategy,
             ScanPolicy(
                 objective=objective,
@@ -294,6 +254,9 @@ def option_scan(
             ),
             forecast=forecast, horizon=horizon,
         )
+        if contract:
+            result["research_contract"] = contract
+        return result
     except StrategyBuildError as exc:
         raise HTTPException(400, str(exc))
 
@@ -341,9 +304,16 @@ def option_generate(
     capital: float | None = None, allow_delayed: bool = True,
 ) -> dict:
     """Rank bounded candidates using the forecast-aware generator."""
+    from .research_contract import read_inputs, forecast_projection
+    forecast = forecast_projection(*read_inputs(ticker.upper()))
+    contract = forecast["research_contract"]
+    if forecast["status"] != "OK" or not contract["guidance_eligible"]:
+        return {"status": "WITHHELD", "research_contract": contract,
+                "candidates": [], "reason": forecast["reason"]}
     from .market_data import get_provider
-    from .options import (GenerationPolicy, generate_strategies,
-                          load_latest_forecast)
+    from .options import GenerationPolicy, generate_strategies
+    from .forecasts.models import ForecastDistribution
+    canonical = ForecastDistribution.model_validate(forecast["forecast_distribution"])
 
     wanted = [float(v) for v in strikes.split(",") if v.strip()]
     provider = get_provider()
@@ -355,10 +325,10 @@ def option_generate(
         provider.close()
     result = generate_strategies(
         chain,
-        load_latest_forecast(ticker.upper()),
+        canonical,
         GenerationPolicy(capital_limit=capital, allow_delayed=allow_delayed),
     )
-    return result.model_dump(mode="json")
+    return {**result.model_dump(mode="json"), "research_contract": contract}
 
 
 @app.get("/")
