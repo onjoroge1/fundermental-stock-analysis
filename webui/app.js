@@ -460,15 +460,21 @@ async function renderPredict(ticker) {
 async function renderPortfolio() {
   const m = $("#main");
   m.innerHTML = '<div class="loading">Loading paper portfolio…</div>';
-  let s;
+  let s, priceHealth = null;
   try { s = await fetchJSON("/api/paper"); }
   catch (e) { m.innerHTML = `<div class="loading">Failed: ${e.message}</div>`; return; }
+  try { priceHealth = await fetchJSON("/api/v1/data-health"); }
+  catch (_) { /* Portfolio remains readable; freshness is shown as unavailable. */ }
   const latest = s.latest || {};
   const marks = latest.details || [];
   const longs = marks.filter((p) => p.direction === "long");
   const shorts = marks.filter((p) => p.direction === "short");
+  const priceStatus = priceHealth?.status || "UNKNOWN";
+  const priceStatusClass = priceStatus === "HEALTHY" ? "good" : (priceStatus === "UNKNOWN" ? "neutral" : "warn");
+  const priceDate = priceHealth?.latest_market_date || latest.date || "unavailable";
+  const expectedPriceDate = priceHealth?.expected_market_date;
   const posRow = (p) => `<tr data-t="${p.ticker}" style="cursor:pointer">
-    <td><span class="tk">${p.ticker}</span>${p.flagged ? ' <span class="chip warn" title="' + p.flagged + '">⚠ flagged</span>' : ""}</td>
+    <td><span class="tk">${p.ticker}</span>${p.flagged ? ' <span class="chip warn" title="' + p.flagged + '">⚠ review flag</span>' : ""}</td>
     <td>${p.direction}</td><td>$${p.entry?.toFixed(2)}</td><td>$${p.price?.toFixed(2)}</td>
     <td class="${cls(p.position_ret_pct)}">${fmtSignedPct(p.position_ret_pct)}</td></tr>`;
   const navRows = (s.nav || []).slice(-14).reverse().map((n) => `
@@ -479,10 +485,12 @@ async function renderPortfolio() {
   m.innerHTML = `
     <div class="page-head"><h1>Paper portfolio</h1>
       <span class="chip neutral">${longs.length} long · ${shorts.length} short</span>
+      <span class="chip ${priceStatusClass}">${priceStatus} prices · ${priceDate}${expectedPriceDate && expectedPriceDate !== priceDate ? ` (expected ${expectedPriceDate})` : ""}</span>
       ${latest.ls_ret_pct != null ? `<span class="chip ${latest.ls_ret_pct >= 0 ? "good" : "bad"}">L/S avg since entry ${fmtSignedPct(latest.ls_ret_pct)}</span>` : ""}</div>
     <div class="page-sub">Mechanical book from classifications: long every ATTRACTIVE, short every
-      UNATTRACTIVE, equal weight, adjusted-close marks. Positions flagged by invalidation monitoring
-      require a deliberate analyst re-pass — nothing auto-closes. ${s.conventions || ""}
+      UNATTRACTIVE, equal weight, adjusted-close marks. A review flag means a thesis/invalidation rule
+      was breached; it does not mean the price is stale. Review flags require a deliberate analyst
+      re-pass — nothing auto-closes. Price freshness is shown separately above. ${s.conventions || ""}
       Paper only — not investment advice.</div>
     <div class="grid">
       <div class="panel"><h3>Long book ${latest.long_ret_pct != null ? `· avg ${fmtSignedPct(latest.long_ret_pct)}` : ""}</h3>

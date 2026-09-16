@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hmac
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Path
 
 from .control_plane import admin_token, cron_token
 
@@ -59,3 +59,40 @@ def automation_cron(
     _require_processor(authorization)
     from .automation import cron_tick
     return cron_tick()
+
+
+@router.get("/prices/cron/{offset}/{limit}")
+def price_refresh_cron(
+    offset: int = Path(..., ge=0, le=250),
+    limit: int = Path(..., ge=1, le=25),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """Vercel Cron entrypoint for a bounded post-close daily-price shard.
+
+    Repeated deliveries are safe: current datasets are skipped, and each
+    configured shard is capped below the serverless function time budget.
+    """
+    _require_processor(authorization)
+    from . import db
+    from .market_health import refresh_prices
+
+    with db.connect() as conn:
+        tickers = sorted(c["ticker"] for c in db.list_companies(conn))
+        batch = tickers[offset:offset + limit]
+        result = refresh_prices(
+            conn,
+            batch,
+            only_if_stale=True,
+            limit=limit,
+        )
+    response = {
+        "status": result["status"],
+        "offset": offset,
+        "limit": limit,
+        "universe_count": len(tickers),
+        "batch": batch,
+        "refresh": result,
+    }
+    if result["status"] != "OK":
+        raise HTTPException(503, detail=response)
+    return response
