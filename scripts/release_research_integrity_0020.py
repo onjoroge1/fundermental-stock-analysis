@@ -1,4 +1,4 @@
-"""Current-main release; fixed scope, existing credentials and no orders."""
+"""Current-main evidence release (0020 + read-only storage fix 0021); no orders."""
 import json
 import os
 from pathlib import Path

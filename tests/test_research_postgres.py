@@ -83,3 +83,20 @@ def test_repeatable_reader_sees_one_source_report_forecast_view(pg, monkeypatch,
     b, r, p = research_contract.read_inputs("VZ")
     assert seen == ["repeatable read"]
     assert b == source_bundle and r is None and p is None
+
+
+def test_full_bundle_reader_is_read_only_with_all_real_dependencies(pg):
+    from stock_machine.research_contract import read_inputs
+    from stock_machine.normalization.financial_periods import build_periods
+    from pathlib import Path
+    import json
+    raw = json.loads((Path(__file__).parent / "fixtures/vz_2026q2_source_extract.json").read_text())
+    quarters, annual, _ = build_periods(raw)
+    with pg() as conn:
+        db.replace_periods(conn, "VZ", quarters, annual)
+    # No monkeypatched bundle helpers: exercises actual monitoring, peers,
+    # base rates, events, snapshots and source-backed financial calculations.
+    bundle, report, forecast = read_inputs("VZ")
+    assert bundle["company"]["ticker"] == "VZ"
+    assert bundle["market_snapshot"]["net_debt"] == 163479000000
+    assert report is None and forecast is None

@@ -1,7 +1,7 @@
 """Additive 0020 release with one transaction and verified audit protections."""
 from pathlib import Path
 
-TARGET = "0020_research_integrity"
+TARGET = "0021_monitoring_storage"
 
 
 def apply_on_connection(connection):
@@ -15,7 +15,7 @@ def apply_on_connection(connection):
     if not connection.exec_driver_sql("SELECT pg_try_advisory_xact_lock(hashtextextended('research-integrity-release-0020',0))").scalar_one():
         raise RuntimeError("ANOTHER_RELEASE_HOLDS_DATABASE_LOCK")
     before = set(connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalars())
-    if before not in ({"0019_agent_lab"}, {TARGET}):
+    if before not in ({"0019_agent_lab"}, {"0020_research_integrity"}, {TARGET}):
         raise RuntimeError("UNEXPECTED_DATABASE_REVISION")
     if before != {TARGET}:
         config = Config()
@@ -25,6 +25,8 @@ def apply_on_connection(connection):
     after = set(connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalars())
     if after != {TARGET}:
         raise RuntimeError("SCHEMA_VERIFICATION_FAILED")
+    if connection.exec_driver_sql("SELECT to_regclass('sm_invalidation_events')").scalar_one() is None:
+        raise RuntimeError("MONITORING_STORAGE_MISSING")
     from scripts.agent_lab_migration import TABLES
     for table in (*TABLES, "research_evidence_records"):
         count = connection.execute(text("SELECT count(*) FROM pg_trigger WHERE tgrelid=CAST(:table AS regclass) AND NOT tgisinternal AND tgenabled='O'"), {"table": table}).scalar_one()

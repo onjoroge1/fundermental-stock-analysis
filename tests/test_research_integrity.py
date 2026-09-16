@@ -37,6 +37,21 @@ def test_actual_verizon_tag_does_not_lose_noncurrent_debt(source_bundle):
     assert q["field_provenance"]["long_term_debt"]["tag"] == "LongTermDebtAndCapitalLeaseObligations"
 
 
+def test_financial_provenance_keeps_original_sec_hash_after_supplement(monkeypatch):
+    from stock_machine.ingestion import sec
+    from stock_machine.research_contract import digest
+    from types import SimpleNamespace
+    raw = json.loads((Path(__file__).parent / "fixtures/vz_2026q2_source_extract.json").read_text())
+    original_hash = digest(raw)
+    monkeypatch.setattr(sec, "_get", lambda url: SimpleNamespace(json=lambda: copy.deepcopy(raw)))
+    monkeypatch.setattr(sec, "save_raw", lambda *a: None)
+    data = sec.fetch_companyfacts("VZ", "0000732712")
+    data["subsequent_test_supplement"] = {"shares": 1}
+    quarters, _, _ = build_periods(data)
+    hashes = {p["source_content_sha256"] for p in quarters[-1]["fields"]["_financial_provenance"].values()}
+    assert hashes == {original_hash}
+
+
 def test_missing_debt_and_cash_are_never_imputed():
     p = {"period_end": "2026-06-30", "fields": {"short_term_debt": 21_783_000_000, "cash_and_equivalents": 1_752_000_000},
          "field_sources": {"short_term_debt": "a", "cash_and_equivalents": "a"}}

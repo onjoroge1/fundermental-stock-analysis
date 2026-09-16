@@ -13,10 +13,10 @@ def test_release_0020_commits_and_is_idempotent(migration_db):
     with engine.begin() as conn:
         conn.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
         result = apply_on_connection(conn)
-        assert result["after"] == "0020_research_integrity" and result["audit_triggers"] == 12
+        assert result["after"] == "0021_monitoring_storage" and result["audit_triggers"] == 12
     with engine.begin() as conn:
         conn.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
-        assert apply_on_connection(conn)["before"] == ["0020_research_integrity"]
+        assert apply_on_connection(conn)["before"] == ["0021_monitoring_storage"]
 
 
 def test_release_0020_failure_preserves_0019(migration_db):

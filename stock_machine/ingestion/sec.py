@@ -52,6 +52,10 @@ def fetch_companyfacts(ticker: str, cik: str) -> dict:
     url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
     payload = _get(url).json()
     save_raw("sec", [ticker.upper(), "companyfacts"], payload, url)
+    from ..research_contract import digest
+    # Freeze the original response identity before cover-share supplements
+    # modify this in-memory object. Financial facts still point to raw SEC data.
+    payload["_source_provenance"] = {"source_url": url, "source_content_sha256": digest(payload)}
     return payload
 
 

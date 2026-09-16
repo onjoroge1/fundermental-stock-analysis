@@ -1,16 +1,6 @@
 name: Recover SEC Fundamentals
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/recover-sec-fundamentals.yml"
-      - "scripts/recover_sec_fundamentals.py"
-      - "stock_machine/ingestion/cover_shares.py"
-      - "stock_machine/normalization/financial_periods.py"
-      - "stock_machine/normalization/xbrl_mapping.py"
-      - "stock_machine/normalization/earnings_releases.py"
-      - "stock_machine/normalization/earnings_release_eps.json"
 permissions:
   contents: read
 concurrency:
@@ -25,6 +15,7 @@ jobs:
     timeout-minutes: 40
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      RESEARCH_ARCHIVE_RAW: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

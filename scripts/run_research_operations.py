@@ -36,7 +36,8 @@ def reconcile(*, refresh_sec=False):
                            if recent["form"][i] in ("10-Q", "10-K", "10-Q/A", "10-K/A", "8-K")]
                 with db.connect() as conn:
                     # Keep the exact source even when normalization fails later.
-                    research_store.save(conn, "RAW_SOURCE", digest(raw), raw, ticker)
+                    original_raw = {k: v for k, v in raw.items() if k != "_source_provenance"}
+                    research_store.save(conn, "RAW_SOURCE", digest(original_raw), original_raw, ticker)
                     db.replace_periods(conn, ticker, quarters, annual)
                     db.replace_filings(conn, ticker, filings)
                     snapshot = assess_dataset("fundamentals", quarters + annual)
