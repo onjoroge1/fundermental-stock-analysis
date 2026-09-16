@@ -62,7 +62,7 @@ def test_sunday_scheduler_never_auto_syncs_forward_paper(monkeypatch):
     monkeypatch.setattr(automation, "enqueue", fake_enqueue)
     result = automation.schedule_due(datetime(2026, 8, 30, 12, tzinfo=timezone.utc))
 
-    assert "ticker_refresh" in scheduled
+    assert "research_index_refresh" in scheduled
     assert "strategy_lab_v2" in scheduled
     assert "forward_paper_mark" in scheduled
     assert "forward_paper_sync" not in scheduled

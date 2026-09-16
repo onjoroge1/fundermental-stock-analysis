@@ -204,11 +204,18 @@ def compute_kpis(conn) -> dict:
                  jsonb_array_elements(r.report->'claims') c
             WHERE c->>'classification' IN ('FACT', 'INFERENCE')""")
         cited, total_claims = cur.fetchone()
-    kpis.append(_kpi("Claim citation rate (FACT/INFERENCE claims)",
+    kpis.append(_kpi("Source-ID presence (not claim verification)",
                      f"{cited/total_claims*100:.1f}%" if total_claims else "—",
                      "100%", cited == total_claims and total_claims > 0,
                      f"{cited}/{total_claims} claims carry source_ids",
                      category="ai"))
+    from . import db
+    latest_reports = db.latest_reports_map(conn)
+    actual_total = sum(sum(c.get("classification") in ("FACT", "INFERENCE") for c in r.get("claims", [])) for r in latest_reports.values())
+    verified_total = sum((r.get("claim_validation") or {}).get("verified", 0) for r in latest_reports.values())
+    kpis.append(_kpi("Source-bound claim verification (latest reports)", f"{verified_total}/{actual_total}",
+                     "all factual claims verified", actual_total > 0 and verified_total == actual_total,
+                     "Legacy source IDs are unverified until their values and source evidence are checked.", category="ai"))
     kpis.append(_pending("Incremental AI value (combined vs quant-only)",
                          "needs matured outcomes for both report forecasts "
                          "and mechanical baselines", "ai"))
@@ -228,10 +235,16 @@ def compute_kpis(conn) -> dict:
                          (rate or 0) > 0.99,
                          f"{len(logs)} refresh runs logged",
                          category="ops"))
-    kpis.append(_kpi("Forecast coverage (bundles buildable)",
-                     f"{n_companies}/{n_companies}", "eligible only",
-                     True, "companies failing the gate stay unscored by "
-                     "design", category="ops"))
+    with conn.cursor() as cur:
+        cur.execute("""SELECT count(*) FROM companies c JOIN LATERAL (
+            SELECT as_of,status FROM prediction_forecasts WHERE ticker=c.ticker
+            ORDER BY as_of DESC,generated_at DESC LIMIT 1) p ON true
+            WHERE p.as_of::date=%s::date AND p.status='OK'""", (latest_completed_session(),))
+        current_forecasts = cur.fetchone()[0]
+    kpis.append(_kpi("Current persisted forecast coverage (not qualification)",
+                     f"{current_forecasts}/{n_companies}", "latest completed session",
+                     n_companies > 0 and current_forecasts == n_companies,
+                     "Counts actual persisted current outputs. Predictive qualification is a separate gate.", category="ops"))
 
     passed = sum(1 for k in kpis if k["status"] == "PASS")
     failed = sum(1 for k in kpis if k["status"] == "FAIL")

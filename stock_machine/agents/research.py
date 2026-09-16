@@ -31,6 +31,15 @@ def build_decision(ticker: str, packet: dict, observed_at: datetime,
         raise ValueError("Ticker is outside the frozen research pilot")
     input_hash = digest(packet)  # reject malformed/nonfinite data before saving
     blockers = []
+    from ..research_contract import VERSION, timestamp
+    contract = _obj(packet.get("research_contract"))
+    if contract.get("schema_version") != VERSION or not contract.get("snapshot_id"):
+        blockers.append("DATED_RESEARCH_CONTRACT_MISSING")
+    if not contract.get("research_observation_eligible"):
+        blockers.extend(contract.get("reasons") or ["RESEARCH_CONTRACT_NOT_VERIFIED"])
+    expiry = timestamp(contract.get("report_expires_at"))
+    if not expiry or expiry < observed_at:
+        blockers.append("REPORT_EXPIRED_AT_CAPTURE")
     if packet.get("ticker") != ticker:
         blockers.append("PACKET_IDENTITY_MISMATCH")
     try:
@@ -74,10 +83,10 @@ def build_decision(ticker: str, packet: dict, observed_at: datetime,
         "Research only: no simulated or broker order was submitted.",
         "Existing analyst text is attributed context, not new independently verified reasoning.",
         "A 12-month thesis does not validate a 20-session strategy.",
-        "News collection, LLM analysis, exploration, fills, P&L and rewards are not enabled.",
+        "This recorder does not collect news or run an LLM; source briefs may include explicitly unreviewed news metadata. Exploration, fills, P&L and rewards are disabled.",
         "Recorded now; not evidence that this packet was available at a historical decision date.",
     )
-    pointers = ("/analysis/investment_thesis", "/analysis/adversarial_review",
+    pointers = ("/research_contract", "/analysis/investment_thesis", "/analysis/adversarial_review",
                 "/data_quality", "/market_snapshot", "/model_distribution")
     return Decision(
         decision_id=str(uuid4()), ticker=ticker, observed_at=observed_at,
@@ -93,6 +102,10 @@ def build_decision(ticker: str, packet: dict, observed_at: datetime,
         source_model_status=str(model.get("status") or "MISSING"),
         source_model_version=model.get("model_version"),
         price_date=price_date if isinstance(price_date, str) else None,
+        research_snapshot_id=contract.get("snapshot_id"),
+        source_report_id=contract.get("report_id"),
+        source_report_as_of=contract.get("report_as_of"),
+        research_contract_version=contract.get("schema_version"),
         previous_decision_id=previous_id,
     )
 

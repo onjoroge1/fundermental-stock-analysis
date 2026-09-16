@@ -22,6 +22,7 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
       PRICE_SOURCE: yahoo
+      RESEARCH_ARCHIVE_RAW: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,3 +45,15 @@ jobs:
         run: python scripts/refresh_prices.py --benchmarks
       - name: Refresh company inputs and canonical forecasts
         run: python scripts/daily_refresh.py
+      - name: Register or advance the predefined prospective experiment
+        run: python -m scripts.run_research_operations --experiment
+      - name: Preserve per-stage diagnostics and reconciliation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-research-evidence-${{ github.run_id }}
+          path: |
+            data/refresh_logs/
+            data/research_operations/
+          if-no-files-found: warn
+          retention-days: 90

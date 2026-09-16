@@ -31,7 +31,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 # SEC fair-access policy: identify yourself and stay under 10 req/s.
 SEC_USER_AGENT = os.environ.get(
-    "SEC_USER_AGENT", "StockMachine research kim.njo@gmail.com"
+    "SEC_USER_AGENT", "StockMachine/1.0 public financial statement research"
 )
 SEC_MIN_REQUEST_INTERVAL_S = 0.15
 

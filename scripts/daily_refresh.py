@@ -128,13 +128,14 @@ def main() -> int:
         print(json.dumps({k: v for k, v in entry.items()
                           if k not in ("trace", "fields_present")}))
 
-    # paper portfolio: reconcile with latest classifications, then mark
+    # Existing legacy positions remain observable. Unqualified report prose
+    # must not create new positions or contaminate the prospective experiment.
     paper_result = {}
     try:
         from stock_machine import paper
         conn = db.connect()
         try:
-            sync = paper.sync_with_reports(conn)
+            sync = {"status": "WITHHELD", "reason": "UNQUALIFIED_REPORT_CLASSIFICATIONS", "new_positions": 0}
             nav = paper.mark(conn)
             paper_result = {"sync": sync,
                             "nav": {k: nav[k] for k in

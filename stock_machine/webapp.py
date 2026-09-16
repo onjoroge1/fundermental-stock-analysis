@@ -69,7 +69,8 @@ def companies(persisted: bool = True) -> list[dict]:
             payload = json.loads(COVERAGE_SNAPSHOT.read_text())
             for row in payload["rows"]:
                 row["snapshot_generated_at"] = payload["generated_at"]
-            return payload["rows"]
+            from .research_contract import guard_coverage_row
+            return [guard_coverage_row(row) for row in payload["rows"]]
         except Exception:
             pass  # corrupt snapshot: fall through to a live rebuild
     return _companies_live()
@@ -79,21 +80,23 @@ def _companies_live() -> list[dict]:
     conn = db.connect()
     try:
         names = db.list_companies(conn)
-        reports = db.latest_reports_map(conn)
     finally:
         conn.close()
     out = []
     for c in names:
         try:
-            b = _bundle(c["ticker"])
+            from .research_contract import read_inputs
+            b, report, prediction = read_inputs(c["ticker"])
         except Exception:
             continue
         d = b["derived_metrics"]
         signals = _signals(b)
-        report = reports.get(c["ticker"])
+        from .research_contract import evaluate
+        contract = evaluate(b, report, prediction)
         fc12 = ((report or {}).get("forecasts") or {}).get("twelve_month") or {}
         out.append({
             "ticker": c["ticker"],
+            "research_contract": contract,
             "legal_name": c["legal_name"],
             "sector": c.get("sector"),
             "price": b["market_snapshot"]["price"],
@@ -110,7 +113,8 @@ def _companies_live() -> list[dict]:
             "composite_score": b["fundamental_scores"]["composite_score"],
             "components": b["fundamental_scores"]["components"],
             "data_quality_status": b["data_quality"]["status"],
-            "has_report": c["ticker"] in reports,
+            "has_report": bool(report),
+            "prediction_status": contract["model_status"],
             "signals": signals,
             "signal_count": sum(signals.values()),
             "implied_vs_achieved_gap_pct": (
@@ -125,15 +129,18 @@ def _companies_live() -> list[dict]:
                 "fair_value_high": fc12.get("fair_value_high"),
                 "classification": ((report or {}).get("conclusion") or {})
                     .get("classification"),
-            } if fc12 else None),
+            } if fc12 and contract["guidance_eligible"] else None),
         })
-    return out
+    from .research_contract import guard_coverage_row
+    return [guard_coverage_row(row) for row in out]
 
 
 @app.get("/api/bundle/{ticker}")
 def bundle(ticker: str) -> dict:
     try:
-        return _bundle(ticker)
+        from .research_contract import read_inputs, evaluate
+        b, r, p = read_inputs(ticker.upper())
+        return {**b, "research_contract": evaluate(b, r, p)}
     except ValueError as e:
         raise HTTPException(404, str(e))
 
@@ -213,14 +220,15 @@ def predict(ticker: str) -> dict:
 
 @app.get("/api/report/{ticker}")
 def report(ticker: str) -> dict:
-    conn = db.connect()
-    try:
-        r = db.latest_report(conn, ticker.upper())
-    finally:
-        conn.close()
+    from .research_contract import read_inputs, evaluate
+    b, r, prediction = read_inputs(ticker.upper())
     if not r:
         raise HTTPException(404, f"no analysis report for {ticker.upper()}")
-    return r
+    contract = evaluate(b, r, prediction)
+    # Preserve original saved evidence. Every consumer gets the current use
+    # restriction without overwriting the historical report.
+    from .research_contract import safe_analysis
+    return {**safe_analysis(r, contract), "research_contract": contract}
 
 
 @app.get("/api/kpis")

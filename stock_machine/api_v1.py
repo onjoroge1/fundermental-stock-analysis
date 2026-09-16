@@ -17,10 +17,11 @@ from . import db
 from .bundle import build_bundle
 from .config import DATA_DIR
 from .prediction import MODEL_VERSION
+from .research_contract import evaluate, safe_analysis, guard_coverage_row, read_inputs
 
 router = APIRouter(prefix="/api/v1", tags=["agent-api-v1"])
 
-API_VERSION = "1.0.0"
+API_VERSION = "1.1.0"
 COVERAGE_SNAPSHOT = DATA_DIR / "coverage_snapshot.json"
 
 
@@ -182,7 +183,7 @@ def _load_coverage_rows() -> tuple[list[dict[str, Any]], str | None]:
     if COVERAGE_SNAPSHOT.exists():
         try:
             payload = json.loads(COVERAGE_SNAPSHOT.read_text(encoding="utf-8"))
-            return list(payload.get("rows") or []), payload.get("generated_at")
+            return [guard_coverage_row(r) for r in payload.get("rows") or []], payload.get("generated_at")
         except Exception:
             pass
 
@@ -222,7 +223,7 @@ def _load_coverage_rows() -> tuple[list[dict[str, Any]], str | None]:
                 "classification": (report.get("conclusion") or {}).get("classification"),
             } if fc12 else None,
         })
-    return rows, None
+    return [guard_coverage_row(r) for r in rows], None
 
 
 def _latest_report_and_prediction(ticker: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
@@ -272,11 +273,13 @@ def stock_research(
     """One-call, agent-friendly research packet for a stock."""
     symbol = ticker.upper().strip()
     try:
-        bundle = build_bundle(symbol)
+        bundle, report, prediction = read_inputs(symbol)
     except ValueError as exc:
         raise HTTPException(404, str(exc))
 
-    report, prediction = _latest_report_and_prediction(symbol)
+    contract = evaluate(bundle, report, prediction)
+    original_report = report
+    report = report if contract["guidance_eligible"] else None
     market = bundle.get("market_snapshot") or {}
     spot = market.get("price")
     fc12 = ((report or {}).get("forecasts") or {}).get("twelve_month") or {}
@@ -316,6 +319,7 @@ def stock_research(
         "api_version": API_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "ticker": symbol,
+        "research_contract": contract,
         "company": bundle.get("company") or {},
         "market_snapshot": market,
         "live_quote": live_quote,
@@ -328,22 +332,21 @@ def stock_research(
             "base_rates": bundle.get("base_rates") or {},
             "peer_group": bundle.get("peer_group") or {},
         },
-        "analysis": {
-            "report_available": report is not None,
-            "forecasts": (report or {}).get("forecasts") or {},
-            "scenarios": (report or {}).get("scenarios") or [],
-            "investment_thesis": (report or {}).get("investment_thesis") or {},
-            "adversarial_review": (report or {}).get("adversarial_review") or {},
-            "conclusion": (report or {}).get("conclusion") or {},
-        },
+        "analysis": safe_analysis(original_report, contract),
         "model_distribution": {
-            "status": (prediction or {}).get("status", "MISSING") if prediction else "MISSING",
+            "status": contract["model_status"],
+            "as_of": (prediction or {}).get("as_of"),
+            "generated_at": (prediction or {}).get("generated_at"),
+            "forecast_id": (prediction or {}).get("forecast_id"),
+            "actual_primary_model": (prediction or {}).get("primary_model"),
             "model_version": (prediction or {}).get("model_version", MODEL_VERSION),
             "three_month": pred3,
             "twelve_month": pred12,
         },
         "catalysts": bundle.get("catalyst_calendar") or {},
         "decision_context": {
+            "status": "QUALIFIED" if contract["guidance_eligible"] else "WITHHELD",
+            "withheld_reasons": contract["guidance_reasons"],
             "expected_return_12m_pct": er12,
             "bear_fair_value": fair_low,
             "bull_fair_value": fair_high,
@@ -352,7 +355,7 @@ def stock_research(
             "bear_probability": None if not bear else bear.get("probability"),
             "bear_probability_source": None if not bear else "analysis_scenario",
             "bear_probability_calibrated": False if bear else None,
-            "prob_down_20pct_model": pred12.get("prob_down_20pct"),
+            "prob_down_20pct_model": pred12.get("prob_down_20pct") if contract["guidance_eligible"] else None,
             "quality_score": quality,
             "classification": classification,
             "bearish_asymmetry_score": bearish_asymmetry_score(
@@ -368,7 +371,7 @@ def stock_research(
                 bear_downside_pct=bear_downside,
                 bull_upside_pct=bull_upside,
                 prob_down_20pct=pred12.get("prob_down_20pct"),
-            ),
+            ) if contract["guidance_eligible"] else {"primary": "NO_RECOMMENDATION", "status": "WITHHELD", "reasons": contract["guidance_reasons"]},
         },
         "links": {
             "raw_bundle": f"/api/bundle/{symbol}",
@@ -398,6 +401,9 @@ def bearish_opportunities(
 
     candidates: list[dict[str, Any]] = []
     for row in rows:
+        row = guard_coverage_row(row)
+        if not row["research_contract"].get("guidance_eligible"):
+            continue
         if sector and str(row.get("sector") or "").lower() != sector.lower():
             continue
         report12 = row.get("report_12m") or {}
@@ -473,10 +479,15 @@ def stock_bear_plan(ticker: str) -> dict[str, Any]:
     """Compact bearish trade-expression context without selecting contracts."""
     symbol = ticker.upper().strip()
     try:
-        bundle = build_bundle(symbol)
+        bundle, report, prediction = read_inputs(symbol)
     except ValueError as exc:
         raise HTTPException(404, str(exc))
-    report, prediction = _latest_report_and_prediction(symbol)
+    contract = evaluate(bundle, report, prediction)
+    if not contract["guidance_eligible"]:
+        return {"api_version": API_VERSION, "ticker": symbol, "status": "WITHHELD",
+                "research_contract": contract, "strategy": {"primary": "NO_RECOMMENDATION",
+                "reason": "Research or model prerequisites are not verified.",
+                "withheld_reasons": contract["guidance_reasons"]}}
     market = bundle.get("market_snapshot") or {}
     spot = market.get("price")
     fc12 = ((report or {}).get("forecasts") or {}).get("twelve_month") or {}

@@ -98,28 +98,18 @@ class ResearchAPI:
         ticker = symbol(ticker)
         path = f"/api/v1/stocks/{ticker}/research"
         packet = await self._read(path, {"include_live_quote": "false"})
-        report = await self._read(f"/api/report/{ticker}", missing_ok=True)
-        sections = ("forecasts", "scenarios", "investment_thesis", "adversarial_review", "conclusion")
-        analysis = packet.get("analysis") or {}
-        matches = bool(report) and all(analysis.get(k) == report.get(k) for k in sections)
-        vintage = {
-            "status": "MATCHING_SEPARATE_REPORT_READ" if matches else "UNVERIFIED",
-            "analysis_as_of": report.get("as_of") if matches else None,
-            "analysis_id": report.get("analysis_id") if matches else None,
-            "price_date": (packet.get("market_snapshot") or {}).get("price_date"),
-            "packet_generated_at": packet.get("generated_at"),
-        }
-        return _envelope(path, packet, component_dates=vintage,
-            notes=["Packet assembly time is not the analyst report's original date.",
-                   "These are separate API reads, not an atomic historical snapshot.",
-                   "Stored return estimates are preserved, not rebased to today's price.",
-                   "Use get_forecast for the API's current model/freshness checks; no status here authorizes trading."])
+        contract = packet.get("research_contract")
+        if not contract or contract.get("schema_version") != "research-contract.v1" or not contract.get("snapshot_id"):
+            raise APIReadError("DATED_RESEARCH_CONTRACT_MISSING")
+        return _envelope(path, packet, component_dates=contract,
+            notes=["One source-bound contract is shared with the API, UI, index and journal.",
+                   "WITHHELD outputs cannot be turned into a recommendation; original report date controls freshness."])
 
     async def saved_analysis(self, ticker: str):
         path = f"/api/report/{symbol(ticker)}"
         report = await self._read(path, missing_ok=True)
         return _envelope(path, report, availability="AVAILABLE" if report is not None else "MISSING",
-            note="Original stored analysis. Its as_of date is not this retrieval time.")
+            note="Dated analysis projection; unsupported guidance and unverified legacy prose are withheld. Its as_of is not the retrieval time.")
 
     async def forecast(self, ticker: str):
         path = f"/api/predict/{symbol(ticker)}"

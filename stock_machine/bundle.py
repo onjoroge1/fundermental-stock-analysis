@@ -81,7 +81,8 @@ def _period_json(p: dict, statement_fields: dict[str, list[str]]) -> dict:
         "form": p.get("form"), "accession_number": p.get("accession_number"),
         "derived_q4": p.get("derived", False), "currency": "USD",
         "source_ids": sources,
-        "field_provenance": eps_provenance(p),
+        "field_provenance": {**fields.get("_financial_provenance", {}), **eps_provenance(p)},
+        "field_sources": p["field_sources"],
     }
     for stmt, flist in statement_fields.items():
         out[stmt] = {f: fields.get(f) for f in flist if f in fields or stmt != "other"}
@@ -101,7 +102,9 @@ STATEMENT_FIELDS = {
                       "accounts_payable", "deferred_revenue",
                       "current_liabilities", "noncurrent_liabilities", "short_term_debt",
                       "commercial_paper", "long_term_debt", "total_liabilities",
-                      "shareholders_equity"],
+                      "shareholders_equity", "noncontrolling_interest", "temporary_equity",
+                      "redeemable_noncontrolling_interest", "reported_total_debt",
+                      "debt_current_total", "debt_noncurrent_total"],
     "cash_flow": ["operating_cash_flow", "capital_expenditures",
                   "free_cash_flow", "acquisitions", "share_repurchases",
                   "dividends_paid", "stock_based_compensation",
@@ -111,14 +114,14 @@ STATEMENT_FIELDS = {
 }
 
 
-def build_bundle(ticker: str, as_of: str | None = None) -> dict:
+def build_bundle(ticker: str, as_of: str | None = None, *, connection=None) -> dict:
     """Assemble the Claude-facing bundle. as_of: ISO timestamp (default now)."""
     ticker = ticker.upper()
     if as_of is None:
         as_of = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     as_of_date = as_of[:10]
 
-    conn = db.connect()
+    conn = connection or db.connect()
     try:
         company = db.fetch_company(conn, ticker)
         if not company:
@@ -126,6 +129,7 @@ def build_bundle(ticker: str, as_of: str | None = None) -> dict:
                              f"pipeline first (python -m stock_machine all {ticker})")
         quarterly = db.fetch_periods(conn, ticker, "quarter", as_of)
         annual = db.fetch_periods(conn, ticker, "annual", as_of)
+        latest_filing = db.latest_financial_filing(conn, ticker, as_of)
         prices = db.fetch_prices(conn, ticker, as_of)
         shares_rows = db.fetch_shares(conn, ticker, as_of)
         events = db.fetch_events(conn, ticker)
@@ -149,7 +153,8 @@ def build_bundle(ticker: str, as_of: str | None = None) -> dict:
             conn, ticker, "EARNINGS", as_of_date,
             (date.fromisoformat(as_of_date) + timedelta(days=366)).isoformat(), as_of_date)
     finally:
-        conn.close()
+        if connection is None:
+            conn.close()
 
     lookup = _price_lookup_on_share_basis(prices, all_actions, as_of_date)
     adj_lookup = _price_lookup(prices, "adj_close")     # total-return adjustment: returns only
@@ -433,11 +438,18 @@ def build_bundle(ticker: str, as_of: str | None = None) -> dict:
                    if latest_q and latest_q["fields"].get(f) is not None)
     completeness = round(n_fields / len(CRITICAL_FIELDS), 2) if latest_q else 0.0
 
-    status = "PASS" if not missing_critical and not stale else (
+    from .financial_integrity import balance_sheet_check
+    financial_integrity = balance_sheet_check(latest_q)
+    financial_integrity["latest_financial_filing"] = latest_filing
+    if latest_filing and latest_filing["report_date"] > (latest_q or {}).get("period_end", ""):
+        financial_integrity["status"] = "WITHHELD"
+        financial_integrity["reasons"].append("NEWER_FINANCIAL_FILING_NOT_NORMALIZED")
+    status = "PASS" if not missing_critical and not stale and financial_integrity["status"] == "VERIFIED" else (
         "WARN" if latest_q and prices else "FAIL")
 
     data_quality = {
         "status": status,
+        "financial_integrity": financial_integrity,
         "completeness_score": completeness,
         "critical_missing_fields": missing_critical,
         "stale_datasets": stale,
@@ -484,6 +496,14 @@ def build_bundle(ticker: str, as_of: str | None = None) -> dict:
         "prohibited_analysis": prohibited,
         "reason": "; ".join(reasons) or None,
     }
+    if financial_integrity["status"] != "VERIFIED":
+        for capability in ("valuation_vs_own_history", "scenario_construction"):
+            if capability in permitted:
+                permitted.remove(capability)
+            prohibited.append(capability)
+        scores["composite_score"] = None
+        scores["status"] = "WITHHELD_FINANCIAL_DEPENDENCIES"
+        scores["withheld_reasons"] = financial_integrity["reasons"]
 
     stamp = as_of.replace(":", "").replace("-", "", 2)[:22].replace("-", "")
     bundle = {

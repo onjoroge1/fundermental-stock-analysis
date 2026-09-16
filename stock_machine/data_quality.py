@@ -72,12 +72,18 @@ def assess_dataset(dataset: str, rows: list[dict], *,
         completeness = round(present / len(critical), 4) if latest else 0.0
         metrics.update({"quarter_count": len(quarters),
                         "critical_completeness": completeness})
+        from .financial_integrity import balance_sheet_check
+        integrity = balance_sheet_check(latest)
+        metrics["financial_integrity"] = integrity
         if len(quarters) < 4:
             status = "FAIL"
             reasons.append("fewer than four quarterly periods")
         elif completeness < 1:
             status = "WARN"
             reasons.append("latest quarter is missing critical fields")
+        if integrity["status"] != "VERIFIED" and status != "FAIL":
+            status = "WARN"
+            reasons.extend(integrity["reasons"])
     elif dataset == "prices":
         _, newest = _date_bounds(rows, ("date",))
         age = _days_old(newest, as_of)
@@ -176,7 +182,9 @@ def readiness_for_snapshots(snapshots: dict[str, dict], *,
     status = "BLOCKED" if blockers else ("CAUTION" if warnings else "READY")
     return {
         "status": status,
-        "trade_eligible": not blockers,
+        "trade_eligible": False,
+        "research_data_eligible": not blockers and not warnings,
+        "trade_eligibility_note": "Dataset readiness does not qualify a strategy; use the dated research contract.",
         "blockers": blockers,
         "warnings": warnings,
     }

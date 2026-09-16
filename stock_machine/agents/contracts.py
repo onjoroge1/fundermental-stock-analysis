@@ -85,6 +85,10 @@ class Decision(Frozen):
     source_model_status: str = "MISSING"
     source_model_version: str | None = None
     price_date: str | None = None
+    research_snapshot_id: str | None = None
+    source_report_id: str | None = None
+    source_report_as_of: str | None = None
+    research_contract_version: str | None = None
     previous_decision_id: str | None = None
 
     @model_validator(mode="after")
