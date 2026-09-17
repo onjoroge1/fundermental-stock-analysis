@@ -1,4 +1,4 @@
-"""Owner sessions, audit history, operational capture pause and resumable pilot."""
+"""Owner sessions, audit history, operational research pause and resumable pilot."""
 from alembic import op
 
 revision = "0022_admin_panel"
@@ -29,7 +29,6 @@ def upgrade():
         capture_paused BOOLEAN NOT NULL DEFAULT false,
         version INT NOT NULL DEFAULT 1 CHECK(version > 0),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
-    # Preserve the already authorized deployment switch. No new enabling default.
     op.execute("INSERT INTO operator_controls DEFAULT VALUES")
     op.execute("""CREATE TABLE operator_audit (
         id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
