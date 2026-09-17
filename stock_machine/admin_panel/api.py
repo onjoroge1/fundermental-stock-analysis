@@ -1,4 +1,4 @@
-"""Session-authenticated owner UI. Legacy bearer APIs remain separate."""
+"""Session-authenticated owner UI with one normal login path."""
 from __future__ import annotations
 
 import json
@@ -81,14 +81,11 @@ async def safe(fn):
         return response({"error_code": "ADMIN_STORAGE_OR_OPERATION_UNAVAILABLE"}, 503)
 
 
-async def owner(request, *, write=False, allow_password_change=False):
+async def owner(request, *, write=False):
     if write:
         origin_ok(request)
-    value = await run_in_threadpool(store.session, request.cookies.get(COOKIE, ""),
-        csrf=request.headers.get("x-csrf-token"), write=write, allow_password_change=allow_password_change)
-    if value["must_change_password"] and not allow_password_change:
-        raise PanelError("PASSWORD_CHANGE_REQUIRED", 403)
-    return value
+    return await run_in_threadpool(store.session, request.cookies.get(COOKIE, ""),
+        csrf=request.headers.get("x-csrf-token"), write=write)
 
 
 @router.get("/admin")
@@ -101,31 +98,13 @@ def page():
 @router.get("/api/operator/session")
 async def me(request: Request):
     async def work():
-        if await run_in_threadpool(store.setup_required):
-            return response({"setup_required": True, "authenticated": False})
         try:
-            account = await owner(request, allow_password_change=True)
+            account = await owner(request)
         except PanelError as exc:
             if exc.status != 401:
                 raise
-            return response({"setup_required": False, "authenticated": False})
-        return response({"setup_required": False, "authenticated": True, **account})
-    return await safe(work)
-
-
-@router.post("/api/operator/setup")
-async def setup(request: Request):
-    async def work():
-        data = await body(request, {"username", "password"})
-        from ..automation_api import _require_admin
-        from fastapi import HTTPException
-        try:
-            _require_admin(request.headers.get("authorization"))
-        except HTTPException as exc:
-            raise PanelError("OWNER_AUTHENTICATION_REQUIRED", exc.status_code) from None
-        if text(data, "username") != "admin":
-            raise PanelError("OWNER_USERNAME_MUST_BE_ADMIN")
-        return response(await run_in_threadpool(store.bootstrap, text(data, "password", 12, 128)), 201)
+            return response({"authenticated": False})
+        return response({"authenticated": True, **account})
     return await safe(work)
 
 
@@ -141,7 +120,7 @@ async def login(request: Request):
 @router.post("/api/operator/logout")
 async def logout(request: Request):
     async def work():
-        account = await owner(request, write=True, allow_password_change=True)
+        account = await owner(request, write=True)
         await run_in_threadpool(store.logout, request.cookies.get(COOKIE, ""), account["username"])
         return response({"authenticated": False}, clear=True)
     return await safe(work)
@@ -150,10 +129,10 @@ async def logout(request: Request):
 @router.post("/api/operator/password")
 async def password(request: Request):
     async def work():
-        account = await owner(request, write=True, allow_password_change=True)
+        account = await owner(request, write=True)
         data = await body(request, {"current_password", "new_password"})
         raw, updated = await run_in_threadpool(store.change_password, account["username"],
-            text(data, "current_password"), text(data, "new_password", 15, 128))
+            text(data, "current_password"), text(data, "new_password", 12, 128))
         return response({"authenticated": True, **updated}, cookie=raw)
     return await safe(work)
 
