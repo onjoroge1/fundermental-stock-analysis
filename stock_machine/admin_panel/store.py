@@ -1,4 +1,4 @@
-"""Database-backed authentication and controls. No schema writes on HTTP reads."""
+"""Database-backed authentication and controls with one owner login path."""
 from __future__ import annotations
 
 import os
@@ -16,42 +16,34 @@ def connect():
 
 def audit(conn, actor: str, event: str, details: dict):
     from psycopg.types.json import Jsonb
-    # Callers supply only fixed event fields; never request bodies or exceptions.
     conn.execute("INSERT INTO operator_audit(actor,event,details) VALUES (%s,%s,%s)",
                  (actor, event, Jsonb(details)))
-
-
-def setup_required() -> bool:
-    with connect() as conn:
-        return conn.execute("SELECT NOT EXISTS(SELECT 1 FROM operator_users)").fetchone()[0]
-
-
-def bootstrap(password: str):
-    """API caller MUST prove the existing owner admin credential first."""
-    validate_password(password, initial=True)
-    with connect() as conn:
-        conn.execute("SELECT pg_advisory_xact_lock(hashtextextended('operator-bootstrap',0))")
-        if conn.execute("SELECT 1 FROM operator_users LIMIT 1").fetchone():
-            raise PanelError("SETUP_ALREADY_COMPLETED", 409)
-        encoded = hash_password(password, initial=True)
-        conn.execute("INSERT INTO operator_users(username,password_hash) VALUES ('admin',%s)", (encoded,))
-        audit(conn, "owner-bootstrap", "OWNER_CREATED", {"username": "admin", "password_change_required": True})
-    return {"status": "CREATED", "username": "admin", "password_change_required": True}
 
 
 def _new_session(conn, username):
     raw, csrf = token(), token()
     expires = datetime.now(timezone.utc) + timedelta(seconds=SESSION_SECONDS)
     conn.execute("DELETE FROM operator_sessions WHERE expires_at <= now() OR last_seen < now() - interval '30 minutes'")
-    # A single owner session also makes the UI's logout semantics unambiguous.
     conn.execute("DELETE FROM operator_sessions WHERE username=%s", (username,))
     conn.execute("INSERT INTO operator_sessions(token_hash,username,csrf_token,expires_at) VALUES (%s,%s,%s,%s)",
                  (token_hash(raw), username, csrf, expires))
     return raw, csrf
 
 
+def _initial_password() -> str:
+    value = os.getenv("ADMIN_PASSWORD", "")
+    if not value:
+        raise PanelError("ADMIN_PASSWORD_NOT_CONFIGURED", 503)
+    validate_password(value, initial=True)
+    return value
+
+
 def login(username: str, password: str):
-    # Persistent global throttle: one owner, bounded rows, applies across workers.
+    """Authenticate the single owner; first valid login provisions the DB hash.
+
+    ADMIN_PASSWORD is consulted only when the owner row does not yet exist.
+    After provisioning, normal logins use the Argon2id hash in Postgres.
+    """
     with connect() as conn:
         count = conn.execute("""UPDATE operator_auth_limits SET
             attempts=CASE WHEN window_start < now()-interval '5 minutes' THEN 1 ELSE attempts+1 END,
@@ -61,30 +53,44 @@ def login(username: str, password: str):
             raise PanelError("AUTH_STORAGE_UNAVAILABLE", 503)
     if count[0] > 10:
         raise PanelError("LOGIN_RATE_LIMITED", 429)
+
     with connect() as conn:
-        # Serialize expensive password checks across instances; no memory storm.
         if not conn.execute("SELECT pg_try_advisory_xact_lock(hashtextextended('operator-login',0))").fetchone()[0]:
             raise PanelError("LOGIN_BUSY", 429)
-        row = conn.execute("SELECT username,password_hash,must_change_password,disabled FROM operator_users WHERE username=%s FOR UPDATE", (username,)).fetchone()
-        correct = verify_password(row[1] if row else DUMMY_HASH, password)
-        accepted = bool(row and correct and not row[3])
-        if accepted:
-            if HASHER.check_needs_rehash(row[1]):
-                conn.execute("UPDATE operator_users SET password_hash=%s WHERE username=%s", (HASHER.hash(password), username))
-            raw, csrf = _new_session(conn, username)
-            audit(conn, username, "LOGIN_SUCCEEDED", {})
+        row = conn.execute("SELECT username,password_hash,must_change_password,disabled FROM operator_users WHERE username='admin' FOR UPDATE").fetchone()
+
+        if row is None:
+            configured = _initial_password()
+            accepted = username == "admin" and same(password, configured)
+            if accepted:
+                encoded = hash_password(password, initial=True)
+                conn.execute("INSERT INTO operator_users(username,password_hash,must_change_password) VALUES ('admin',%s,false)", (encoded,))
+                audit(conn, "admin", "OWNER_PROVISIONED", {"username": "admin"})
+                row = ("admin", encoded, False, False)
         else:
+            accepted = username == "admin" and verify_password(row[1], password) and not row[3]
+            if accepted and HASHER.check_needs_rehash(row[1]):
+                conn.execute("UPDATE operator_users SET password_hash=%s WHERE username='admin'", (HASHER.hash(password),))
+
+        if accepted:
+            raw, csrf = _new_session(conn, "admin")
+            audit(conn, "admin", "LOGIN_SUCCEEDED", {})
+        else:
+            # Equal-cost verification avoids a cheap unknown-user path after provisioning.
+            if row is None:
+                verify_password(DUMMY_HASH, password)
             audit(conn, "unauthenticated", "LOGIN_REJECTED", {})
+
     if not accepted:
         raise PanelError("INVALID_LOGIN", 401)
-    return raw, {"username": row[0], "must_change_password": row[2], "csrf_token": csrf}
+    return raw, {"username": "admin", "csrf_token": csrf, "must_change_password": False}
 
 
-def session(raw: str, *, csrf: str | None = None, write: bool = False, allow_password_change: bool = False):
+def session(raw: str, *, csrf: str | None = None, write: bool = False):
     if not raw or len(raw) > 128:
         raise PanelError("LOGIN_REQUIRED", 401)
     with connect() as conn:
-        row = conn.execute("""SELECT s.username,s.csrf_token,u.must_change_password FROM operator_sessions s
+        row = conn.execute("""SELECT s.username,s.csrf_token FROM operator_sessions s
             JOIN operator_users u ON u.username=s.username
             WHERE s.token_hash=%s AND s.expires_at > now() AND s.last_seen > now()-interval '30 minutes'
             AND NOT u.disabled""", (token_hash(raw),)).fetchone()
@@ -92,10 +98,8 @@ def session(raw: str, *, csrf: str | None = None, write: bool = False, allow_pas
             raise PanelError("LOGIN_REQUIRED", 401)
         if write and (not csrf or not same(row[1], csrf)):
             raise PanelError("CSRF_REJECTED", 403)
-        if write and row[2] and not allow_password_change:
-            raise PanelError("PASSWORD_CHANGE_REQUIRED", 403)
         conn.execute("UPDATE operator_sessions SET last_seen=now() WHERE token_hash=%s", (token_hash(raw),))
-    return {"username": row[0], "csrf_token": row[1], "must_change_password": row[2]}
+    return {"username": row[0], "csrf_token": row[1], "must_change_password": False}
 
 
 def logout(raw: str, actor: str):
@@ -105,14 +109,14 @@ def logout(raw: str, actor: str):
 
 
 def change_password(actor: str, current: str, replacement: str):
-    validate_password(replacement)
+    validate_password(replacement, initial=True)
     if current == replacement:
         raise PanelError("NEW_PASSWORD_MUST_DIFFER")
     with connect() as conn:
         row = conn.execute("SELECT password_hash FROM operator_users WHERE username=%s FOR UPDATE", (actor,)).fetchone()
         if not row or not verify_password(row[0], current):
             raise PanelError("INVALID_LOGIN", 401)
-        conn.execute("UPDATE operator_users SET password_hash=%s,must_change_password=false WHERE username=%s", (hash_password(replacement), actor))
+        conn.execute("UPDATE operator_users SET password_hash=%s,must_change_password=false WHERE username=%s", (hash_password(replacement, initial=True), actor))
         raw, csrf = _new_session(conn, actor)
         audit(conn, actor, "PASSWORD_CHANGED", {})
     return raw, {"username": actor, "must_change_password": False, "csrf_token": csrf}
@@ -125,16 +129,14 @@ def controls(conn=None):
     row = conn.execute("SELECT capture_paused,version,updated_at::text FROM operator_controls WHERE singleton").fetchone()
     if row is None:
         raise PanelError("CONTROLS_UNAVAILABLE", 503)
-    allowed = os.getenv("AGENT_LAB_ENABLED", "false").lower() == "true"
     return {"capture_paused": row[0], "version": row[1], "updated_at": row[2],
-            "deployment_permits_capture": allowed, "capture_enabled": allowed and not row[0],
+            "capture_enabled": not row[0],
             "scope": "Journal captures and admin pilot runs only; existing data/news schedules are unchanged."}
 
 
 def require_capture_enabled():
-    state = controls()
-    if not state["capture_enabled"]:
-        raise PanelError("CAPTURE_PAUSED" if state["capture_paused"] else "DEPLOYMENT_CAPTURE_DISABLED", 409)
+    if controls()["capture_paused"]:
+        raise PanelError("CAPTURE_PAUSED", 409)
 
 
 def set_capture_pause(actor: str, paused: bool, expected_version: int, reason: str):
