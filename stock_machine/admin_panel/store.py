@@ -39,11 +39,6 @@ def _initial_password() -> str:
 
 
 def login(username: str, password: str):
-    """Authenticate the single owner; first valid login provisions the DB hash.
-
-    ADMIN_PASSWORD is consulted only when the owner row does not yet exist.
-    After provisioning, normal logins use the Argon2id hash in Postgres.
-    """
     with connect() as conn:
         count = conn.execute("""UPDATE operator_auth_limits SET
             attempts=CASE WHEN window_start < now()-interval '5 minutes' THEN 1 ELSE attempts+1 END,
@@ -58,7 +53,7 @@ def login(username: str, password: str):
         if not conn.execute("SELECT pg_try_advisory_xact_lock(hashtextextended('operator-login',0))").fetchone()[0]:
             raise PanelError("LOGIN_BUSY", 429)
         row = conn.execute("SELECT username,password_hash,must_change_password,disabled FROM operator_users WHERE username='admin' FOR UPDATE").fetchone()
-
+        accepted = False
         if row is None:
             configured = _initial_password()
             accepted = username == "admin" and same(password, configured)
@@ -71,16 +66,13 @@ def login(username: str, password: str):
             accepted = username == "admin" and verify_password(row[1], password) and not row[3]
             if accepted and HASHER.check_needs_rehash(row[1]):
                 conn.execute("UPDATE operator_users SET password_hash=%s WHERE username='admin'", (HASHER.hash(password),))
-
         if accepted:
             raw, csrf = _new_session(conn, "admin")
             audit(conn, "admin", "LOGIN_SUCCEEDED", {})
         else:
-            # Equal-cost verification avoids a cheap unknown-user path after provisioning.
             if row is None:
                 verify_password(DUMMY_HASH, password)
             audit(conn, "unauthenticated", "LOGIN_REJECTED", {})
-
     if not accepted:
         raise PanelError("INVALID_LOGIN", 401)
     return raw, {"username": "admin", "csrf_token": csrf, "must_change_password": False}
@@ -131,7 +123,7 @@ def controls(conn=None):
         raise PanelError("CONTROLS_UNAVAILABLE", 503)
     return {"capture_paused": row[0], "version": row[1], "updated_at": row[2],
             "capture_enabled": not row[0],
-            "scope": "Journal captures and admin pilot runs only; existing data/news schedules are unchanged."}
+            "scope": "Research capture and admin pilot runs; paper trading follows the separate trading mode."}
 
 
 def require_capture_enabled():
@@ -147,6 +139,31 @@ def set_capture_pause(actor: str, paused: bool, expected_version: int, reason: s
         conn.execute("UPDATE operator_controls SET capture_paused=%s,version=version+1,updated_at=now() WHERE singleton", (paused,))
         audit(conn, actor, "CAPTURE_PAUSE_CHANGED", {"before": before[0], "after": paused, "reason": reason[:300], "version": before[1]+1})
         return controls(conn)
+
+
+def trading_mode():
+    from ..agent_trading import get_mode
+    return get_mode()
+
+
+def set_trading_mode(actor: str, mode: str, expected_version: int | None, reason: str):
+    from ..agent_trading import get_mode, set_mode
+    before = get_mode()
+    try:
+        after = set_mode(mode, expected_version)
+    except ValueError as exc:
+        code = str(exc)
+        if code == "TRADING_SETTINGS_CHANGED_RELOAD":
+            raise PanelError(code, 409) from None
+        raise PanelError(code, 400) from None
+    if before.get("mode") != after.get("mode"):
+        with connect() as conn:
+            audit(conn, actor, "TRADING_MODE_CHANGED", {
+                "before": before.get("mode"), "after": after.get("mode"),
+                "reason": reason[:300], "version": after.get("version"),
+                "broker_submission": False,
+            })
+    return after
 
 
 def recent_audit():
@@ -170,7 +187,7 @@ def create_run(actor: str, run_id: str):
         conn.execute("INSERT INTO operator_pilot_runs(run_id,actor) VALUES (%s,%s)", (run_id, actor))
         for ticker in PILOT:
             conn.execute("INSERT INTO operator_pilot_items(run_id,ticker) VALUES (%s,%s)", (run_id, ticker))
-        audit(conn, actor, "PILOT_REQUESTED", {"run_id": run_id, "tickers": list(PILOT)})
+        audit(conn, actor, "PILOT_REQUESTED", {"run_id": run_id, "tickers": list(PILOT), "trading_mode": trading_mode()["mode"]})
     return {"run_id": run_id, "replayed": False}
 
 
