@@ -187,7 +187,7 @@ def create_run(actor: str, run_id: str):
         conn.execute("INSERT INTO operator_pilot_runs(run_id,actor) VALUES (%s,%s)", (run_id, actor))
         for ticker in PILOT:
             conn.execute("INSERT INTO operator_pilot_items(run_id,ticker) VALUES (%s,%s)", (run_id, ticker))
-        audit(conn, actor, "PILOT_REQUESTED", {"run_id": run_id, "tickers": list(PILOT), "trading_mode": trading_mode()["mode"]})
+        audit(conn, actor, "PILOT_REQUESTED", {"run_id": run_id, "tickers": list(PILOT)})
     return {"run_id": run_id, "replayed": False}
 
 
