@@ -2,6 +2,10 @@ name: Admin Panel Migration 0022
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/admin-panel-migrate-0022.yml
 
 permissions:
   contents: read
