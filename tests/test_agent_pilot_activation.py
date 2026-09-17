@@ -1,4 +1,5 @@
 """Pure activation checks with isolated fixtures; never production writes."""
+import ast
 import copy
 import json
 from pathlib import Path
@@ -96,4 +97,16 @@ def test_workflow_has_no_schedule_provider_secret_or_deployment_credential():
     assert "MASSIVE_API" not in workflow and "VERCEL_TOKEN" not in workflow
     source = (root / "scripts/activate_agent_pilot.py").read_text()
     assert "SET TRANSACTION READ ONLY" in source
-    assert "alembic" not in source and "enable_capture(" not in source
+    # Reading alembic_version is required evidence, not running a migration.
+    # Inspect imports and calls rather than rejecting a substring in a SELECT.
+    syntax = ast.parse(source)
+    forbidden = {"migrate", "upgrade", "downgrade", "enable_capture"}
+    for node in ast.walk(syntax):
+        if isinstance(node, ast.Import):
+            assert all(alias.name.split(".")[0] != "alembic" for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            assert (node.module or "").split(".")[0] != "alembic"
+            assert not forbidden.intersection(alias.name for alias in node.names)
+        elif isinstance(node, ast.Call):
+            called = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
+            assert called not in forbidden
