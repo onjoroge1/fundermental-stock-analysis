@@ -1,0 +1,70 @@
+name: Admin Panel Migration 0022
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: admin-panel-migration-0022
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: github.ref == 'refs/heads/main'
+    environment: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install application
+        run: python -m pip install -e .
+      - name: Apply only migration 0022 and verify admin storage
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from alembic import command
+          from alembic.config import Config
+
+          dsn = os.environ.get('DATABASE_URL')
+          if not dsn:
+              raise SystemExit('DATABASE_URL_NOT_CONFIGURED')
+
+          with psycopg.connect(dsn, connect_timeout=20) as conn:
+              before = {r[0] for r in conn.execute('SELECT version_num FROM alembic_version')}
+          if before not in ({'0021_monitoring_storage'}, {'0022_admin_panel'}):
+              raise SystemExit('UNEXPECTED_DATABASE_REVISION')
+
+          if before != {'0022_admin_panel'}:
+              cfg = Config('alembic.ini')
+              command.upgrade(cfg, '0022_admin_panel')
+
+          required = {
+              'admin_users', 'admin_sessions', 'admin_login_attempts',
+              'operator_settings', 'operator_audit', 'admin_pilot_runs',
+              'admin_pilot_run_items'
+          }
+          with psycopg.connect(dsn, connect_timeout=20) as conn:
+              after = {r[0] for r in conn.execute('SELECT version_num FROM alembic_version')}
+              if after != {'0022_admin_panel'}:
+                  raise SystemExit('SCHEMA_NOT_AT_0022')
+              present = {name for name, in conn.execute(
+                  "SELECT tablename FROM pg_tables WHERE schemaname=current_schema()"
+              ) if name in required}
+              if present != required:
+                  raise SystemExit('ADMIN_STORAGE_INCOMPLETE')
+              trigger_count = conn.execute(
+                  "SELECT count(*) FROM pg_trigger WHERE tgrelid='operator_audit'::regclass AND NOT tgisinternal AND tgenabled='O'"
+              ).fetchone()[0]
+              if trigger_count < 2:
+                  raise SystemExit('ADMIN_AUDIT_PROTECTION_MISSING')
+          print({'status':'VERIFIED','before':sorted(before),'after':'0022_admin_panel','tables':sorted(required)})
+          PY
