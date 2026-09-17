@@ -1,0 +1,48 @@
+name: Agent Pilot Activation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/agent-pilot-activation.yml
+      - scripts/activate_agent_pilot.py
+
+permissions:
+  contents: read
+  actions: read
+  statuses: read
+
+concurrency:
+  group: daily-data-forecast-refresh
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    if: github.ref == 'refs/heads/main'
+    environment: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      STOCK_MACHINE_ADMIN_TOKEN: ${{ secrets.STOCK_MACHINE_ADMIN_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install matching application
+        run: python -m pip install -e .
+      - name: Verify configuration, refresh five briefs, capture and check MCP
+        run: python -m scripts.activate_agent_pilot
+      - name: Save credential-free activation proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-pilot-activation-${{ github.run_id }}
+          path: agent-pilot-activation-report.json
+          if-no-files-found: warn
