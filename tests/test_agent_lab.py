@@ -137,6 +137,8 @@ def test_request_forbids_orders_and_backdating():
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(api, "configured_admin_token", lambda: "x" * 32)
+    # Isolated route fixture. Real database and paused-policy tests live in test_admin_panel*.
+    monkeypatch.setattr(api, "panel_capture_paused", lambda: False)
     app = FastAPI()
     app.include_router(api.router)
     return TestClient(app)
@@ -171,7 +173,7 @@ def test_database_error_not_presented_as_empty_or_leaked(client, monkeypatch):
     monkeypatch.setattr(journal, "dashboard", unavailable)
     r = client.get("/api/agent-lab")
     assert r.status_code == 503
-    assert "SECRET" not in r.text and '"total":0' not in r.text
+    assert "SECRET" not in r.text and '\"total\":0' not in r.text
 
 
 def test_read_never_captures(client, monkeypatch):
