@@ -21,8 +21,15 @@ def configured_admin_token():
     return admin_token()
 
 
+def panel_capture_paused():
+    from ..admin_panel.store import controls
+    try:
+        return controls()["capture_paused"]
+    except Exception:
+        raise HTTPException(503, "Capture controls unavailable; verify migration 0022") from None
+
+
 def require_capture(authorization: str | None = Header(default=None)):
-    # Resolve auth before any database, research or broker-related import.
     expected = configured_admin_token()
     if len(expected) < 24:
         raise HTTPException(503, "Admin authentication is not configured")
@@ -31,6 +38,8 @@ def require_capture(authorization: str | None = Header(default=None)):
         raise HTTPException(401, "Invalid admin credentials")
     if os.getenv("AGENT_LAB_ENABLED", "false").lower() != "true":
         raise HTTPException(503, "Agent Lab capture is disabled; enable after migration and review")
+    if panel_capture_paused():
+        raise HTTPException(409, "Capture is paused by an administrator")
 
 
 def _read(call):
@@ -39,7 +48,7 @@ def _read(call):
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
     except Exception:
-        raise HTTPException(503, "Agent journal unavailable; verify database and migration 0019") from None
+        raise HTTPException(503, "Agent journal unavailable; verify database and migration 0022") from None
 
 
 @router.get("/agents")
@@ -55,7 +64,8 @@ def page(ticker: str | None = None):
 def state(ticker: str | None = None, status: Literal["RECORDED", "BLOCKED", "FAILED"] | None = None,
           limit: int = Query(50, ge=1, le=100), day: date | None = None):
     data = _read(lambda: journal.dashboard(ticker.upper() if ticker else None, status, limit, day))
-    data["capture_enabled"] = os.getenv("AGENT_LAB_ENABLED", "false").lower() == "true"
+    deployment = os.getenv("AGENT_LAB_ENABLED", "false").lower() == "true"
+    data["capture_enabled"] = deployment and not panel_capture_paused()
     return data
 
 
