@@ -1,8 +1,7 @@
-"""Reads are inert. Writes are explicitly enabled, admin-authenticated research."""
+"""Reads are inert. Writes are admin-authenticated research with DB controls."""
 from __future__ import annotations
 
 import hmac
-import os
 from datetime import date
 from typing import Literal
 from uuid import UUID
@@ -11,7 +10,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from . import journal
-from .contracts import CaptureRequest, PILOT, Policy, ReviewRequest
+from .contracts import CaptureRequest, PILOT, ReviewRequest
 
 router = APIRouter(tags=["agent-lab"])
 
@@ -36,8 +35,6 @@ def require_capture(authorization: str | None = Header(default=None)):
     supplied = authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
     if not hmac.compare_digest(supplied, expected):
         raise HTTPException(401, "Invalid admin credentials")
-    if os.getenv("AGENT_LAB_ENABLED", "false").lower() != "true":
-        raise HTTPException(503, "Agent Lab capture is disabled; enable after migration and review")
     if panel_capture_paused():
         raise HTTPException(409, "Capture is paused by an administrator")
 
@@ -64,8 +61,7 @@ def page(ticker: str | None = None):
 def state(ticker: str | None = None, status: Literal["RECORDED", "BLOCKED", "FAILED"] | None = None,
           limit: int = Query(50, ge=1, le=100), day: date | None = None):
     data = _read(lambda: journal.dashboard(ticker.upper() if ticker else None, status, limit, day))
-    deployment = os.getenv("AGENT_LAB_ENABLED", "false").lower() == "true"
-    data["capture_enabled"] = deployment and not panel_capture_paused()
+    data["capture_enabled"] = not panel_capture_paused()
     return data
 
 
