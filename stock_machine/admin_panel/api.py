@@ -141,11 +141,15 @@ async def password(request: Request):
 async def dashboard(request: Request):
     async def work():
         await owner(request)
+        trading = await run_in_threadpool(operations.trading_summary)
         return response({"controls": await run_in_threadpool(store.controls),
                          "runs": await run_in_threadpool(store.runs),
                          "audit": await run_in_threadpool(store.recent_audit),
                          "connections": await run_in_threadpool(operations.connection_summary),
-                         "trade_execution": False, "mode": "RESEARCH"})
+                         "trading": trading,
+                         "trade_execution": trading["mode"]["mode"] == "PAPER",
+                         "mode": trading["mode"]["mode"],
+                         "broker_submission": False})
     return await safe(work)
 
 
@@ -158,6 +162,23 @@ async def controls(request: Request):
             raise PanelError("INVALID_REQUEST")
         return response(await run_in_threadpool(store.set_capture_pause, account["username"], data["capture_paused"],
             data["expected_version"], text(data, "reason", 3, 300)))
+    return await safe(work)
+
+
+@router.post("/api/operator/trading-mode")
+async def trading_mode(request: Request):
+    async def work():
+        account = await owner(request, write=True)
+        data = await body(request, {"mode", "expected_version", "reason"})
+        mode = text(data, "mode", 5, 8).upper()
+        expected = data["expected_version"]
+        if mode not in {"RESEARCH", "PAPER"} or type(expected) is not int or expected < 0:
+            raise PanelError("INVALID_REQUEST")
+        value = await run_in_threadpool(
+            store.set_trading_mode, account["username"], mode,
+            None if expected == 0 else expected, text(data, "reason", 3, 300)
+        )
+        return response(value)
     return await safe(work)
 
 
