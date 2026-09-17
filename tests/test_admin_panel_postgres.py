@@ -1,4 +1,4 @@
-"""Real database security/integrity tests in a temporary, nonproduction schema."""
+"""Real database security/integrity tests for simplified owner operations."""
 import importlib.util
 import os
 from pathlib import Path
@@ -9,7 +9,7 @@ import pytest
 from stock_machine.admin_panel import store,security
 
 INITIAL="fixture-initial-password"
-REPLACEMENT="fixture-private-password-at-least-fifteen"
+REPLACEMENT="fixture-private-password"
 
 
 @pytest.fixture
@@ -27,37 +27,43 @@ def pg(monkeypatch):
         with connect() as conn:
             m.op=SimpleNamespace(execute=conn.execute);m.upgrade()
         monkeypatch.setattr(store,"connect",connect)
-        monkeypatch.setenv("AGENT_LAB_ENABLED","true")
+        monkeypatch.setenv("ADMIN_PASSWORD",INITIAL)
         yield connect
     finally:
         with psycopg.connect(dsn,autocommit=True) as c:c.execute(f'DROP SCHEMA "{schema}" CASCADE')
 
 
 def account():
-    store.bootstrap(INITIAL)
-    raw,info=store.login("admin",INITIAL)
-    return raw,info
+    return store.login("admin",INITIAL)
 
 
-def test_bootstrap_atomic_once_no_plaintext_stored(pg):
-    assert store.setup_required()
-    account()
-    assert not store.setup_required()
-    with pytest.raises(security.PanelError,match="SETUP_ALREADY"):store.bootstrap(INITIAL)
+def test_first_login_provisions_once_and_stores_only_argon_hash(pg):
+    raw,info=account()
+    assert info["username"]=="admin" and not info["must_change_password"]
     with pg() as c:
-        row=c.execute("SELECT password_hash FROM operator_users").fetchone()[0]
-        assert row.startswith("$argon2id$") and INITIAL not in row
-        assert INITIAL not in str(c.execute("SELECT details FROM operator_audit").fetchall())
+        rows=c.execute("SELECT username,password_hash,must_change_password FROM operator_users").fetchall()
+        audit=str(c.execute("SELECT details FROM operator_audit").fetchall())
+    assert len(rows)==1 and rows[0][0]=="admin" and rows[0][1].startswith("$argon2id$")
+    assert INITIAL not in rows[0][1] and INITIAL not in audit
+    store.logout(raw,"admin")
+    second,_=store.login("admin",INITIAL)
+    assert second!=raw
 
 
-def test_session_requires_correct_csrf_and_private_password(pg):
+def test_first_login_requires_configured_password(pg,monkeypatch):
+    monkeypatch.delenv("ADMIN_PASSWORD",raising=False)
+    with pytest.raises(security.PanelError,match="ADMIN_PASSWORD_NOT_CONFIGURED"):
+        store.login("admin",INITIAL)
+
+
+def test_session_requires_correct_csrf_and_change_password_revokes_old_session(pg):
     raw,info=account()
     assert store.session(raw)["username"]=="admin"
     with pytest.raises(security.PanelError,match="CSRF"):store.session(raw,write=True,csrf="bad")
-    with pytest.raises(security.PanelError,match="PASSWORD_CHANGE"):store.session(raw,write=True,csrf=info["csrf_token"])
+    assert store.session(raw,write=True,csrf=info["csrf_token"])["username"]=="admin"
     new,updated=store.change_password("admin",INITIAL,REPLACEMENT)
     with pytest.raises(security.PanelError,match="LOGIN_REQUIRED"):store.session(raw)
-    assert store.session(new,write=True,csrf=updated["csrf_token"])["must_change_password"] is False
+    assert store.session(new,write=True,csrf=updated["csrf_token"])["username"]=="admin"
     store.logout(new,"admin")
     with pytest.raises(security.PanelError):store.session(new)
 
@@ -75,21 +81,20 @@ def test_expired_idle_and_disabled_sessions_fail(pg):
 
 
 def test_throttling_persists_across_failed_logins(pg):
-    store.bootstrap(INITIAL)
-    for _ in range(10):
-        with pytest.raises(security.PanelError,match="INVALID_LOGIN"):store.login("unknown",INITIAL)
+    account()
+    for _ in range(9):
+        with pytest.raises(security.PanelError,match="INVALID_LOGIN"):store.login("admin","incorrect-fixture")
     with pytest.raises(security.PanelError,match="RATE_LIMITED"):store.login("admin",INITIAL)
 
 
-def test_settings_cas_audit_and_deployment_restriction(pg,monkeypatch):
+def test_settings_are_database_only_and_audited(pg):
     account();before=store.controls()
+    assert before["capture_enabled"] and "deployment_permits_capture" not in before
     after=store.set_capture_pause("admin",True,before["version"],"Stop test captures")
     assert after["capture_paused"] and not after["capture_enabled"]
     with pytest.raises(security.PanelError,match="SETTINGS_CHANGED"):store.set_capture_pause("admin",False,before["version"],"stale update")
-    store.set_capture_pause("admin",False,after["version"],"Resume tests")
-    monkeypatch.setenv("AGENT_LAB_ENABLED","false")
-    assert not store.controls()["capture_enabled"]
-    with pytest.raises(security.PanelError):store.require_capture_enabled()
+    resumed=store.set_capture_pause("admin",False,after["version"],"Resume tests")
+    assert resumed["capture_enabled"]
     assert len([x for x in store.recent_audit() if x["event"]=="CAPTURE_PAUSE_CHANGED"])==2
 
 
