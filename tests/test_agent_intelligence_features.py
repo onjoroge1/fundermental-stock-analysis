@@ -5,7 +5,10 @@ def rows(n=260, start=100.0, drift=.002, volume=1_000_000):
     out=[]
     price=start
     for i in range(n):
-        price *= 1+drift
+        # Small deterministic variation keeps covariance/beta mathematically
+        # defined while preserving the requested trend.
+        variation = .0004 if i % 3 == 0 else (-.0002 if i % 3 == 1 else 0.0)
+        price *= 1 + drift + variation
         out.append({"date":f"2026-{1+(i//28):02d}-{1+(i%28):02d}",
                     "open":price*.995,"high":price*1.01,"low":price*.99,
                     "close":price,"adj_close":price,"volume":volume})
