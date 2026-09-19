@@ -492,7 +492,7 @@ def execute(job: dict) -> dict:
             save_index_row(conn, ticker, row)
         return {"ticker": ticker, "status": "INDEXED", "research_contract": row["research_contract"]}
     if kind == "research_cycle":
-        from .research_cycle import run
+        from .agent_cycle import run
         return run(job.get("ticker"), job["idempotency_key"])
     if kind == "research_experiment":
         from .prospective_experiment import run
