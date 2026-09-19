@@ -13,6 +13,7 @@ from typing import Any
 
 from . import db
 from .control_plane import ensure_schema, enqueue, research_index
+from .market_calendar import latest_completed_session
 
 
 def _indexed_at(row: dict) -> str:
@@ -47,7 +48,8 @@ def schedule_due(now: datetime | None = None) -> dict[str, Any]:
     """Enqueue bounded due work without executing it.
 
     Every call schedules at most:
-      * one pilot evidence cycle on weekdays (five unique names/day),
+      * one pilot agent cycle per call after that ticker is current for the
+        latest completed market session (five unique names/session),
       * one index refresh (unindexed first, then stalest),
       * one Forward Paper mark job when cohorts exist,
       * one Strategy Lab run on Sundays.
@@ -60,13 +62,21 @@ def schedule_due(now: datetime | None = None) -> dict[str, Any]:
 
     with db.connect() as conn:
         ensure_schema(conn)
-        # At most five evidence cycles per UTC day, two provider calls each.
-        # Duplicate hourly deliveries reuse the same immutable request key.
+        # One bounded agent cycle per ticker and completed market session.
+        # Do not consume the session key before the selected ticker's post-close
+        # price refresh has landed. Weekend/holiday UTC rollovers keep the same
+        # exchange-session key, so Friday research can finish after Friday's
+        # post-close refresh instead of becoming stranded on Saturday UTC.
         from .agents.contracts import PILOT
         pilot = PILOT[now.hour % len(PILOT)]
-        if now.weekday() < 5:
+        session = latest_completed_session(now)
+        row = conn.execute(
+            "SELECT max(date)::text FROM prices_daily WHERE ticker=%s", (pilot,)
+        ).fetchone()
+        latest_price = row[0] if row else None
+        if latest_price == session:
             scheduled.append(enqueue(conn, "research_cycle", ticker=pilot,
-                idempotency_key=f"auto:research_cycle:{pilot}:{today}"))
+                idempotency_key=f"auto:research_cycle:{pilot}:{session}"))
         companies = db.list_companies(conn)
         indexed = research_index(conn)
         ticker = choose_refresh_ticker(companies, indexed)
