@@ -101,7 +101,9 @@ def test_refresh_classifies_failure_recovered_by_final_health(monkeypatch):
     def fail_fetch(ticker):
         raise RuntimeError("provider")
     monkeypatch.setattr(market_health, "_fetch_prices", fail_fetch)
-    result = market_health.refresh_prices(object(), ["AAPL"])
+    class Conn:
+        def rollback(self): pass
+    result = market_health.refresh_prices(Conn(), ["AAPL"])
     assert result["status"] == "PARTIAL_RECOVERED"
     assert result["unresolved_failures"] == []
 
@@ -115,6 +117,8 @@ def test_refresh_classifies_unresolved_stale_failure(monkeypatch):
     def fail_fetch(ticker):
         raise RuntimeError("provider")
     monkeypatch.setattr(market_health, "_fetch_prices", fail_fetch)
-    result = market_health.refresh_prices(object(), ["AAPL"])
+    class Conn:
+        def rollback(self): pass
+    result = market_health.refresh_prices(Conn(), ["AAPL"])
     assert result["status"] == "ACTUAL_STALE_FAILURE"
     assert result["unresolved_failures"][0]["ticker"] == "AAPL"
