@@ -8,6 +8,7 @@ valuation is available.
 from __future__ import annotations
 
 from .learning import record_outcome
+from .. import db
 from ..market_calendar import latest_completed_session, session_offset
 
 HORIZON_SESSIONS=20
@@ -33,7 +34,7 @@ def _stock_outcome(conn, ticker: str, action: str, entry: str, exit_day: str) ->
         return {"status":"MATURED","gross_return_pct":0.0,"max_drawdown_pct":0.0,
                 "capital_used_pct":0.0,"turnover_pct":0.0,"costs_pct":0.0,
                 "entry_date":entry,"exit_date":exit_day}
-    rows=__import__("stock_machine.db",fromlist=["fetch_prices"]).fetch_prices(conn,ticker,exit_day)
+    rows=db.fetch_prices(conn,ticker,exit_day)
     by_date={r["date"]:r for r in rows if entry<=r["date"]<=exit_day}
     first=by_date.get(entry)
     last=by_date.get(exit_day)
@@ -63,7 +64,7 @@ def _stock_outcome(conn, ticker: str, action: str, entry: str, exit_day: str) ->
 
 
 def score_matured(*, limit: int=100) -> dict:
-    from .. import db, research_store
+    from .. import research_store
     if not 1<=limit<=1000:
         raise ValueError("OUTCOME_LIMIT_INVALID")
     with db.connect() as conn:
