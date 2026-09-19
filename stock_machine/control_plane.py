@@ -418,6 +418,8 @@ def _ticker_refresh(ticker: str) -> dict:
         stages["events"] = _events_one(ticker)
     except Exception as exc:
         stages["events"] = {"status": "degraded", "reason": f"{type(exc).__name__}: {exc}"}
+    from .source_claim_refresh import refresh as refresh_source_claims
+    stages["source_claims"] = refresh_source_claims(ticker)
     row = build_index_row(ticker)
     with db.connect() as conn:
         save_index_row(conn, ticker, row)
@@ -487,10 +489,14 @@ def execute(job: dict) -> dict:
         ticker = normalize_ticker(job.get("ticker"))
         if not ticker:
             raise ValueError("research_index_refresh requires ticker")
+        from .source_claim_refresh import refresh as refresh_source_claims
+        source_claims = refresh_source_claims(ticker)
         row = build_index_row(ticker)
         with db.connect() as conn:
             save_index_row(conn, ticker, row)
-        return {"ticker": ticker, "status": "INDEXED", "research_contract": row["research_contract"]}
+        return {"ticker": ticker, "status": "INDEXED",
+                "source_claims": source_claims,
+                "research_contract": row["research_contract"]}
     if kind == "research_cycle":
         from .agent_cycle import run
         return run(job.get("ticker"), job["idempotency_key"])
