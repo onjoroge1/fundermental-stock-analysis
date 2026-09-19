@@ -15,6 +15,8 @@ from . import db
 from .control_plane import ensure_schema, enqueue, research_index
 from .market_calendar import latest_completed_session
 
+MAX_JOBS_PER_CRON_TICK = 2
+
 
 def _indexed_at(row: dict) -> str:
     return str(row.get("indexed_at") or "")
@@ -153,12 +155,31 @@ def queue_health() -> dict[str, Any]:
 
 
 def cron_tick() -> dict[str, Any]:
-    """Schedule due work, then execute at most one queued job."""
+    """Schedule due work, then drain a small bounded number of queued jobs.
+
+    Normal scheduling can create both a pilot agent cycle and a source/index
+    refresh. Processing only one job per hourly tick lets the queue grow even
+    when every job is healthy. Two jobs keeps normal throughput balanced while
+    preserving a hard serverless work bound.
+    """
     scheduled = schedule_due()
     from .control_plane import process_one
-    processed = process_one()
+    processed = []
+    idle = None
+    for _ in range(MAX_JOBS_PER_CRON_TICK):
+        result = process_one()
+        if result.get("status") == "IDLE":
+            idle = result
+            break
+        processed.append(result)
+    primary = processed[0] if processed else (idle or {
+        "status": "IDLE", "message": "no runnable jobs"
+    })
     return {
         "status": "OK",
         "scheduler": scheduled,
-        "processor": processed,
+        "processor": primary,
+        "processors": processed,
+        "processed_count": len(processed),
+        "max_jobs_per_tick": MAX_JOBS_PER_CRON_TICK,
     }
