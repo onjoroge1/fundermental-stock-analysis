@@ -11,6 +11,11 @@ from ..options.payoff import expiration_pnl
 
 
 def open_entry(ticker: str, decision_id: str, candidate: dict) -> dict:
+    with db.connect() as conn:
+        existing = research_store.get(conn, "AGENT_OPTION_PAPER_V1", decision_id)
+        if existing:
+            return {"replayed": True, **existing["payload"],
+                    "record_id": existing["record_id"]}
     payoff = candidate.get("payoff") or {}
     if not payoff.get("defined_risk") or payoff.get("max_loss") is None:
         raise ValueError("OPTION_PAPER_DEFINED_RISK_REQUIRED")
@@ -31,7 +36,7 @@ def open_entry(ticker: str, decision_id: str, candidate: dict) -> dict:
     with db.connect() as conn:
         saved = research_store.save(conn, "AGENT_OPTION_PAPER_V1",
                                     decision_id, payload, ticker)
-    return {**payload, "record_id": saved["record_id"]}
+    return {"replayed": False, **payload, "record_id": saved["record_id"]}
 
 
 def settle_if_matured(ticker: str, decision_id: str) -> dict:
