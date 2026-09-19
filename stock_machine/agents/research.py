@@ -58,7 +58,14 @@ def build_decision(ticker: str, packet: dict, observed_at: datetime,
     versions = _obj(quality.get("dataset_versions"))
     for name in ("fundamentals", "prices", "filings"):
         version = _obj(versions.get(name))
-        if version.get("status") != "PASS" or not version.get("content_hash"):
+        # Fundamentals manifests are content-addressed. A historical WARN may
+        # reflect an older validation rule even when the exact same content now
+        # passes the current source/debt reconciliation. Keep the immutable hash
+        # requirement, reject hard FAIL, and let current data_quality +
+        # financial_integrity determine whether a WARN has been resolved.
+        invalid_status = (version.get("status") == "FAIL" if name == "fundamentals"
+                          else version.get("status") != "PASS")
+        if invalid_status or not version.get("content_hash"):
             blockers.append("UNVERIFIED_" + name.upper())
         try:
             seen = datetime.fromisoformat(str(version.get("observed_at", "")).replace("Z", "+00:00"))
