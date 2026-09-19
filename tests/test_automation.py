@@ -267,3 +267,27 @@ def test_cron_tick_stops_early_when_queue_is_idle(monkeypatch):
     assert len(calls) == 1
     assert value["processed_count"] == 0
     assert value["processor"]["status"] == "IDLE"
+
+
+def test_late_day_scheduler_adds_one_idempotent_v2_outcome_scan(monkeypatch):
+    scheduled=[]
+    class FakeResult:
+        def fetchone(self): return ("2026-09-18",)
+    class FakeConn:
+        def __enter__(self): return self
+        def __exit__(self,*args): return False
+        def execute(self,*args,**kwargs): return FakeResult()
+    monkeypatch.setattr(automation.db,"connect",lambda:FakeConn())
+    monkeypatch.setattr(automation,"ensure_schema",lambda conn:None)
+    monkeypatch.setattr(automation.db,"list_companies",lambda conn:[{"ticker":"AAPL"}])
+    monkeypatch.setattr(automation,"research_index",lambda conn:[])
+    monkeypatch.setattr(automation,"_has_forward_cohorts",lambda conn:False)
+    monkeypatch.setattr(automation,"latest_completed_session",lambda now:"2026-09-18")
+    def enqueue(conn,job_type,**kwargs):
+        scheduled.append((job_type,kwargs))
+        return {"job_type":job_type,"action":"created"}
+    monkeypatch.setattr(automation,"enqueue",enqueue)
+    automation.schedule_due(datetime(2026,9,19,23,tzinfo=timezone.utc))
+    outcome=[x for x in scheduled if x[0]=="agent_intelligence_outcomes"]
+    assert len(outcome)==1
+    assert outcome[0][1]["idempotency_key"]=="auto:agent_intelligence_outcomes:2026-09-19"
