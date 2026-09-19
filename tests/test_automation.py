@@ -113,12 +113,19 @@ def test_price_cron_surfaces_partial_refresh_as_failure(monkeypatch):
 def test_sunday_scheduler_never_auto_syncs_forward_paper(monkeypatch):
     scheduled = []
 
+    class FakeResult:
+        def fetchone(self):
+            return ("2026-08-28",)
+
     class FakeConn:
         def __enter__(self):
             return self
 
         def __exit__(self, *args):
             return False
+
+        def execute(self, *args, **kwargs):
+            return FakeResult()
 
     monkeypatch.setattr(automation.db, "connect", lambda: FakeConn())
     monkeypatch.setattr(automation, "ensure_schema", lambda conn: None)
@@ -138,3 +145,65 @@ def test_sunday_scheduler_never_auto_syncs_forward_paper(monkeypatch):
     assert "forward_paper_mark" in scheduled
     assert "forward_paper_sync" not in scheduled
     assert result["safety"]["forward_paper_sync_automated"] is False
+
+
+def test_agent_cycle_uses_completed_session_key_across_utc_weekend(monkeypatch):
+    scheduled = []
+
+    class FakeResult:
+        def fetchone(self):
+            return ("2026-09-18",)
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def execute(self, *args, **kwargs):
+            return FakeResult()
+
+    monkeypatch.setattr(automation.db, "connect", lambda: FakeConn())
+    monkeypatch.setattr(automation, "ensure_schema", lambda conn: None)
+    monkeypatch.setattr(automation.db, "list_companies", lambda conn: [{"ticker": "AAPL"}])
+    monkeypatch.setattr(automation, "research_index", lambda conn: [])
+    monkeypatch.setattr(automation, "_has_forward_cohorts", lambda conn: False)
+    monkeypatch.setattr(automation, "latest_completed_session", lambda now: "2026-09-18")
+
+    def fake_enqueue(conn, job_type, **kwargs):
+        scheduled.append((job_type, kwargs))
+        return {"job_type": job_type, "action": "created"}
+
+    monkeypatch.setattr(automation, "enqueue", fake_enqueue)
+    automation.schedule_due(datetime(2026, 9, 19, 2, tzinfo=timezone.utc))
+
+    research = [kwargs for kind, kwargs in scheduled if kind == "research_cycle"]
+    assert len(research) == 1
+    assert research[0]["idempotency_key"].endswith(":2026-09-18")
+
+
+def test_agent_cycle_waits_until_selected_ticker_price_is_current(monkeypatch):
+    scheduled = []
+
+    class FakeResult:
+        def fetchone(self):
+            return ("2026-09-17",)
+
+    class FakeConn:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def execute(self, *args, **kwargs):
+            return FakeResult()
+
+    monkeypatch.setattr(automation.db, "connect", lambda: FakeConn())
+    monkeypatch.setattr(automation, "ensure_schema", lambda conn: None)
+    monkeypatch.setattr(automation.db, "list_companies", lambda conn: [{"ticker": "AAPL"}])
+    monkeypatch.setattr(automation, "research_index", lambda conn: [])
+    monkeypatch.setattr(automation, "_has_forward_cohorts", lambda conn: False)
+    monkeypatch.setattr(automation, "latest_completed_session", lambda now: "2026-09-18")
+    monkeypatch.setattr(automation, "enqueue", lambda conn, job_type, **kwargs:
+                        scheduled.append(job_type) or {"job_type": job_type, "action": "created"})
+
+    automation.schedule_due(datetime(2026, 9, 18, 21, tzinfo=timezone.utc))
+    assert "research_cycle" not in scheduled
