@@ -1,5 +1,98 @@
 [
   {
+    "ticker": "AAPL",
+    "cik": "0000320193",
+    "period_end": "2026-06-27",
+    "accession_number": "0000320193-26-000020",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:AAPL:2026-06-27:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/aapl-20260627.htm",
+    "source_sha256": "4ad5bea67cedfa7542d623900355cc8d143ef95c1acc135a597f2eedabdb9177",
+    "reviewed_on": "2026-09-18",
+    "units": "USD",
+    "source_table_units": "USD millions",
+    "components": {
+      "commercial_paper": 1997000000,
+      "short_term_debt": 11007000000,
+      "long_term_debt": 71340000000
+    },
+    "total_debt": 84344000000,
+    "cash_and_equivalents": 39544000000,
+    "note": "Reviewed carrying debt equals commercial paper plus current term debt plus noncurrent term debt from the same 2026-06-27 SEC balance sheet. Marketable securities are excluded from the net-debt cash definition."
+  },
+  {
+    "ticker": "HIMS",
+    "cik": "0001773751",
+    "period_end": "2026-06-30",
+    "accession_number": "0001773751-26-000163",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:HIMS:2026-06-30:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1773751/000177375126000163/hims-20260630.htm",
+    "source_sha256": "c2debdfb1df6703f0c37eb49ba0855c3870a79aae80484daf3c9054abe972eaf",
+    "reviewed_on": "2026-09-18",
+    "units": "USD",
+    "source_table_units": "USD thousands",
+    "reviewed_components": {
+      "convertible_notes_2030_net": 975652000,
+      "convertible_notes_2032_net": 389647000
+    },
+    "binding_fields": {
+      "cash_and_equivalents": 609811000,
+      "total_assets": 3628814000,
+      "total_liabilities": 3304742000,
+      "shareholders_equity": 324072000
+    },
+    "total_debt": 1365299000,
+    "cash_and_equivalents": 609811000,
+    "note": "Reviewed debt is the carrying amount of the 2030 and 2032 convertible senior notes disclosed in the 2026-06-30 filing. The issuer-specific debt line is not promoted to a global XBRL tag; the review is bound to same-accession cash and balance-sheet totals."
+  },
+  {
+    "ticker": "MSFT",
+    "cik": "0000789019",
+    "period_end": "2026-06-30",
+    "accession_number": "0001193125-26-323660",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:MSFT:2026-06-30:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft-20260630.htm",
+    "source_sha256": "4bcf2da2871acc19e32c5a62f36f6d83d6aae03cdc4aaa9a86a9a21ee8223f02",
+    "reviewed_on": "2026-09-18",
+    "units": "USD",
+    "source_table_units": "USD millions",
+    "components": {
+      "short_term_debt": 9227000000,
+      "long_term_debt": 31067000000
+    },
+    "total_debt": 40294000000,
+    "cash_and_equivalents": 20935000000,
+    "note": "Reviewed carrying debt equals current maturities plus noncurrent long-term debt from the same 2026-06-30 SEC filing; cash and equivalents are bound to the same accession."
+  },
+  {
+    "ticker": "UBER",
+    "cik": "0001543151",
+    "period_end": "2026-06-30",
+    "accession_number": "0001543151-26-000032",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:UBER:2026-06-30:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1543151/000154315126000032/uber-20260630.htm",
+    "source_sha256": "5aa56769ca3e3d8735d1122e85269a5b9cd68fcb4bd2fa58fa6b19b65b019ffa",
+    "reviewed_on": "2026-09-18",
+    "units": "USD",
+    "source_table_units": "USD millions",
+    "reviewed_components": {
+      "short_term_debt_reviewed": 1997000000,
+      "long_term_debt_reviewed": 10726000000
+    },
+    "binding_fields": {
+      "long_term_debt": 10726000000,
+      "cash_and_equivalents": 4870000000,
+      "total_assets": 65801000000,
+      "total_liabilities": 37402000000
+    },
+    "total_debt": 12723000000,
+    "cash_and_equivalents": 4870000000,
+    "note": "The filing debt note discloses $12.723B total debt, split between $1.997B short-term and $10.726B long-term. The short-term line is not represented by the current global XBRL map, so the reviewed arithmetic is pinned to this filing and bound to same-accession normalized long-term debt, cash, assets and liabilities."
+  },
+  {
     "ticker": "VZ",
     "cik": "0000732712",
     "period_end": "2026-06-30",
@@ -11,7 +104,10 @@
     "reviewed_on": "2026-09-16",
     "units": "USD",
     "source_table_units": "USD millions",
-    "components": {"short_term_debt": 21783000000, "long_term_debt": 143448000000},
+    "components": {
+      "short_term_debt": 21783000000,
+      "long_term_debt": 143448000000
+    },
     "total_debt": 165231000000,
     "cash_and_equivalents": 1752000000,
     "note": "Issuer disclosed total reconciles with same-accession SEC current debt and noncurrent debt/lease facts. This is disclosed total debt, not adjusted net unsecured debt. Applies only to this period and accession."
