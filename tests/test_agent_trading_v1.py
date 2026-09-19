@@ -49,6 +49,7 @@ def test_v1_has_no_live_mode_or_broker_client_surface():
     assert agent_trading.FILL_COST_BPS == 10.0
     assert agent_trading.MAX_POSITION_PCT == 0.10
     assert agent_trading.MAX_GROSS_PCT == 0.50
+    assert agent_trading.PAPER_SELECTOR_VERSION == "fundamental-score-paper-v1"
 
 
 def test_mode_read_defaults_to_research_without_creating_schema(monkeypatch):
@@ -106,3 +107,37 @@ def test_admin_surface_exposes_no_live_or_order_endpoint(client):
     for path in ("/api/operator/live", "/api/operator/orders", "/api/operator/execute",
                  "/api/operator/broker", "/api/operator/fills"):
         assert client.post(path, headers=HEADERS, json={}).status_code == 404
+
+
+def test_experimental_paper_selector_uses_only_frozen_packet_score():
+    class Result:
+        def __init__(self, payload): self.payload = payload
+        def fetchone(self): return (self.payload,)
+    class Conn:
+        def __init__(self, score): self.score = score
+        def execute(self, sql, params):
+            assert "agent_lab_evidence" in sql
+            return Result({
+                "data_quality": {"status": "PASS"},
+                "fundamentals": {"fundamental_scores": {"composite_score": self.score}},
+            })
+
+    decision = {"input_sha256": "frozen"}
+    assert agent_trading._paper_experiment_signal(Conn(75), decision)["desired_side"] == "LONG"
+    assert agent_trading._paper_experiment_signal(Conn(50), decision)["desired_side"] == "SHORT"
+    assert agent_trading._paper_experiment_signal(Conn(60), decision)["desired_side"] == "FLAT"
+
+
+def test_experimental_paper_selector_fails_closed_without_verified_packet():
+    class Result:
+        def fetchone(self):
+            return ({"data_quality": {"status": "WARN"},
+                     "fundamentals": {"fundamental_scores": {"composite_score": 99}}},)
+    class Conn:
+        def execute(self, sql, params): return Result()
+
+    value = agent_trading._paper_experiment_signal(
+        Conn(), {"input_sha256": "frozen"}
+    )
+    assert value["desired_side"] == "FLAT"
+    assert value["blockers"] == ["PAPER_EXPERIMENT_DATA_QUALITY_NOT_PASS"]
