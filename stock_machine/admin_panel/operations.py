@@ -57,3 +57,57 @@ def connection_summary():
                         "note": "Configured is not authenticated or entitled. Run pilot performs bounded checks."},
             "ibkr": {"status": "NOT_USED_BY_AGENT_TRADING_V1",
                      "note": "Agent Trading v1 has no broker order-submission capability."}}
+
+
+def intelligence_summary():
+    """Owner-facing latest Agent Intelligence v2 state for the pilot."""
+    from .. import research_store
+    from ..agents.contracts import PILOT
+    rows = []
+    with store.connect() as conn:
+        for ticker in PILOT:
+            record = research_store.latest(conn, "AGENT_INTELLIGENCE_V2", ticker)
+            reward = research_store.latest(conn, "AGENT_REWARD_V2", ticker)
+            if not record:
+                rows.append({"ticker": ticker, "status": "NOT_RUN"})
+                continue
+            value = record.get("payload") or {}
+            state = value.get("state") or {}
+            technical = state.get("technical") or {}
+            news = state.get("news") or {}
+            router = value.get("router") or {}
+            bandit = value.get("bandit") or {}
+            selected = value.get("selected") or {}
+            reward_payload = (reward or {}).get("payload") or {}
+            rows.append({
+                "ticker": ticker,
+                "status": "OK",
+                "mode": value.get("mode"),
+                "decision_id": value.get("decision_id"),
+                "as_of": state.get("as_of"),
+                "direction": state.get("direction"),
+                "bias_score": state.get("bias_score"),
+                "paper_eligible": state.get("paper_eligible"),
+                "blockers": state.get("blockers") or [],
+                "technical_trend": (technical.get("classification") or {}).get("trend"),
+                "volatility_regime": (technical.get("classification") or {}).get("volatility_regime"),
+                "news_pressure": (news.get("features") or {}).get("signed_event_pressure"),
+                "news_events": (news.get("features") or {}).get("event_counts") or {},
+                "option_surface_available": bool(state.get("option_surface")),
+                "router_selected": (router.get("selected") or {}).get("action"),
+                "router_instrument": (router.get("selected") or {}).get("instrument"),
+                "router_strategy": (router.get("selected") or {}).get("strategy_type"),
+                "bandit_selected": (bandit.get("selected") or {}).get("action"),
+                "bandit_ucb": (bandit.get("selected") or {}).get("ucb"),
+                "bandit_observations": (bandit.get("selected") or {}).get("observations"),
+                "final_selected_action": selected.get("action"),
+                "final_selected_instrument": selected.get("instrument"),
+                "latest_reward": ((reward_payload.get("reward") or {}).get("reward")
+                                  if reward_payload else None),
+            })
+    return {
+        "schema_version": "agent-intelligence-admin.v1",
+        "rows": rows,
+        "broker_submission": False,
+        "note": "Research mode is SHADOW. PAPER mode can simulate stock instructions only; option selections remain proposals until the options paper executor exists.",
+    }
