@@ -93,6 +93,6 @@ def price_refresh_cron(
         "batch": batch,
         "refresh": result,
     }
-    if result["status"] != "OK":
+    if result["status"] == "ACTUAL_STALE_FAILURE":
         raise HTTPException(503, detail=response)
     return response

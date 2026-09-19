@@ -90,3 +90,35 @@ def test_health_marks_missing_price_dataset(monkeypatch):
     assert result["status"] == "ERROR"
     assert result["missing_count"] == 1
     assert result["tickers"][0]["state"] == "MISSING"
+
+
+def test_refresh_classifies_failure_recovered_by_final_health(monkeypatch):
+    states = iter([
+        {"stale_tickers": ["AAPL"], "tickers": [{"ticker": "AAPL", "state": "STALE"}]},
+        {"status": "HEALTHY", "stale_tickers": [], "tickers": [{"ticker": "AAPL", "state": "CURRENT"}]},
+    ])
+    monkeypatch.setattr(market_health, "health", lambda *a, **k: next(states))
+    def fail_fetch(ticker):
+        raise RuntimeError("provider")
+    monkeypatch.setattr(market_health, "_fetch_prices", fail_fetch)
+    class Conn:
+        def rollback(self): pass
+    result = market_health.refresh_prices(Conn(), ["AAPL"])
+    assert result["status"] == "PARTIAL_RECOVERED"
+    assert result["unresolved_failures"] == []
+
+
+def test_refresh_classifies_unresolved_stale_failure(monkeypatch):
+    states = iter([
+        {"stale_tickers": ["AAPL"], "tickers": [{"ticker": "AAPL", "state": "STALE"}]},
+        {"status": "STALE", "stale_tickers": ["AAPL"], "tickers": [{"ticker": "AAPL", "state": "STALE"}]},
+    ])
+    monkeypatch.setattr(market_health, "health", lambda *a, **k: next(states))
+    def fail_fetch(ticker):
+        raise RuntimeError("provider")
+    monkeypatch.setattr(market_health, "_fetch_prices", fail_fetch)
+    class Conn:
+        def rollback(self): pass
+    result = market_health.refresh_prices(Conn(), ["AAPL"])
+    assert result["status"] == "ACTUAL_STALE_FAILURE"
+    assert result["unresolved_failures"][0]["ticker"] == "AAPL"

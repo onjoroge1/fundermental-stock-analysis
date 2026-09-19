@@ -41,6 +41,16 @@ def run(ticker: str, idempotency_key: str, *,
 
     from . import agent_trading
     trading = agent_trading.process_decision(decision)
+    paper_mark = None
+    if trading.get("execution_mode") == "PAPER":
+        try:
+            paper_mark = agent_trading.mark_open_positions()
+        except ValueError as exc:
+            # The immutable decision/intent remains valid even when a portfolio
+            # mark is temporarily unavailable. Surface the mark blocker instead
+            # of turning a completed research cycle into an ambiguous retry.
+            paper_mark = {"status": "BLOCKED", "reason": str(exc),
+                          "broker_submission": False}
 
     return {
         "status": cycle["status"],
@@ -58,6 +68,7 @@ def run(ticker: str, idempotency_key: str, *,
         "price_date": decision.get("price_date"),
         "blockers": decision.get("blockers", []),
         "trading": trading,
+        "paper_mark": paper_mark,
         "trade_execution": trading.get("status") == "SIMULATED",
         "broker_submission": False,
     }

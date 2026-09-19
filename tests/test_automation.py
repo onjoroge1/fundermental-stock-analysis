@@ -82,24 +82,48 @@ def test_price_cron_requires_secret_and_refreshes_bounded_shard(monkeypatch):
     }
 
 
-def test_price_cron_surfaces_partial_refresh_as_failure(monkeypatch):
+def test_price_cron_returns_200_when_partial_failure_is_recovered(monkeypatch):
     monkeypatch.setenv("CRON_SECRET", "abcdef0123456789abcdef0123456789")
 
     class FakeConn:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
 
     from stock_machine import db, market_health
     monkeypatch.setattr(db, "connect", lambda: FakeConn())
     monkeypatch.setattr(db, "list_companies", lambda conn: [{"ticker": "AAPL"}])
-    monkeypatch.setattr(
-        market_health,
-        "refresh_prices",
-        lambda *args, **kwargs: {"status": "PARTIAL", "failures": [{"ticker": "AAPL"}]},
+    monkeypatch.setattr(market_health, "refresh_prices", lambda *args, **kwargs: {
+        "status": "PARTIAL_RECOVERED",
+        "failures": [{"ticker": "AAPL"}],
+        "unresolved_failures": [],
+        "health": {"status": "HEALTHY"},
+    })
+
+    from stock_machine.webapp_automation import app
+    response = TestClient(app, raise_server_exceptions=False).get(
+        "/api/admin/prices/cron/0/18",
+        headers={"Authorization": "Bearer abcdef0123456789abcdef0123456789"},
     )
+    assert response.status_code == 200
+    assert response.json()["status"] == "PARTIAL_RECOVERED"
+
+
+def test_price_cron_surfaces_actual_stale_failure(monkeypatch):
+    monkeypatch.setenv("CRON_SECRET", "abcdef0123456789abcdef0123456789")
+
+    class FakeConn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+
+    from stock_machine import db, market_health
+    monkeypatch.setattr(db, "connect", lambda: FakeConn())
+    monkeypatch.setattr(db, "list_companies", lambda conn: [{"ticker": "AAPL"}])
+    monkeypatch.setattr(market_health, "refresh_prices", lambda *args, **kwargs: {
+        "status": "ACTUAL_STALE_FAILURE",
+        "failures": [{"ticker": "AAPL"}],
+        "unresolved_failures": [{"ticker": "AAPL"}],
+        "health": {"status": "STALE"},
+    })
 
     from stock_machine.webapp_automation import app
     response = TestClient(app, raise_server_exceptions=False).get(
@@ -107,7 +131,7 @@ def test_price_cron_surfaces_partial_refresh_as_failure(monkeypatch):
         headers={"Authorization": "Bearer abcdef0123456789abcdef0123456789"},
     )
     assert response.status_code == 503
-    assert response.json()["detail"]["status"] == "PARTIAL"
+    assert response.json()["detail"]["status"] == "ACTUAL_STALE_FAILURE"
 
 
 def test_sunday_scheduler_never_auto_syncs_forward_paper(monkeypatch):
