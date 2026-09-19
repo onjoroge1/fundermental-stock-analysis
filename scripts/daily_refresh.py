@@ -1,11 +1,10 @@
 """Daily refresh: re-ingest every covered ticker, rebuild bundles, and flag —
 never silently rewrite — analysis reports that new filings have made stale.
 
-Design rule: data refreshes mechanically; analyst narratives are frozen at
-their as_of date. A report whose underlying data changed (new quarter filed
-after the report was written) gets a STALE marker so the analyst pass can be
-re-run deliberately. Regenerating narrative text with fresh numbers would
-produce claims nobody actually reviewed.
+Design rule: data refreshes mechanically; analyst narratives remain frozen at
+their as_of date. The refresh may add a new deterministic source-fact brief
+whose claims are exact path/value/source bindings, but it never regenerates or
+rewrites analyst narrative text. Historical reports remain immutable.
 """
 from __future__ import annotations
 
@@ -64,6 +63,9 @@ def main() -> int:
             summary = run_pipeline(t)
             bundle = build_bundle(t)
             write_bundle(bundle)
+            from stock_machine.source_claim_refresh import refresh as refresh_source_claims
+            source_claims = refresh_source_claims(t)
+            entry["source_claims"] = source_claims
             from stock_machine import monitoring, paper
             from stock_machine.peers import snapshot_metrics
             conn = db.connect()
