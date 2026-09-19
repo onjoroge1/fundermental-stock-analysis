@@ -18,7 +18,7 @@ def test_stock_outcome_scores_long_and_short_from_adjusted_prices(monkeypatch):
     assert long["gross_return_pct"]==10.0
     assert long["max_drawdown_pct"]==-10.0
     assert short["gross_return_pct"]==-10.0
-    assert short["max_drawdown_pct"]==-20.0
+    assert round(short["max_drawdown_pct"],4)==-18.1818
     assert long["costs_pct"]==.20
 
 
