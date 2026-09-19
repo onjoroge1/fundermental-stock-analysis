@@ -25,6 +25,7 @@ def test_agent_cycle_chains_research_journal_and_paper(monkeypatch):
     import stock_machine.research_cycle as research
     from stock_machine.agents import journal
     from stock_machine import agent_trading
+    from stock_machine.agent_intelligence import orchestrator
 
     calls = []
     monkeypatch.setattr(research, "run", lambda ticker, key: {
@@ -35,8 +36,14 @@ def test_agent_cycle_chains_research_journal_and_paper(monkeypatch):
         calls.append(("journal", ticker, request.idempotency_key))
         or {"replayed": False, "decision": _decision(ticker=ticker)}
     ))
-    monkeypatch.setattr(agent_trading, "process_decision", lambda decision: (
-        calls.append(("paper", decision["decision_id"]))
+    monkeypatch.setattr(agent_trading, "get_mode", lambda: {"mode":"PAPER"})
+    monkeypatch.setattr(orchestrator, "evaluate_decision", lambda decision, mode: {
+        "schema_version":"agent-intelligence.v2","mode":mode,
+        "paper_instruction":{"desired_side":"LONG","source":"agent-intelligence.v2",
+                             "selected_action":"LONG_STOCK"},
+        "broker_submission":False})
+    monkeypatch.setattr(agent_trading, "process_decision", lambda decision, paper_instruction=None: (
+        calls.append(("paper", decision["decision_id"], paper_instruction))
         or {"status": "SIMULATED", "execution_mode": "PAPER",
             "broker_submission": False, "action": "OPEN_LONG"}
     ))
@@ -55,6 +62,7 @@ def test_agent_cycle_chains_research_journal_and_paper(monkeypatch):
     assert guards == ["checked"]
     assert calls[0][:2] == ("journal", "AAPL")
     assert calls[1][0] == "paper"
+    assert calls[1][2]["selected_action"] == "LONG_STOCK"
     assert calls[2][0] == "mark"
     assert result["paper_mark"]["status"] == "OK"
     assert result["decision_status"] == "RECORDED"
@@ -110,12 +118,19 @@ def test_paper_mark_failure_does_not_rewrite_completed_decision(monkeypatch):
     import stock_machine.research_cycle as research
     from stock_machine.agents import journal
     from stock_machine import agent_trading
+    from stock_machine.agent_intelligence import orchestrator
 
     monkeypatch.setattr(research, "run", lambda *a, **k: {"status": "COMPLETED"})
     monkeypatch.setattr(journal, "capture", lambda *a, **k: {
         "replayed": False, "decision": _decision()
     })
-    monkeypatch.setattr(agent_trading, "process_decision", lambda decision: {
+    monkeypatch.setattr(agent_trading, "get_mode", lambda: {"mode":"PAPER"})
+    monkeypatch.setattr(orchestrator, "evaluate_decision", lambda decision, mode: {
+        "schema_version":"agent-intelligence.v2","mode":mode,
+        "paper_instruction":{"desired_side":"FLAT","source":"agent-intelligence.v2",
+                             "selected_action":"NO_TRADE"},
+        "broker_submission":False})
+    monkeypatch.setattr(agent_trading, "process_decision", lambda decision, paper_instruction=None: {
         "status": "NO_ACTION", "execution_mode": "PAPER",
         "broker_submission": False, "action": "HOLD"
     })
@@ -135,12 +150,19 @@ def test_paper_mark_failure_does_not_rewrite_completed_decision(monkeypatch):
     import stock_machine.research_cycle as research
     from stock_machine.agents import journal
     from stock_machine import agent_trading
+    from stock_machine.agent_intelligence import orchestrator
 
     monkeypatch.setattr(research, "run", lambda *a, **k: {"status": "COMPLETED"})
     monkeypatch.setattr(journal, "capture", lambda *a, **k: {
         "replayed": False, "decision": _decision()
     })
-    monkeypatch.setattr(agent_trading, "process_decision", lambda decision: {
+    monkeypatch.setattr(agent_trading, "get_mode", lambda: {"mode":"PAPER"})
+    monkeypatch.setattr(orchestrator, "evaluate_decision", lambda decision, mode: {
+        "schema_version":"agent-intelligence.v2","mode":mode,
+        "paper_instruction":{"desired_side":"FLAT","source":"agent-intelligence.v2",
+                             "selected_action":"NO_TRADE"},
+        "broker_submission":False})
+    monkeypatch.setattr(agent_trading, "process_decision", lambda decision, paper_instruction=None: {
         "status": "NO_ACTION", "execution_mode": "PAPER",
         "broker_submission": False, "action": "HOLD"
     })
@@ -153,3 +175,28 @@ def test_paper_mark_failure_does_not_rewrite_completed_decision(monkeypatch):
     assert result["paper_mark"]["status"] == "BLOCKED"
     assert result["paper_mark"]["reason"] == "PAPER_MARK_PRICE_MISSING"
     assert result["broker_submission"] is False
+
+
+def test_research_mode_runs_v2_in_shadow_without_paper_instruction(monkeypatch):
+    import stock_machine.research_cycle as research
+    from stock_machine.agents import journal
+    from stock_machine import agent_trading
+    from stock_machine.agent_intelligence import orchestrator
+
+    monkeypatch.setattr(research, "run", lambda *a, **k: {"status": "COMPLETED"})
+    monkeypatch.setattr(journal, "capture", lambda *a, **k: {
+        "replayed": False, "decision": _decision()
+    })
+    monkeypatch.setattr(agent_trading, "get_mode", lambda: {"mode":"RESEARCH"})
+    seen={}
+    monkeypatch.setattr(orchestrator, "evaluate_decision", lambda decision, mode: (
+        seen.update(mode=mode) or {"mode":mode,"paper_instruction":None,
+                                  "broker_submission":False}))
+    monkeypatch.setattr(agent_trading, "process_decision",
+                        lambda decision, paper_instruction=None: {
+                            "status":"SKIPPED","execution_mode":"RESEARCH",
+                            "broker_submission":False,"instruction":paper_instruction})
+    result=cycle.run("AAPL","auto:shadow")
+    assert seen["mode"]=="SHADOW"
+    assert result["intelligence_v2"]["mode"]=="SHADOW"
+    assert result["trading"]["instruction"] is None

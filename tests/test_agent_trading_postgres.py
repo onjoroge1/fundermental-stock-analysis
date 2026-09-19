@@ -112,3 +112,41 @@ def test_insufficient_data_report_can_open_experimental_paper_long_from_frozen_s
     assert value["risk_snapshot"]["source_report_classification"] == "INSUFFICIENT_DATA"
     assert value["broker_submission"] is False
     assert agent_trading.portfolio()["positions"][0]["side"] == "LONG"
+
+
+def test_v2_paper_instruction_can_drive_simulated_stock_without_changing_report(pg):
+    agent_trading.set_mode("PAPER", None)
+    decision = seed(pg, "INSUFFICIENT_DATA")
+    value = agent_trading.process_decision(
+        decision,
+        paper_instruction={
+            "desired_side": "LONG",
+            "source": "agent-intelligence.v2",
+            "selected_action": "LONG_STOCK",
+        },
+    )
+    assert value["status"] == "SIMULATED"
+    assert value["action"] == "OPEN_LONG"
+    assert value["classification"] == "AGENT_INTELLIGENCE_V2"
+    assert value["risk_snapshot"]["selector"]["version"] == "agent-intelligence.v2"
+    assert value["broker_submission"] is False
+    assert agent_trading.portfolio()["positions"][0]["side"] == "LONG"
+
+
+def test_v2_option_instruction_never_falls_back_to_equity_fill(pg):
+    agent_trading.set_mode("PAPER", None)
+    decision = seed(pg, "INSUFFICIENT_DATA")
+    value = agent_trading.process_decision(
+        decision,
+        paper_instruction={
+            "desired_side": "FLAT",
+            "source": "agent-intelligence.v2",
+            "selected_action": "OPTION:bull_call_debit_spread",
+            "blocker": "OPTION_PAPER_EXECUTOR_NOT_CONNECTED",
+        },
+    )
+    assert value["status"] == "BLOCKED"
+    assert value["action"] == "NO_TRADE"
+    assert "OPTION_PAPER_EXECUTOR_NOT_CONNECTED" in value["blockers"]
+    with pg() as c2:
+        assert c2.execute("SELECT count(*) FROM agent_paper_fills").fetchone()[0] == 0
