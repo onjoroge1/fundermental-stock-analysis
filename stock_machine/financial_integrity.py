@@ -6,9 +6,84 @@ are deliberately withheld until the source evidence has been recovered.
 """
 from __future__ import annotations
 
+import json
 import math
+from functools import lru_cache
+from pathlib import Path
 
 VERSION = "financial-integrity.v1"
+
+
+@lru_cache(maxsize=1)
+def reviewed_debt_sources() -> tuple[dict, ...]:
+    """Reviewed period-specific debt reconciliations pinned to exact filings."""
+    path = Path(__file__).parent / "normalization" / "reviewed_balance_sheets.json"
+    rows = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(rows, list):
+        raise ValueError("reviewed debt evidence must be a list")
+    return tuple(rows)
+
+
+def _matching_review(period: dict, fields: dict, sources: dict) -> dict:
+    embedded = fields.get("_reviewed_debt")
+    if isinstance(embedded, dict) and embedded:
+        return embedded
+    accession = period.get("accession_number") or sources.get("cash_and_equivalents")
+    if not accession or not period.get("period_end"):
+        return {}
+    matches = [
+        row for row in reviewed_debt_sources()
+        if row.get("period_end") == period.get("period_end")
+        and row.get("accession_number") == accession
+    ]
+    return matches[0] if len(matches) == 1 else {}
+
+
+def _matches_bound_fields(fields: dict, sources: dict, accession: str, expected: dict) -> bool:
+    return bool(expected) and all(
+        number(value) is not None
+        and number(fields.get(field)) == number(value)
+        and sources.get(field) == accession
+        for field, value in expected.items()
+    )
+
+
+def _reviewed_total(period: dict, fields: dict, sources: dict) -> tuple[float | None, dict]:
+    """Validate reviewed arithmetic without treating missing normalized tags as zero.
+
+    Normalized components must match exactly. Source-reviewed components are
+    facts read directly from the pinned filing and require separate binding
+    fields tied to normalized facts from the same accession.
+    """
+    reviewed = _matching_review(period, fields, sources)
+    accession = reviewed.get("accession_number")
+    total = number(reviewed.get("total_debt"))
+    if (reviewed.get("status") != "SOURCE_RECONCILED"
+            or not accession or not reviewed.get("source_url") or not reviewed.get("source_id")
+            or total is None or total < 0):
+        return None, {}
+
+    normalized = reviewed.get("components") or {}
+    source_reviewed = reviewed.get("reviewed_components") or {}
+    bindings = reviewed.get("binding_fields") or {}
+    arithmetic = source_reviewed or normalized
+    if (not arithmetic
+            or any(number(v) is None or number(v) < 0 for v in arithmetic.values())
+            or abs(sum(float(v) for v in arithmetic.values()) - total) > 1):
+        return None, {}
+    if normalized and not _matches_bound_fields(fields, sources, accession, normalized):
+        return None, {}
+    if source_reviewed and not _matches_bound_fields(fields, sources, accession, bindings):
+        return None, {}
+    if bindings and not _matches_bound_fields(fields, sources, accession, bindings):
+        return None, {}
+
+    reviewed_cash = number(reviewed.get("cash_and_equivalents"))
+    if reviewed_cash is not None:
+        if (number(fields.get("cash_and_equivalents")) != reviewed_cash
+                or sources.get("cash_and_equivalents") != accession):
+            return None, {}
+    return total, reviewed
 
 
 def number(value):
@@ -40,20 +115,14 @@ def debt_evidence(period: dict | None) -> dict:
             total, basis = current + noncurrent, "COMPLETE_CURRENT_PLUS_NONCURRENT_DEBT_AND_FINANCE_LEASES"
             source_ids = ["SEC:ACCESSION:" + accession]
             debt_accession = accession
-        elif (reviewed.get("period_end") == p.get("period_end")
-              and reviewed.get("status") == "SOURCE_RECONCILED"
-              and reviewed.get("source_url") and reviewed.get("source_id")
-              and reviewed.get("components")
-              and all(number(fields.get(k)) == number(v) and number(v) is not None
-                      and sources.get(k) == reviewed.get("accession_number")
-                      for k, v in reviewed["components"].items())
-              and number(reviewed.get("total_debt")) is not None
-              and abs(sum(reviewed["components"].values()) - reviewed["total_debt"]) <= 1):
-            total, basis = reviewed["total_debt"], "REVIEWED_ISSUER_BALANCE_SHEET_TOTAL"
-            source_ids = [reviewed["source_id"]]
-            debt_accession = reviewed["accession_number"]
         else:
-            reasons.append("TOTAL_DEBT_NOT_SOURCE_RECONCILED")
+            reviewed_total, reviewed = _reviewed_total(p, fields, sources)
+            if reviewed_total is not None:
+                total, basis = reviewed_total, "REVIEWED_ISSUER_BALANCE_SHEET_TOTAL"
+                source_ids = [reviewed["source_id"]]
+                debt_accession = reviewed["accession_number"]
+            else:
+                reasons.append("TOTAL_DEBT_NOT_SOURCE_RECONCILED")
     if total is not None:
         liabilities = number(fields.get("total_liabilities"))
         if liabilities is not None and total > liabilities * 1.01:
