@@ -10,44 +10,24 @@ def run_step(run_id: str):
     if item is None:
         return {"status": "NO_RUNNABLE_ITEM", "run_id": run_id}
     try:
-        from ..research_cycle import run as research
-        from ..agents import journal
-        from ..agents.contracts import CaptureRequest
-        from .. import agent_trading
+        from ..agent_cycle import run as agent_cycle
         ticker = item["ticker"]
         key = "panel:" + run_id
+        # Avoid paid/provider work when the owner has already paused research.
         store.require_capture_enabled()
-        cycle = research(ticker, key)
-        if cycle.get("status") == "BUSY":
+        result = agent_cycle(ticker, key, capture_guard=store.require_capture_enabled)
+        if result.get("status") == "BUSY":
             raise PanelError("RESEARCH_ALREADY_RUNNING", 409)
-        if cycle.get("status") not in {"COMPLETED", "COMPLETED_WITH_WITHHELD_OUTPUTS"}:
-            raise PanelError("RESEARCH_NOT_COMPLETED", 503)
-        # A pause during a source read prevents a NEW immutable capture.
-        store.require_capture_enabled()
-        saved = journal.capture(ticker, CaptureRequest(idempotency_key=key))
-        decision = saved["decision"]
-        if decision.get("mode") != "RESEARCH" or decision.get("execution_status") != "NOT_ENABLED":
-            raise PanelError("RESEARCH_BOUNDARY_VIOLATION", 503)
-
-        mode = agent_trading.get_mode()
-        trading = (agent_trading.process_decision(decision) if mode["mode"] == "PAPER"
-                   else {"status": "SKIPPED", "execution_mode": "RESEARCH",
-                         "broker_submission": False, "reason": "PAPER_MODE_NOT_ENABLED"})
-        result = {"provider_status": cycle.get("provider_status"),
-                  "news_status": cycle.get("news_status"),
-                  "claims_verified": cycle.get("claims_verified"),
-                  "report_id": cycle.get("report_id"),
-                  "decision_id": decision["decision_id"],
-                  "decision_status": decision["status"],
-                  "action": decision["action"],
-                  "price_date": decision.get("price_date"),
-                  "blockers": decision.get("blockers", []),
-                  "trading": trading,
-                  "trade_execution": trading.get("status") == "SIMULATED",
-                  "broker_submission": False}
-        return store.finish(item, result, failed=decision["status"] == "FAILED")
+        return store.finish(
+            item, result, failed=result.get("decision_status") == "FAILED"
+        )
     except Exception as exc:
-        code = exc.code if isinstance(exc, PanelError) else "RESEARCH_STEP_FAILED"
+        if isinstance(exc, PanelError):
+            code = exc.code
+        elif str(exc) in {"RESEARCH_NOT_COMPLETED", "RESEARCH_BOUNDARY_VIOLATION"}:
+            code = str(exc)
+        else:
+            code = "RESEARCH_STEP_FAILED"
         return store.finish(item, {"error_code": code, "trade_execution": False,
                                    "broker_submission": False}, failed=True)
 
