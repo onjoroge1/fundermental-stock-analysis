@@ -28,6 +28,7 @@ JOB_TYPES = {
     "research_index_refresh",
     "research_cycle",
     "research_experiment",
+    "agent_intelligence_outcomes",
 }
 TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,14}$")
 LEASE_MINUTES = 15
@@ -503,6 +504,9 @@ def execute(job: dict) -> dict:
     if kind == "research_experiment":
         from .prospective_experiment import run
         return run()
+    if kind == "agent_intelligence_outcomes":
+        from .agent_intelligence.outcomes import score_matured
+        return score_matured(limit=int(payload.get("limit", 100)))
     if kind == "ticker_refresh":
         if not job.get("ticker"):
             raise ValueError("ticker_refresh requires ticker")
