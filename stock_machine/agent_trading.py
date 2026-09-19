@@ -371,7 +371,7 @@ def _existing_intent(conn, decision_id: str) -> dict | None:
             "broker_submission": False}
 
 
-def process_decision(decision: dict) -> dict:
+def process_decision(decision: dict, paper_instruction: dict | None = None) -> dict:
     """Create at most one paper intent/fill sequence for one frozen agent decision."""
     ticker = str(decision.get("ticker") or "").upper()
     decision_id = str(decision.get("decision_id") or "")
@@ -397,7 +397,22 @@ def process_decision(decision: dict) -> dict:
                     "desired_side": desired_side(report_classification)}
         classification = report_classification
         desired = desired_side(report_classification)
+        instruction_side = ((paper_instruction or {}).get("desired_side") or "").upper()
         if (not blockers and decision.get("status") == "RECORDED"
+                and paper_instruction is not None):
+            if instruction_side not in {"LONG", "SHORT", "FLAT"}:
+                blockers = list(blockers) + ["PAPER_INSTRUCTION_INVALID"]
+            else:
+                selector = {"version": "agent-intelligence.v2",
+                            "desired_side": instruction_side,
+                            "selected_action": paper_instruction.get("selected_action"),
+                            "source": paper_instruction.get("source"),
+                            "blocker": paper_instruction.get("blocker")}
+                if paper_instruction.get("blocker"):
+                    blockers = list(blockers) + [str(paper_instruction["blocker"])]
+                classification = "AGENT_INTELLIGENCE_V2"
+                desired = instruction_side
+        elif (not blockers and decision.get("status") == "RECORDED"
                 and report_classification == "INSUFFICIENT_DATA"):
             selector = _paper_experiment_signal(conn, decision)
             blockers = list(blockers) + list(selector.get("blockers") or [])
