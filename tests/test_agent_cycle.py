@@ -44,6 +44,10 @@ def test_agent_cycle_chains_research_journal_and_paper(monkeypatch):
         calls.append(("mark", "portfolio"))
         or {"status": "OK", "open_count": 1, "broker_submission": False}
     ))
+    monkeypatch.setattr(agent_trading, "mark_open_positions", lambda: (
+        calls.append(("mark", "portfolio"))
+        or {"status": "OK", "open_count": 1, "broker_submission": False}
+    ))
     guards = []
     result = cycle.run("AAPL", "auto:research_cycle:AAPL:2026-09-18",
                        capture_guard=lambda: guards.append("checked"))
@@ -124,4 +128,28 @@ def test_paper_mark_failure_does_not_rewrite_completed_decision(monkeypatch):
         "status": "BLOCKED", "reason": "PAPER_MARK_PRICE_MISSING",
         "broker_submission": False,
     }
+    assert result["broker_submission"] is False
+
+
+def test_paper_mark_failure_does_not_rewrite_completed_decision(monkeypatch):
+    import stock_machine.research_cycle as research
+    from stock_machine.agents import journal
+    from stock_machine import agent_trading
+
+    monkeypatch.setattr(research, "run", lambda *a, **k: {"status": "COMPLETED"})
+    monkeypatch.setattr(journal, "capture", lambda *a, **k: {
+        "replayed": False, "decision": _decision()
+    })
+    monkeypatch.setattr(agent_trading, "process_decision", lambda decision: {
+        "status": "NO_ACTION", "execution_mode": "PAPER",
+        "broker_submission": False, "action": "HOLD"
+    })
+    def fail_mark():
+        raise ValueError("PAPER_MARK_PRICE_MISSING")
+    monkeypatch.setattr(agent_trading, "mark_open_positions", fail_mark)
+
+    result = cycle.run("AAPL", "auto:test-mark")
+    assert result["decision_status"] == "RECORDED"
+    assert result["paper_mark"]["status"] == "BLOCKED"
+    assert result["paper_mark"]["reason"] == "PAPER_MARK_PRICE_MISSING"
     assert result["broker_submission"] is False
