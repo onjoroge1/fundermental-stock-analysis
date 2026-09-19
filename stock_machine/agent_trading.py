@@ -28,6 +28,10 @@ MAX_OPEN_POSITIONS = 5
 MIN_TRADE_NOTIONAL_USD = 500.0
 FILL_COST_BPS = 10.0
 
+PAPER_SELECTOR_VERSION = "fundamental-score-paper-v1"
+PAPER_LONG_MIN_SCORE = 70.0
+PAPER_SHORT_MAX_SCORE = 50.0
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS agent_trading_settings (
     singleton BOOLEAN PRIMARY KEY DEFAULT true CHECK(singleton),
@@ -233,6 +237,51 @@ def _report_classification(conn, decision: dict) -> tuple[str | None, list[str]]
     return classification, []
 
 
+def _paper_experiment_signal(conn, decision: dict) -> dict:
+    """Paper-only directional selector from the exact frozen decision packet.
+
+    This is deliberately not a research recommendation or qualified forecast.
+    It exists so the paper ledger can accumulate prospective outcomes while
+    report guidance remains withheld. Thresholds are fixed and versioned.
+    """
+    input_sha = decision.get("input_sha256")
+    if not input_sha:
+        return {"version": PAPER_SELECTOR_VERSION, "desired_side": "FLAT",
+                "classification": "PAPER_EXPERIMENT_UNAVAILABLE",
+                "score": None, "blockers": ["FROZEN_EVIDENCE_ID_MISSING"]}
+    row = conn.execute(
+        "SELECT payload FROM agent_lab_evidence WHERE input_sha256=%s",
+        (input_sha,),
+    ).fetchone()
+    if not row:
+        return {"version": PAPER_SELECTOR_VERSION, "desired_side": "FLAT",
+                "classification": "PAPER_EXPERIMENT_UNAVAILABLE",
+                "score": None, "blockers": ["FROZEN_EVIDENCE_NOT_FOUND"]}
+    packet = row[0] or {}
+    quality = packet.get("data_quality") or {}
+    if quality.get("status") != "PASS":
+        return {"version": PAPER_SELECTOR_VERSION, "desired_side": "FLAT",
+                "classification": "PAPER_EXPERIMENT_UNAVAILABLE",
+                "score": None, "blockers": ["PAPER_EXPERIMENT_DATA_QUALITY_NOT_PASS"]}
+    score = (((packet.get("fundamentals") or {}).get("fundamental_scores") or {})
+             .get("composite_score"))
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        return {"version": PAPER_SELECTOR_VERSION, "desired_side": "FLAT",
+                "classification": "PAPER_EXPERIMENT_UNAVAILABLE",
+                "score": None, "blockers": ["PAPER_EXPERIMENT_SCORE_UNAVAILABLE"]}
+    score = float(score)
+    if score >= PAPER_LONG_MIN_SCORE:
+        desired, label = "LONG", "PAPER_EXPERIMENT_LONG"
+    elif score <= PAPER_SHORT_MAX_SCORE:
+        desired, label = "SHORT", "PAPER_EXPERIMENT_SHORT"
+    else:
+        desired, label = "FLAT", "PAPER_EXPERIMENT_FLAT"
+    return {"version": PAPER_SELECTOR_VERSION, "desired_side": desired,
+            "classification": label, "score": score, "blockers": [],
+            "thresholds": {"long_min": PAPER_LONG_MIN_SCORE,
+                           "short_max": PAPER_SHORT_MAX_SCORE}}
+
+
 def _portfolio_state(conn, *, require_complete_prices: bool = False) -> dict:
     rows = conn.execute(
         """SELECT position_id::text,ticker,side,entry_price,paper_units,entry_cost_usd
@@ -339,15 +388,27 @@ def process_decision(decision: dict) -> dict:
         if prior:
             return prior
 
-        classification, blockers = _report_classification(conn, decision)
+        report_classification, blockers = _report_classification(conn, decision)
         if decision.get("status") != "RECORDED":
             blockers = list(blockers) + ["AGENT_DECISION_NOT_RECORDED"]
+
+        selector = {"version": "source-report-classification",
+                    "classification": report_classification,
+                    "desired_side": desired_side(report_classification)}
+        classification = report_classification
+        desired = desired_side(report_classification)
+        if (not blockers and decision.get("status") == "RECORDED"
+                and report_classification == "INSUFFICIENT_DATA"):
+            selector = _paper_experiment_signal(conn, decision)
+            blockers = list(blockers) + list(selector.get("blockers") or [])
+            classification = selector.get("classification")
+            desired = selector.get("desired_side") or "FLAT"
+
         price_date, price = _latest_price(conn, ticker)
         if price is None:
             blockers = list(blockers) + ["LATEST_COMPLETED_PRICE_UNAVAILABLE"]
 
         current = _open_position(conn, ticker)
-        desired = desired_side(classification)
         action = deterministic_action(desired, current["side"] if current else None)
         state = _portfolio_state(conn, require_complete_prices=False)
         target = 0.0
@@ -366,16 +427,16 @@ def process_decision(decision: dict) -> dict:
             rationale = "Paper intent withheld because deterministic prerequisites or portfolio limits failed."
         elif action == "HOLD":
             status = "NO_ACTION"
-            rationale = "Existing paper position already matches the exact source classification."
+            rationale = "Existing paper position already matches the deterministic paper selector."
         elif action == "NO_TRADE":
             status = "NO_ACTION"
-            rationale = "Exact source classification does not call for an open paper position."
+            rationale = "Deterministic paper selector is flat; no simulated position is opened."
         elif action == "CLOSE":
             status = "APPROVED"
-            rationale = "Close the existing paper position; reversals require a later recorded decision."
+            rationale = "Close the existing paper position; selector reversals require a later recorded decision."
         else:
             status = "APPROVED"
-            rationale = "Open a bounded paper position from the exact source classification and deterministic risk budget."
+            rationale = "Open a bounded experimental paper position from frozen evidence and deterministic risk limits; this is not a research recommendation."
 
         intent_id = str(uuid4())
         risk = {"starting_equity_usd": STARTING_EQUITY_USD,
@@ -385,7 +446,9 @@ def process_decision(decision: dict) -> dict:
                 "max_position_pct": MAX_POSITION_PCT * 100,
                 "max_gross_pct": MAX_GROSS_PCT * 100,
                 "max_open_positions": MAX_OPEN_POSITIONS,
-                "fill_cost_bps": FILL_COST_BPS, "broker_submission": False}
+                "fill_cost_bps": FILL_COST_BPS, "broker_submission": False,
+                "selector": selector,
+                "source_report_classification": report_classification}
         conn.execute(
             """INSERT INTO agent_trade_intents(intent_id,decision_id,ticker,classification,desired_side,action,status,
                    market_date,reference_price,target_notional_usd,rationale,blockers,risk_snapshot)
