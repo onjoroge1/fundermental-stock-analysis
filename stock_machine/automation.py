@@ -1,8 +1,10 @@
 """Safe production maintenance scheduling for the PR32 control plane.
 
-Automation may refresh data, evaluate Strategy Lab v2, and mark already-frozen
-Forward Paper cohorts. It deliberately cannot create/promote Forward Paper
-cohorts and cannot place trades.
+Automation may refresh data, evaluate Strategy Lab v2, mark already-frozen
+Forward Paper cohorts, and advance pilot research through the immutable Agent
+Lab journal. When the owner has selected PAPER mode, a completed pilot decision
+may create a deterministic simulated Agent Trading v1 intent/fill. Automation
+still cannot create/promote Forward Paper cohorts or submit broker orders.
 """
 from __future__ import annotations
 
@@ -99,7 +101,9 @@ def schedule_due(now: datetime | None = None) -> dict[str, Any]:
         "scheduled": scheduled,
         "safety": {
             "forward_paper_sync_automated": False,
-            "trade_execution": False,
+            "paper_simulation_possible": True,
+            "broker_submission": False,
+            "live_trade_execution": False,
         },
     }
 
