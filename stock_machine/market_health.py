@@ -163,11 +163,23 @@ def refresh_prices(
             })
 
     after = health(conn, max_age_hours=max_age_hours)
+    states = {row["ticker"]: row["state"] for row in after.get("tickers", [])}
+    unresolved = [
+        failure for failure in failures
+        if states.get(failure["ticker"]) != "CURRENT"
+    ]
+    if not failures:
+        status = "OK"
+    elif not unresolved:
+        status = "PARTIAL_RECOVERED"
+    else:
+        status = "ACTUAL_STALE_FAILURE"
     return {
-        "status": "OK" if not failures else "PARTIAL",
+        "status": status,
         "requested": len(wanted),
         "refreshed": len(results),
         "failures": failures,
+        "unresolved_failures": unresolved,
         "results": results,
         "health": after,
     }
