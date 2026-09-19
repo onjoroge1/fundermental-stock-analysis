@@ -54,7 +54,8 @@ def schedule_due(now: datetime | None = None) -> dict[str, Any]:
         latest completed market session (five unique names/session),
       * one index refresh (unindexed first, then stalest),
       * one Forward Paper mark job when cohorts exist,
-      * one Strategy Lab run on Sundays.
+      * one Strategy Lab run on Sundays,
+      * one daily matured Agent Intelligence outcome scan late in UTC day.
 
     Enqueue idempotency prevents duplicate same-day maintenance jobs.
     """
@@ -95,6 +96,16 @@ def schedule_due(now: datetime | None = None) -> dict[str, Any]:
                 conn,
                 "forward_paper_mark",
                 idempotency_key=f"auto:forward_paper_mark:{today}",
+            ))
+
+        # Score matured v2 outcomes once daily. Repeated late-day cron
+        # deliveries reuse the same idempotency key.
+        if now.hour >= 22:
+            scheduled.append(enqueue(
+                conn,
+                "agent_intelligence_outcomes",
+                payload={"limit": 100},
+                idempotency_key=f"auto:agent_intelligence_outcomes:{today}",
             ))
 
         # Sunday UTC; this only evaluates policies. It does not freeze cohorts.
