@@ -231,3 +231,39 @@ def test_agent_cycle_waits_until_selected_ticker_price_is_current(monkeypatch):
 
     automation.schedule_due(datetime(2026, 9, 18, 21, tzinfo=timezone.utc))
     assert "research_cycle" not in scheduled
+
+
+def test_cron_tick_processes_two_jobs_to_match_normal_enqueue_rate(monkeypatch):
+    monkeypatch.setattr(
+        automation, "schedule_due",
+        lambda: {"status": "OK", "scheduled_count": 2, "scheduled": []},
+    )
+    results = iter([
+        {"status": "SUCCEEDED", "job_id": "one"},
+        {"status": "SUCCEEDED", "job_id": "two"},
+    ])
+    import stock_machine.control_plane as cp
+    monkeypatch.setattr(cp, "process_one", lambda: next(results))
+
+    value = automation.cron_tick()
+    assert value["processed_count"] == 2
+    assert value["max_jobs_per_tick"] == 2
+    assert [r["job_id"] for r in value["processors"]] == ["one", "two"]
+    assert value["processor"]["job_id"] == "one"
+
+
+def test_cron_tick_stops_early_when_queue_is_idle(monkeypatch):
+    monkeypatch.setattr(
+        automation, "schedule_due",
+        lambda: {"status": "OK", "scheduled_count": 0, "scheduled": []},
+    )
+    calls = []
+    import stock_machine.control_plane as cp
+    monkeypatch.setattr(cp, "process_one", lambda: (
+        calls.append(1) or {"status": "IDLE", "message": "no runnable jobs"}
+    ))
+
+    value = automation.cron_tick()
+    assert len(calls) == 1
+    assert value["processed_count"] == 0
+    assert value["processor"]["status"] == "IDLE"
