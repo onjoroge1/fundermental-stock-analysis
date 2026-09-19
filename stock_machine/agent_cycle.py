@@ -40,7 +40,23 @@ def run(ticker: str, idempotency_key: str, *,
         raise RuntimeError("RESEARCH_BOUNDARY_VIOLATION")
 
     from . import agent_trading
-    trading = agent_trading.process_decision(decision)
+    mode = agent_trading.get_mode()
+    intelligence = None
+    try:
+        from .agent_intelligence.orchestrator import evaluate_decision
+        intelligence = evaluate_decision(
+            decision, mode="PAPER" if mode.get("mode") == "PAPER" else "SHADOW"
+        )
+    except Exception as exc:
+        intelligence = {
+            "schema_version": "agent-intelligence.v2",
+            "status": "UNAVAILABLE",
+            "reason": f"{type(exc).__name__}: intelligence evaluation failed",
+            "paper_instruction": None,
+            "broker_submission": False,
+        }
+    instruction = (intelligence or {}).get("paper_instruction") if mode.get("mode") == "PAPER" else None
+    trading = agent_trading.process_decision(decision, paper_instruction=instruction)
     paper_mark = None
     if trading.get("execution_mode") == "PAPER":
         try:
@@ -67,6 +83,7 @@ def run(ticker: str, idempotency_key: str, *,
         "action": decision["action"],
         "price_date": decision.get("price_date"),
         "blockers": decision.get("blockers", []),
+        "intelligence_v2": intelligence,
         "trading": trading,
         "paper_mark": paper_mark,
         "trade_execution": trading.get("status") == "SIMULATED",
