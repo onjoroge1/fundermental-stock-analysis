@@ -1,0 +1,28 @@
+name: Integration analytics compatibility
+on:
+  pull_request:
+    paths:
+      - 'stock_machine/integrations/**'
+      - 'tests/test_*integration*'
+      - 'tests/test_quantstats_adapter.py'
+      - 'requirements/analytics.txt'
+      - '.github/workflows/integration-analytics.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  quantstats:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MPLBACKEND: Agg
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e '.[dev]' -r requirements/analytics.txt
+      - run: python -m pip check
+      - run: python -m pytest -q tests/test_integration_contracts.py tests/test_integration_ledger.py tests/test_integration_reporting.py tests/test_quantstats_adapter.py
+      - run: python -m pip freeze
