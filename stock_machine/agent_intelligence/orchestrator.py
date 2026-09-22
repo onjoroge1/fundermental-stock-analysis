@@ -1,106 +1,89 @@
-"""Live-cycle assembly for Agent Intelligence v2.
-
-Research mode runs SHADOW intelligence. PAPER mode may drive only the existing
-simulated equity executor. Option structures remain proposals until an options
-paper executor is separately implemented.
-"""
+"""Frozen, serialized v2 evaluation. Research is SHADOW; no broker actions."""
 from __future__ import annotations
-
+from datetime import datetime, timezone
 from .features import build_for_ticker
 from .news_events import build as build_news
 from .state import assemble
-from .strategy_router import route
+from .strategy_router import route, eligible_actions
 from . import bandit
 
 
-def _regime(conn, ticker: str, as_of: str | None):
+def _regime(conn, ticker: str, as_of: str):
     from .. import db
     from ..regime import RegimeFeatureProvider, sector_etf
-    company=db.fetch_company(conn,ticker) or {}
-    spy=db.fetch_prices(conn,"SPY",as_of)
-    qqq=db.fetch_prices(conn,"QQQ",as_of)
-    sector_symbol=sector_etf(company.get("sector"))
-    sector=db.fetch_prices(conn,sector_symbol,as_of) if sector_symbol else []
+    company = db.fetch_company(conn, ticker) or {}
+    spy, qqq = db.fetch_prices(conn, "SPY", as_of), db.fetch_prices(conn, "QQQ", as_of)
+    symbol = sector_etf(company.get("sector"))
+    sector = db.fetch_prices(conn, symbol, as_of) if symbol else []
     if not spy:
-        return {"status":"UNAVAILABLE","classification":"UNKNOWN"}
-    return RegimeFeatureProvider(spy,qqq_rows=qqq,sector_rows=sector).features_as_of(as_of or spy[-1]["date"])
+        return {"status": "UNAVAILABLE", "classification": "UNKNOWN"}
+    return RegimeFeatureProvider(spy, qqq_rows=qqq, sector_rows=sector).features_as_of(as_of)
 
 
-def _action_key(candidate: dict) -> str:
-    if candidate.get("instrument")=="OPTION":
-        return "OPTION:"+str(candidate.get("strategy_type") or "UNKNOWN")
-    return str(candidate.get("action") or "NO_TRADE")
+def _observed_at(decision: dict) -> datetime:
+    stamp = datetime.fromisoformat(str(decision.get("observed_at") or decision.get("decided_at") or "").replace("Z", "+00:00"))
+    if stamp.tzinfo is None or stamp > datetime.now(timezone.utc):
+        raise ValueError("INTELLIGENCE_DECISION_TIME_INVALID")
+    return stamp.astimezone(timezone.utc)
 
 
-def evaluate_decision(decision: dict, *, option_candidates: list | None=None,
-                      mode: str="SHADOW") -> dict:
-    ticker=str(decision.get("ticker") or "").upper()
-    input_sha=decision.get("input_sha256")
-    if not ticker or not input_sha:
+def evaluate_decision(decision: dict, *, option_candidates: list | None = None, mode: str = "SHADOW") -> dict:
+    if mode not in {"SHADOW", "PAPER"}:
+        raise ValueError("INTELLIGENCE_MODE_INVALID")
+    ticker, key, input_sha = decision.get("ticker"), decision.get("decision_id"), decision.get("input_sha256")
+    if not ticker or not key or not input_sha:
         raise ValueError("INTELLIGENCE_DECISION_IDENTITY_MISSING")
     from .. import db, research_store
     from ..options.surface_store import latest_as_of
     with db.connect() as conn:
-        row=conn.execute("SELECT payload FROM agent_lab_evidence WHERE input_sha256=%s",(input_sha,)).fetchone()
+        conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ("intelligence:" + str(key),))
+        existing = research_store.get(conn, "AGENT_INTELLIGENCE_V2", str(key))
+        if existing:
+            old = existing["payload"]
+            if old.get("mode") != mode or old.get("input_sha256", input_sha) != input_sha:
+                raise ValueError("INTELLIGENCE_REPLAY_IDENTITY_OR_MODE_CONFLICT")
+            return {**old, "replayed": True}
+        observed = _observed_at(decision)
+        row = conn.execute("SELECT payload FROM agent_lab_evidence WHERE input_sha256=%s", (input_sha,)).fetchone()
         if not row:
             raise ValueError("INTELLIGENCE_FROZEN_EVIDENCE_NOT_FOUND")
-        packet=row[0] or {}
-        as_of=decision.get("price_date") or (packet.get("market_snapshot") or {}).get("price_date")
-        technical=build_for_ticker(conn,ticker,as_of=as_of)
-        regime=_regime(conn,ticker,as_of)
-        surface=latest_as_of(conn,ticker,str(packet.get("generated_at") or ""),max_age_days=10)
-        latest_bandit=research_store.latest(conn,"AGENT_BANDIT_STATE_V1",ticker)
-        arm_states=(latest_bandit or {}).get("payload",{}).get("arms",{})
-
-    news=build_news(((packet.get("analysis") or {}).get("news_context") or {}))
-    pseudo_bundle={
-        "fundamental_scores":((packet.get("fundamentals") or {}).get("fundamental_scores") or {}),
-        "market_snapshot":packet.get("market_snapshot") or {},
-        "data_quality":packet.get("data_quality") or {},
-    }
-    state=assemble(ticker,pseudo_bundle,technical,news,option_surface=surface,regime=regime)
-    routed=route(state,option_candidates or [])
-    action_candidates=[]
-    by_key={}
-    for candidate in routed["candidates"]:
-        if candidate.get("reasons") and candidate.get("action")!="NO_TRADE" and not candidate.get("eligible",False):
-            continue
-        key=_action_key(candidate)
-        action_candidates.append(key)
-        by_key[key]=candidate
-    if "NO_TRADE" not in action_candidates:
-        action_candidates.append("NO_TRADE")
-        by_key["NO_TRADE"]={"action":"NO_TRADE","instrument":"NONE","utility":1.0}
-    bmode="PAPER" if mode=="PAPER" else "SHADOW"
-    selection=bandit.select(state,action_candidates,arm_states,mode=bmode)
-    selected_key=selection["selected"]["action"]
-    selected=by_key[selected_key]
-    result={
-        "schema_version":"agent-intelligence.v2",
-        "decision_id":decision.get("decision_id"),
-        "ticker":ticker,
-        "mode":bmode,
-        "state":state,
-        "router":routed,
-        "bandit":selection,
-        "selected":selected,
-        "paper_instruction":None,
-        "broker_submission":False,
-    }
-    if bmode=="PAPER":
-        if selected_key=="LONG_STOCK":
-            result["paper_instruction"]={"desired_side":"LONG","source":"agent-intelligence.v2",
-                                         "selected_action":selected_key}
-        elif selected_key=="SHORT_STOCK":
-            result["paper_instruction"]={"desired_side":"SHORT","source":"agent-intelligence.v2",
-                                         "selected_action":selected_key}
-        elif selected_key=="NO_TRADE":
-            result["paper_instruction"]={"desired_side":"FLAT","source":"agent-intelligence.v2",
-                                         "selected_action":selected_key}
-        else:
-            result["paper_instruction"]={"desired_side":"FLAT","source":"agent-intelligence.v2",
-                                         "selected_action":selected_key,
-                                         "blocker":"OPTION_PAPER_EXECUTOR_NOT_CONNECTED"}
-    with db.connect() as conn:
-        research_store.save(conn,"AGENT_INTELLIGENCE_V2",str(decision["decision_id"]),result,ticker)
+        packet = row[0]
+        if packet.get("ticker") != ticker:
+            raise ValueError("INTELLIGENCE_EVIDENCE_TICKER_MISMATCH")
+        as_of = decision.get("price_date")
+        if not as_of or (packet.get("market_snapshot") or {}).get("price_date") != as_of:
+            raise ValueError("INTELLIGENCE_PRICE_DATE_MISMATCH")
+        technical = build_for_ticker(conn, ticker, as_of=as_of)
+        regime = _regime(conn, ticker, as_of)
+        surface = latest_as_of(conn, ticker, observed.isoformat(), max_age_days=10)
+        latest = research_store.latest(conn, "AGENT_BANDIT_STATE_V1", ticker)
+        arms = (latest or {}).get("payload", {}).get("arms", {})
+        news = build_news((packet.get("analysis") or {}).get("news_context") or {}, now=observed)
+        bundle = {"fundamental_scores": (packet.get("fundamentals") or {}).get("fundamental_scores") or {},
+                  "market_snapshot": packet.get("market_snapshot") or {}, "data_quality": packet.get("data_quality") or {}}
+        state = assemble(ticker, bundle, technical, news, option_surface=surface, regime=regime)
+        if decision.get("status") != "RECORDED":
+            state["blockers"] = sorted(set(state.get("blockers", []) + ["AGENT_DECISION_NOT_RECORDED"]))
+            state["paper_eligible"] = False
+        routed = route(state, option_candidates or [])
+        choices = eligible_actions(routed)
+        selection = bandit.select(state, sorted(choices), arms, mode=mode)
+        selected_key = selection["selected"]["action"]
+        if selected_key not in choices:
+            raise ValueError("INELIGIBLE_BANDIT_ACTION")
+        selected = choices[selected_key]
+        instruction = None
+        if mode == "PAPER":
+            instruction = {"desired_side": {"LONG_STOCK": "LONG", "SHORT_STOCK": "SHORT"}.get(selected_key, "FLAT"),
+                           "source": "agent-intelligence.v2", "selected_action": selected_key}
+            if routed["state_blockers"]:
+                instruction["blocker"] = "INTELLIGENCE_STATE_BLOCKED"
+            elif selected_key.startswith("OPTION:"):
+                instruction["blocker"] = "OPTION_PAPER_EXECUTOR_NOT_CONNECTED"
+        result = {"schema_version": "agent-intelligence.v2", "status": "OK", "mode": mode,
+                  "decision_id": str(key), "ticker": ticker, "input_sha256": input_sha,
+                  "observed_at": observed.isoformat(), "state": state, "router": routed,
+                  "bandit": selection, "selected": selected, "paper_instruction": instruction,
+                  "broker_submission": False}
+        research_store.save(conn, "AGENT_INTELLIGENCE_V2", str(key), result, ticker)
     return result
