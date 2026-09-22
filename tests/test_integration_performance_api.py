@@ -19,7 +19,7 @@ def test_performance_requires_existing_owner_session_before_data_access(client, 
     monkeypatch.setattr(store,'session',missing)
     monkeypatch.setattr(api.service,'read_view',lambda *args: pytest.fail('Unauthorized read'))
     assert client.get('/api/operator/performance').status_code == 401
-    assert client.post('/api/operator/performance/reports',json={}).status_code == 401
+    assert client.post('/api/operator/performance/reports',headers={'Origin':'https://testserver'},json={}).status_code == 401
 
 
 def test_read_does_not_queue_or_generate_reports(client,monkeypatch):

@@ -62,6 +62,8 @@ def test_actual_charts_and_replay_desktop_mobile(server,tmp_path):
         assert writes == [] and errors == []
         page.screenshot(path=str(tmp_path/'performance-desktop.png'),full_page=True)
         page.set_viewport_size({'width':390,'height':844})
+        page.wait_for_function('document.documentElement.scrollWidth <= 390')
         assert page.evaluate('document.documentElement.scrollWidth') <= 390
         page.screenshot(path=str(tmp_path/'performance-mobile.png'),full_page=True)
+        assert errors == []
         browser.close()
