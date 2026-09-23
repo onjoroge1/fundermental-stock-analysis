@@ -30,8 +30,8 @@ def test_bandit_forbids_live_mode():
 
 
 def test_reward_penalizes_drawdown_cost_and_capital():
-    good=reward.compute(net_return_pct=5,max_drawdown_pct=-2,capital_used_pct=10,turnover_pct=5,costs_pct=.2)
-    bad=reward.compute(net_return_pct=5,max_drawdown_pct=-10,capital_used_pct=20,turnover_pct=20,costs_pct=.5)
+    good=reward.compute(gross_return_pct=5,max_drawdown_pct=-2,capital_used_pct=10,turnover_pct=5,costs_pct=.2)
+    bad=reward.compute(gross_return_pct=5,max_drawdown_pct=-10,capital_used_pct=20,turnover_pct=20,costs_pct=.5)
     assert good["reward"]>bad["reward"]
 
 

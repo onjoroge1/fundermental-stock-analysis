@@ -74,3 +74,14 @@ def test_process_path_cannot_be_confused_with_job_id(monkeypatch):
         headers={"Authorization": "Bearer abcdef0123456789abcdef0123456789"},
     )
     assert response.status_code == 200
+
+
+def test_execute_dispatches_agent_intelligence_outcome_scan(monkeypatch):
+    from stock_machine.agent_intelligence import outcomes
+    calls=[]
+    monkeypatch.setattr(outcomes,"score_matured",lambda limit=100:
+                        calls.append(limit) or {"status":"OK","scored":1})
+    result=cp.execute({"job_type":"agent_intelligence_outcomes",
+                       "ticker":None,"payload":{"limit":50}})
+    assert calls==[50]
+    assert result["scored"]==1

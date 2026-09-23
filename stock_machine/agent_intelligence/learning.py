@@ -7,6 +7,11 @@ from . import bandit, reward
 def record_outcome(ticker: str, decision_id: str, outcome: dict) -> dict:
     from .. import db, research_store
     with db.connect() as conn:
+        prior_reward=research_store.get(conn,"AGENT_REWARD_V2",decision_id)
+        if prior_reward:
+            latest=research_store.latest(conn,"AGENT_BANDIT_STATE_V1",ticker)
+            return {"replayed": True, "reward_record": prior_reward["payload"],
+                    "bandit_state": (latest or {}).get("payload")}
         run=research_store.get(conn,"AGENT_INTELLIGENCE_V2",decision_id)
         if not run:
             raise ValueError("INTELLIGENCE_RUN_NOT_FOUND")
@@ -16,7 +21,7 @@ def record_outcome(ticker: str, decision_id: str, outcome: dict) -> dict:
         if not action:
             raise ValueError("INTELLIGENCE_ACTION_MISSING")
         r=reward.compute(
-            net_return_pct=float(outcome["net_return_pct"]),
+            gross_return_pct=float(outcome["gross_return_pct"]),
             max_drawdown_pct=float(outcome["max_drawdown_pct"]),
             capital_used_pct=float(outcome["capital_used_pct"]),
             turnover_pct=float(outcome.get("turnover_pct",0.0)),
@@ -34,4 +39,7 @@ def record_outcome(ticker: str, decision_id: str, outcome: dict) -> dict:
                              "action":action,"outcome":outcome,"reward":r},ticker)
         research_store.save(conn,"AGENT_BANDIT_STATE_V1",
                             ticker+":"+decision_id,state,ticker)
-    return state
+    return {"replayed": False, "reward_record": {
+                "ticker":ticker,"decision_id":decision_id,
+                "action":action,"outcome":outcome,"reward":r},
+            "bandit_state": state}
