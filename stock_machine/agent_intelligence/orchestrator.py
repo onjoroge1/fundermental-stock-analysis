@@ -1,8 +1,8 @@
 """Live-cycle assembly for Agent Intelligence v2.
 
-Research mode runs SHADOW intelligence. PAPER mode may drive only the existing
-simulated equity executor. Option structures remain proposals until an options
-paper executor is separately implemented.
+Research mode runs SHADOW intelligence. PAPER mode may drive the existing
+simulated equity executor and may create a separate append-only simulated option
+entry from a current defined-risk candidate. Nothing here submits a broker order.
 """
 from __future__ import annotations
 
@@ -40,7 +40,13 @@ def evaluate_decision(decision: dict, *, option_candidates: list | None=None,
         raise ValueError("INTELLIGENCE_DECISION_IDENTITY_MISSING")
     from .. import db, research_store
     from ..options.surface_store import latest_as_of
+    decision_id = str(decision.get("decision_id") or "")
+    if not decision_id:
+        raise ValueError("INTELLIGENCE_DECISION_ID_MISSING")
     with db.connect() as conn:
+        existing = research_store.get(conn, "AGENT_INTELLIGENCE_V2", decision_id)
+        if existing:
+            return {"replayed": True, **existing["payload"]}
         row=conn.execute("SELECT payload FROM agent_lab_evidence WHERE input_sha256=%s",(input_sha,)).fetchone()
         if not row:
             raise ValueError("INTELLIGENCE_FROZEN_EVIDENCE_NOT_FOUND")
@@ -59,6 +65,24 @@ def evaluate_decision(decision: dict, *, option_candidates: list | None=None,
         "data_quality":packet.get("data_quality") or {},
     }
     state=assemble(ticker,pseudo_bundle,technical,news,option_surface=surface,regime=regime)
+    option_context = {"status": "NOT_REQUESTED", "candidates": option_candidates or []}
+    if mode == "PAPER" and option_candidates is None and state.get("paper_eligible"):
+        try:
+            from .option_bridge import generate as generate_options
+            option_context = generate_options(ticker, state.get("direction") or "NEUTRAL",
+                                              max_risk_usd=1000.0)
+            option_candidates = option_context.get("candidates") or []
+            if option_context.get("surface"):
+                state=assemble(ticker,pseudo_bundle,technical,news,
+                               option_surface=option_context.get("surface"),regime=regime)
+        except Exception as exc:
+            option_context = {
+                "status": "UNAVAILABLE",
+                "reason": f"{type(exc).__name__}: option candidate bridge unavailable",
+                "candidates": [],
+                "broker_submission": False,
+            }
+            option_candidates = []
     routed=route(state,option_candidates or [])
     action_candidates=[]
     by_key={}
@@ -84,6 +108,8 @@ def evaluate_decision(decision: dict, *, option_candidates: list | None=None,
         "router":routed,
         "bandit":selection,
         "selected":selected,
+        "option_context":option_context,
+        "option_paper":None,
         "paper_instruction":None,
         "broker_submission":False,
     }
@@ -98,9 +124,19 @@ def evaluate_decision(decision: dict, *, option_candidates: list | None=None,
             result["paper_instruction"]={"desired_side":"FLAT","source":"agent-intelligence.v2",
                                          "selected_action":selected_key}
         else:
-            result["paper_instruction"]={"desired_side":"FLAT","source":"agent-intelligence.v2",
-                                         "selected_action":selected_key,
-                                         "blocker":"OPTION_PAPER_EXECUTOR_NOT_CONNECTED"}
+            chosen_id = selected.get("candidate_id")
+            chosen = next((x for x in (option_candidates or [])
+                           if x.get("candidate_id") == chosen_id), None)
+            if chosen is None:
+                result["paper_instruction"]={"desired_side":"FLAT","source":"agent-intelligence.v2",
+                                             "selected_action":selected_key,
+                                             "blocker":"OPTION_CANDIDATE_NOT_FOUND"}
+            else:
+                from .option_paper import open_entry
+                result["option_paper"] = open_entry(ticker, decision_id, chosen)
+                result["paper_instruction"]={"desired_side":"FLAT","source":"agent-intelligence.v2",
+                                             "selected_action":selected_key,
+                                             "blocker":"OPTION_SELECTED_SEPARATE_PAPER_LEDGER"}
     with db.connect() as conn:
-        research_store.save(conn,"AGENT_INTELLIGENCE_V2",str(decision["decision_id"]),result,ticker)
+        research_store.save(conn,"AGENT_INTELLIGENCE_V2",decision_id,result,ticker)
     return result
