@@ -131,3 +131,40 @@ def test_panel_page_and_assets_have_no_database_dependency(monkeypatch):
         assert c.get("/ui/admin.css").status_code==200
         assert c.get("/ui/admin.js").status_code==200
         assert 'href="/admin"' in c.get("/").text
+
+
+def test_intelligence_summary_is_read_only_owner_projection(monkeypatch):
+    from stock_machine.admin_panel import operations
+    from stock_machine import research_store
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+
+    monkeypatch.setattr(store, "connect", lambda: Conn())
+    def latest(conn, kind, ticker=None):
+        if ticker != "AAPL":
+            return None
+        if kind == "AGENT_INTELLIGENCE_V2":
+            return {"payload": {
+                "mode":"SHADOW","decision_id":"d1",
+                "state":{"as_of":"2026-09-18","direction":"BULLISH","bias_score":.42,
+                         "paper_eligible":True,"blockers":[],
+                         "technical":{"classification":{"trend":"UP","volatility_regime":"NORMAL"}},
+                         "news":{"features":{"signed_event_pressure":.15,"event_counts":{"GUIDANCE_RAISE":1}}},
+                         "option_surface":{"features":{"atm_iv":.3}}},
+                "router":{"selected":{"action":"LONG_STOCK","instrument":"STOCK"}},
+                "bandit":{"selected":{"action":"LONG_STOCK","ucb":.71,"observations":2}},
+                "selected":{"action":"LONG_STOCK","instrument":"STOCK"},
+            }}
+        if kind == "AGENT_REWARD_V2":
+            return {"payload":{"reward":{"reward":1.25}}}
+        return None
+    monkeypatch.setattr(research_store, "latest", latest)
+    value=operations.intelligence_summary()
+    aapl=value["rows"][0]
+    assert aapl["ticker"]=="AAPL"
+    assert aapl["direction"]=="BULLISH"
+    assert aapl["bandit_selected"]=="LONG_STOCK"
+    assert aapl["latest_reward"]==1.25
+    assert value["broker_submission"] is False
