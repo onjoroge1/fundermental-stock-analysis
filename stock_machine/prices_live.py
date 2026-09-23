@@ -125,10 +125,23 @@ def refresh_many(tickers: list[str], days: int = TAIL_DAYS_DEFAULT,
     }
 
 
+def benchmark_tickers() -> list[str]:
+    """SPY/QQQ plus every mapped sector ETF — the same set
+    scripts/refresh_prices.py --benchmarks uses."""
+    from .regime import SECTOR_ETF
+
+    return sorted({"SPY", "QQQ", *SECTOR_ETF.values()})
+
+
 def refresh_universe(days: int = TAIL_DAYS_DEFAULT, prefer: str = "auto") -> dict:
+    """Every series the store tracks: covered companies AND the benchmark
+    ETFs. Regime and benchmark-relative evaluation read the ETF series, so
+    leaving them behind would make 'prices current' silently untrue for the
+    comparisons that depend on them (price_status counts every series)."""
     with db.connect() as conn:
         tickers = [c["ticker"] for c in db.list_companies(conn)]
-    return refresh_many(tickers, days, prefer)
+    return refresh_many(sorted(set(tickers) | set(benchmark_tickers())),
+                        days, prefer)
 
 
 def price_status() -> dict:
