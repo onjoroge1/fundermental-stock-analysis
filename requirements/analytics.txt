@@ -1,0 +1,10 @@
+# Isolated analytics baseline. Never import these on web application startup.
+quantstats==0.0.81
+pandas==2.2.3
+numpy==2.2.6
+scipy==1.15.3
+matplotlib==3.10.3
+seaborn==0.13.2
+yfinance==0.2.61
+tabulate==0.9.0
+python-dateutil==2.9.0.post0
