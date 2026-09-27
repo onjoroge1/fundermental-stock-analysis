@@ -17,6 +17,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from ..financial_integrity import reviewed_debt_sources, validate_reviewed_debt
 from .xbrl_mapping import (FIELD_MAP, FLOW_FIELDS, NON_ADDITIVE_FIELDS,
                            units_for)
 
@@ -370,11 +371,10 @@ def build_periods(companyfacts: dict) -> tuple[list[dict], list[dict], list[dict
     # financial input or an additive fact.
     import hashlib
     import json
-    from pathlib import Path
     raw_provenance = companyfacts.get("_source_provenance") or {}
     source_hash = raw_provenance.get("source_content_sha256") or hashlib.sha256(json.dumps(companyfacts, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     cik = str(companyfacts.get("cik", "")).zfill(10)
-    reviewed = json.loads(Path(__file__).with_name("reviewed_balance_sheets.json").read_text())
+    reviewed = reviewed_debt_sources()
     for p in quarterly + annual:
         provenance = {}
         for f in facts:
@@ -391,10 +391,10 @@ def build_periods(companyfacts: dict) -> tuple[list[dict], list[dict], list[dict
                 }
         p["fields"]["_financial_provenance"] = provenance
         for evidence in reviewed:
-            if (evidence["cik"] == cik and evidence["period_end"] == p["period_end"]
-                    and all(p["fields"].get(k) == v and p["field_sources"].get(k) == evidence["accession_number"]
-                            for k, v in evidence["components"].items())):
-                p["fields"]["_reviewed_debt"] = evidence
+            if evidence["cik"] == cik and evidence["period_end"] == p["period_end"]:
+                total, validated = validate_reviewed_debt(evidence, p["fields"], p["field_sources"])
+                if total is not None:
+                    p["fields"]["_reviewed_debt"] = validated
     return quarterly, annual, events
 
 
