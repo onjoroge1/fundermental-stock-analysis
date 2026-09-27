@@ -49,13 +49,18 @@ def _matches_bound_fields(fields: dict, sources: dict, accession: str, expected:
 
 
 def _reviewed_total(period: dict, fields: dict, sources: dict) -> tuple[float | None, dict]:
+    return validate_reviewed_debt(_matching_review(period, fields, sources), fields, sources)
+
+
+def validate_reviewed_debt(reviewed: dict, fields: dict, sources: dict) -> tuple[float | None, dict]:
     """Validate reviewed arithmetic without treating missing normalized tags as zero.
 
+    Shared by normalization and downstream debt evidence, after the caller has
+    selected a review for the issuer/filing period.
     Normalized components must match exactly. Source-reviewed components are
     facts read directly from the pinned filing and require separate binding
     fields tied to normalized facts from the same accession.
     """
-    reviewed = _matching_review(period, fields, sources)
     accession = reviewed.get("accession_number")
     total = number(reviewed.get("total_debt"))
     if (reviewed.get("status") != "SOURCE_RECONCILED"
