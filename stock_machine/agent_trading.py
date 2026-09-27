@@ -15,6 +15,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 import psycopg
+from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from . import db
@@ -325,6 +326,63 @@ def _portfolio_state(conn, *, require_complete_prices: bool = False) -> dict:
                        "fill_cost_bps": FILL_COST_BPS}}
 
 
+def _position_history(conn, *, closed_limit: int = 50) -> dict:
+    """Owner read projection of saved fills/intents, never today's signal.
+
+    Ledger timestamps describe when a simulation was recorded. Market dates
+    describe the historical closes used to price it; they are not fill times.
+    """
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """WITH selected AS (
+                   SELECT * FROM agent_paper_positions WHERE status='OPEN'
+                   UNION ALL
+                   SELECT * FROM (
+                       SELECT * FROM agent_paper_positions WHERE status='CLOSED'
+                       ORDER BY updated_at DESC,position_id DESC LIMIT %s
+                   ) recent_closed
+               )
+               SELECT p.position_id::text,p.ticker,p.side,p.status,
+                      p.source_decision_id::text,p.source_intent_id::text,
+                      p.entry_market_date::text,p.exit_market_date::text,
+                      p.created_at AS opened_at,cf.created_at AS closed_at,
+                      p.entry_price,p.paper_units,p.entry_notional_usd,p.entry_cost_usd,
+                      p.exit_price,p.exit_cost_usd,p.realized_pnl_usd,p.exit_reason,
+                      oi.rationale AS entry_rationale,oi.risk_snapshot AS entry_risk,
+                      od.payload->>'source_thesis' AS source_thesis,
+                      od.payload->>'source_invalidation' AS source_invalidation,
+                      od.payload->>'horizon_sessions' AS horizon_sessions,
+                      od.payload->>'source_report_id' AS source_report_id,
+                      cf.intent_id::text AS exit_intent_id,
+                      ci.decision_id::text AS exit_decision_id,
+                      ci.rationale AS exit_rationale,ci.risk_snapshot AS exit_risk
+               FROM selected p
+               LEFT JOIN agent_trade_intents oi ON oi.intent_id=p.source_intent_id
+               LEFT JOIN agent_lab_decisions od ON od.decision_id=p.source_decision_id
+               LEFT JOIN LATERAL (
+                   SELECT intent_id,created_at FROM agent_paper_fills
+                   WHERE position_id=p.position_id AND fill_kind='CLOSE'
+                   ORDER BY created_at DESC,fill_id DESC LIMIT 1
+               ) cf ON p.status='CLOSED'
+               LEFT JOIN agent_trade_intents ci ON ci.intent_id=cf.intent_id
+               ORDER BY p.created_at DESC,p.position_id DESC""",
+            (closed_limit,),
+        )
+        rows = cur.fetchall()
+    for row in rows:
+        for field in ("opened_at", "closed_at"):
+            if row[field] is not None:
+                row[field] = row[field].isoformat()
+    closed = sorted((r for r in rows if r["status"] == "CLOSED"),
+                    key=lambda r: (r["closed_at"] or "", r["position_id"]), reverse=True)
+    count = conn.execute(
+        "SELECT count(*) FROM agent_paper_positions WHERE status='CLOSED'"
+    ).fetchone()[0]
+    return {"open_details": {r["position_id"]: r for r in rows if r["status"] == "OPEN"},
+            "closed_positions": closed, "closed_count": count,
+            "closed_history_limit": closed_limit, "closed_history_truncated": count > len(closed)}
+
+
 def portfolio() -> dict:
     mode = get_mode()
     if not mode["initialized"]:
@@ -333,12 +391,19 @@ def portfolio() -> dict:
                 "unrealized_pnl_usd": 0.0, "gross_exposure_usd": 0.0,
                 "gross_exposure_pct": 0.0, "open_count": 0, "positions": [],
                 "missing_prices": [], "broker_submission": False,
+                "closed_positions": [], "closed_count": 0,
+                "closed_history_limit": 50, "closed_history_truncated": False,
                 "limits": {"max_position_pct": MAX_POSITION_PCT * 100,
                            "max_gross_pct": MAX_GROSS_PCT * 100,
                            "max_open_positions": MAX_OPEN_POSITIONS,
                            "fill_cost_bps": FILL_COST_BPS}}
     with db.connect() as conn:
-        return _portfolio_state(conn)
+        state = _portfolio_state(conn)
+        history = _position_history(conn)
+        details = history.pop("open_details")
+        state["positions"] = [{**details.get(p["position_id"], {}), **p}
+                              for p in state["positions"]]
+        return {**state, **history}
 
 
 def mark_open_positions() -> dict:

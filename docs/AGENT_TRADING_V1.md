@@ -80,6 +80,25 @@ Every open/close fill records:
 
 ## Storage and release simplicity
 
+### Owner trade history
+
+The admin portfolio displays all open equity positions and the latest 50 closed
+positions, with an explicit count when older history is omitted. The existing
+owner-authenticated dashboard reads this history; no migration is required.
+
+- Opened time is the position's recorded `created_at`; closed time is the saved
+  closing fill's `created_at`. The UI labels these in America/New_York time.
+- Entry and exit market dates are separate: this simulator prices from stored
+  completed-session closes, which may predate the actual recording time.
+- Opening and closing reasons, selector state, costs, and decision IDs come from
+  their saved intents/fills. The source thesis comes from the opening decision,
+  not the latest report or latest signal for that ticker.
+- Units, prices, notional, and P&L are shown. Closed P&L includes entry and exit
+  costs; open P&L includes entry cost only. Missing marks or legacy metadata are
+  displayed as unavailable, not invented dates, reasons, or zero returns.
+- A recorded research horizon is context, not a promised or scheduled closing
+  date. Open trades remain labelled "Still open" until a closing fill exists.
+
 Agent Trading v1 does **not** add an Alembic migration. The isolated paper tables are initialized idempotently only by an authenticated owner write that first switches to PAPER (or by a PAPER write after that). Normal reads never create schema.
 
 This keeps the core application migration head unchanged and avoids a separate trading migration/release workflow.
