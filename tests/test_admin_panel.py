@@ -168,3 +168,36 @@ def test_intelligence_summary_is_read_only_owner_projection(monkeypatch):
     assert aapl["bandit_selected"]=="LONG_STOCK"
     assert aapl["latest_reward"]==1.25
     assert value["broker_submission"] is False
+
+
+def test_intelligence_summary_surfaces_latest_v2_failure(monkeypatch):
+    from stock_machine.admin_panel import operations
+    from stock_machine import research_store
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+
+    monkeypatch.setattr(store, "connect", lambda: Conn())
+
+    def latest(conn, kind, ticker=None):
+        if ticker != "AAPL":
+            return None
+        if kind == "AGENT_INTELLIGENCE_V2":
+            return {"recorded_at": "2026-09-27T19:00:00+00:00", "payload": {"status": "OK"}}
+        if kind == "AGENT_INTELLIGENCE_V2_FAILURE":
+            return {"recorded_at": "2026-09-27T20:00:00+00:00", "payload": {
+                "status": "UNAVAILABLE", "mode": "SHADOW", "decision_id": "d2",
+                "reason_code": "INTELLIGENCE_PRICE_DATE_MISMATCH",
+            }}
+        return None
+
+    monkeypatch.setattr(research_store, "latest", latest)
+    value = operations.intelligence_summary()
+    aapl = value["rows"][0]
+    assert aapl == {
+        "ticker": "AAPL", "status": "UNAVAILABLE", "mode": "SHADOW",
+        "decision_id": "d2", "reason_code": "INTELLIGENCE_PRICE_DATE_MISMATCH",
+        "recorded_at": "2026-09-27T20:00:00+00:00",
+    }
+    assert [row["status"] for row in value["rows"][1:]] == ["NOT_RUN"] * 4
