@@ -83,6 +83,45 @@ def test_busy_cycle_never_journals_or_trades(monkeypatch):
     assert result["trade_execution"] is False
 
 
+def test_v2_failure_is_persisted_and_paper_handoff_fails_closed(monkeypatch):
+    import stock_machine.research_cycle as research
+    from stock_machine.agents import journal
+    from stock_machine import agent_trading, db, research_store
+    from stock_machine.agent_intelligence import orchestrator
+
+    saved = []
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+
+    monkeypatch.setattr(research, "run", lambda *a, **k: {"status": "COMPLETED"})
+    monkeypatch.setattr(journal, "capture", lambda *a, **k: {
+        "replayed": False, "decision": _decision()
+    })
+    monkeypatch.setattr(agent_trading, "get_mode", lambda: {"mode": "PAPER"})
+    monkeypatch.setattr(orchestrator, "evaluate_decision",
+                        lambda *a, **k: (_ for _ in ()).throw(ValueError("INTELLIGENCE_PRICE_DATE_MISMATCH")))
+    monkeypatch.setattr(db, "connect", Conn)
+    monkeypatch.setattr(research_store, "save", lambda conn, kind, key, payload, ticker: (
+        saved.append((kind, key, payload, ticker)) or {"payload": payload}
+    ))
+    instructions = []
+    monkeypatch.setattr(agent_trading, "process_decision", lambda decision, paper_instruction=None: (
+        instructions.append(paper_instruction)
+        or {"status": "NO_ACTION", "execution_mode": "PAPER", "broker_submission": False}
+    ))
+    monkeypatch.setattr(agent_trading, "mark_open_positions", lambda: {"status": "OK"})
+
+    result = cycle.run("AAPL", "auto:test-v2-failure")
+
+    assert result["intelligence_v2"]["reason_code"] == "INTELLIGENCE_PRICE_DATE_MISMATCH"
+    assert saved[0][0] == "AGENT_INTELLIGENCE_V2_FAILURE"
+    assert saved[0][3] == "AAPL"
+    assert instructions[0]["desired_side"] == "FLAT"
+    assert instructions[0]["blocker"] == "INTELLIGENCE_V2_UNAVAILABLE"
+
+
 def test_agent_cycle_rejects_any_research_execution_boundary_change(monkeypatch):
     import stock_machine.research_cycle as research
     from stock_machine.agents import journal

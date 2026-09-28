@@ -67,7 +67,19 @@ def intelligence_summary():
     with store.connect() as conn:
         for ticker in PILOT:
             record = research_store.latest(conn, "AGENT_INTELLIGENCE_V2", ticker)
+            failure = research_store.latest(conn, "AGENT_INTELLIGENCE_V2_FAILURE", ticker)
             reward = research_store.latest(conn, "AGENT_REWARD_V2", ticker)
+            if failure and (not record or failure.get("recorded_at", "") > record.get("recorded_at", "")):
+                failed = failure.get("payload") or {}
+                rows.append({
+                    "ticker": ticker,
+                    "status": "UNAVAILABLE",
+                    "mode": failed.get("mode"),
+                    "decision_id": failed.get("decision_id"),
+                    "reason_code": failed.get("reason_code") or "INTELLIGENCE_EVALUATION_FAILED",
+                    "recorded_at": failure.get("recorded_at"),
+                })
+                continue
             if not record:
                 rows.append({"ticker": ticker, "status": "NOT_RUN"})
                 continue
@@ -81,7 +93,7 @@ def intelligence_summary():
             reward_payload = (reward or {}).get("payload") or {}
             rows.append({
                 "ticker": ticker,
-                "status": "OK",
+                "status": value.get("status") or "OK",
                 "mode": value.get("mode"),
                 "decision_id": value.get("decision_id"),
                 "as_of": state.get("as_of"),

@@ -1,90 +1,91 @@
-"""Paper/shadow strategy router across no-trade, stock and defined-risk options."""
+"""Explicit eligibility contract shared by routing and exploration (no orders)."""
 from __future__ import annotations
+from math import isfinite
 
-BULLISH_OPTIONS={"bull_call_debit_spread","bull_put_credit_spread","cash_secured_put","long_call"}
-BEARISH_OPTIONS={"bear_put_debit_spread","bear_call_credit_spread","long_put"}
-NEUTRAL_OPTIONS={"iron_condor"}
-
-
-def _option_payload(candidate):
-    if hasattr(candidate,"model_dump"):
-        return candidate.model_dump(mode="json")
-    return dict(candidate)
+BULLISH_OPTIONS = {"bull_call_debit_spread", "bull_put_credit_spread", "cash_secured_put", "long_call"}
+BEARISH_OPTIONS = {"bear_put_debit_spread", "bear_call_credit_spread", "long_put"}
+NEUTRAL_OPTIONS = {"iron_condor"}
 
 
-def _option_utility(row: dict, max_risk_usd: float) -> tuple[float,list[str]]:
-    reasons=[]
-    payoff=row.get("payoff") or {}
-    liquidity=row.get("liquidity") or {}
-    ranking=row.get("ranking") or {}
-    max_loss=payoff.get("max_loss")
-    defined=bool(payoff.get("defined_risk"))
-    if not defined:
-        reasons.append("OPTION_RISK_NOT_DEFINED")
-    if max_loss is None:
-        reasons.append("OPTION_MAX_LOSS_MISSING")
-    elif float(max_loss)>max_risk_usd:
-        reasons.append("OPTION_MAX_LOSS_EXCEEDS_BUDGET")
-    if not liquidity.get("passed",False):
-        reasons.append("OPTION_LIQUIDITY_GATE_FAILED")
-    if reasons:
-        return 0.0,reasons
-    risk_eff=1.0-min(1.0,float(max_loss)/max_risk_usd) if max_risk_usd>0 else 0.0
-    base=float(ranking.get("total") or 0)/100.0
-    liq=float(liquidity.get("score") or 0)
-    return round(.50*base+.30*risk_eff+.20*liq,4),[]
+def _number(value, low=None, high=None):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
+        return None
+    value = float(value)
+    if (low is not None and value < low) or (high is not None and value > high):
+        return None
+    return value
 
 
 def route(state: dict, option_candidates: list | None = None, *,
-          max_risk_usd: float = 1000.0,
-          stock_notional_usd: float = 5000.0) -> dict:
-    direction=state.get("direction","NEUTRAL")
-    bias=abs(float(state.get("bias_score") or 0))
-    candidates=[{"action":"NO_TRADE","instrument":"NONE","utility":round(max(.25,1.0-bias),4),
-                 "max_risk_usd":0.0,"reasons":["always-available capital-preservation action"]}]
-    if state.get("paper_eligible"):
-        if direction=="BULLISH":
-            candidates.append({"action":"LONG_STOCK","instrument":"STOCK",
-                "utility":round(.35+.35*bias,4),"max_risk_usd":stock_notional_usd,
-                "reasons":["directional stock expression; downside is not contractually capped"]})
-        elif direction=="BEARISH":
-            candidates.append({"action":"SHORT_STOCK","instrument":"STOCK",
-                "utility":round(.25+.30*bias,4),"max_risk_usd":None,
-                "reasons":["short-stock loss is not contractually bounded; penalized versus defined-risk options"]})
-
-    allowed=(BULLISH_OPTIONS if direction=="BULLISH" else
-             BEARISH_OPTIONS if direction=="BEARISH" else NEUTRAL_OPTIONS)
+          max_risk_usd: float = 1000.0, stock_notional_usd: float = 5000.0) -> dict:
+    if not _number(max_risk_usd, 0) or not _number(stock_notional_usd, 0):
+        raise ValueError("INVALID_ROUTER_BUDGET")
+    direction = state.get("direction", "NEUTRAL")
+    bias = _number(state.get("bias_score"), -1, 1)
+    state_blockers = list(state.get("blockers") or [])
+    if bias is None:
+        state_blockers.append("INVALID_BIAS")
+        bias = 0.0
+    if state.get("paper_eligible") is not True:
+        state_blockers.append("STATE_NOT_ELIGIBLE")
+    state_blockers = sorted(set(state_blockers))
+    candidates = [{"action": "NO_TRADE", "instrument": "NONE", "utility": round(max(.25, 1-abs(bias)), 4),
+                   "max_risk_usd": 0.0, "eligible": True, "blockers": [], "warnings": [],
+                   "reasons": ["Capital preservation is always an available action."]}]
+    if direction in {"BULLISH", "BEARISH"}:
+        long = direction == "BULLISH"
+        candidates.append({"action": "LONG_STOCK" if long else "SHORT_STOCK", "instrument": "STOCK",
+                           "utility": round((.35 + .35*abs(bias)) if long else (.25 + .30*abs(bias)), 4),
+                           "max_risk_usd": stock_notional_usd if long else None,
+                           "notional_usd": stock_notional_usd, "eligible": not state_blockers,
+                           "blockers": state_blockers, "warnings": [] if long else ["UNBOUNDED_SHORT_LOSS"],
+                           "reasons": ["Directional stock expression; no guaranteed stop-loss cap."]})
+    allowed = BULLISH_OPTIONS if direction == "BULLISH" else BEARISH_OPTIONS if direction == "BEARISH" else NEUTRAL_OPTIONS
     for candidate in option_candidates or []:
-        row=_option_payload(candidate)
-        strategy=str(row.get("strategy_type") or "")
+        row = candidate.model_dump(mode="json") if hasattr(candidate, "model_dump") else dict(candidate)
+        strategy = str(row.get("strategy_type") or "")
         if strategy not in allowed:
             continue
-        utility,reasons=_option_utility(row,max_risk_usd)
-        candidates.append({"action":"OPTION","instrument":"OPTION","strategy_type":strategy,
-                           "candidate_id":row.get("candidate_id"),"utility":utility,
-                           "max_risk_usd":(row.get("payoff") or {}).get("max_loss"),
-                           "reasons":reasons,
-                           "eligible":not reasons})
-    eligible=[c for c in candidates if not c.get("reasons") or c["action"]=="NO_TRADE"
-              or c.get("eligible",c["instrument"]=="STOCK")]
-    if state.get("blockers"):
-        selected=candidates[0]
-        selection_reason="state blockers force NO_TRADE"
-    else:
-        selected=max(eligible,key=lambda c:(c["utility"],c["action"]!="NO_TRADE"))
-        selection_reason="highest transparent paper utility among eligible structures"
-    return {
-        "schema_version":"strategy-router.v1",
-        "mode":"PAPER_SHADOW_ONLY",
-        "direction":direction,
-        "bias_score":state.get("bias_score"),
-        "selected":selected,
-        "candidates":sorted(candidates,key=lambda c:-c["utility"]),
-        "selection_reason":selection_reason,
-        "broker_submission":False,
-        "limitations":[
-            "utility is a fixed comparison convention, not expected return or probability of profit",
-            "defined-risk options are preferred only when current candidate risk/liquidity gates pass",
-            "no option or stock order is created by the router",
-        ],
-    }
+        payoff, liquidity, ranking = (row.get(k) or {} for k in ("payoff", "liquidity", "ranking"))
+        loss = _number(payoff.get("max_loss"), 0)
+        liq, rank = _number(liquidity.get("score"), 0, 1), _number(ranking.get("total"), 0, 100)
+        blockers = list(state_blockers)
+        if payoff.get("defined_risk") is not True:
+            blockers.append("OPTION_RISK_NOT_DEFINED")
+        if loss is None or loss <= 0:
+            blockers.append("OPTION_MAX_LOSS_INVALID")
+        elif loss > max_risk_usd:
+            blockers.append("OPTION_MAX_LOSS_EXCEEDS_BUDGET")
+        if liquidity.get("passed") is not True or liq is None:
+            blockers.append("OPTION_LIQUIDITY_GATE_FAILED")
+        if rank is None or not row.get("candidate_id"):
+            blockers.append("OPTION_ID_OR_RANK_INVALID")
+        utility = 0.0 if blockers else round(.5*rank/100 + .3*(1-loss/max_risk_usd) + .2*liq, 4)
+        candidates.append({"action": "OPTION", "instrument": "OPTION", "strategy_type": strategy,
+                           "candidate_id": row.get("candidate_id"), "utility": utility, "max_risk_usd": loss,
+                           "eligible": not blockers, "blockers": sorted(set(blockers)),
+                           "warnings": list(row.get("warnings") or []), "reasons": ["Defined-risk option comparison."]})
+    selected = max((c for c in candidates if c["eligible"]), key=lambda c: (c["utility"], c["action"] != "NO_TRADE"))
+    return {"schema_version": "strategy-router.v2", "mode": "PAPER_SHADOW_ONLY", "direction": direction,
+            "bias_score": bias, "selected": selected, "candidates": sorted(candidates, key=lambda c: -c["utility"]),
+            "state_blockers": state_blockers, "selection_reason": "Eligible comparison only; explanations never reject candidates.",
+            "broker_submission": False,
+            "limitations": ["Heuristic utility is not expected return or probability of profit.",
+                            "Stock notional and option maximum loss are not identical risk measures."]}
+
+
+def eligible_actions(routed: dict) -> dict[str, dict]:
+    """One mask for the router and bandit; best candidate per strategy, no overwrites."""
+    result = {}
+    for candidate in routed.get("candidates") or []:
+        if candidate.get("eligible") is not True or candidate.get("blockers"):
+            continue
+        if routed.get("state_blockers") and candidate.get("action") != "NO_TRADE":
+            continue
+        key = ("OPTION:" + candidate["strategy_type"] if candidate.get("instrument") == "OPTION"
+               else candidate["action"])
+        if key not in result or candidate["utility"] > result[key]["utility"]:
+            result[key] = candidate
+    if "NO_TRADE" not in result:
+        raise ValueError("NO_TRADE_ACTION_MISSING")
+    return result
