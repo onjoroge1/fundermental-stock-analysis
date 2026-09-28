@@ -107,7 +107,7 @@ def intelligence_summary():
                     success = _newest(success, run_record)
             reward = research_store.latest(conn, "AGENT_REWARD_V2", ticker)
             latest = _newest(success, failure)
-            if latest is failure:
+            if failure and latest is failure:
                 failed = failure.get("payload") or {}
                 rows.append({
                     "ticker": ticker,
