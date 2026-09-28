@@ -59,17 +59,55 @@ def connection_summary():
                      "note": "Agent Trading v1 has no broker order-submission capability."}}
 
 
+def _latest_run_intelligence(conn):
+    """Recover v2 outcomes already committed with completed pilot items."""
+    try:
+        rows = conn.execute(
+            """SELECT DISTINCT ON (ticker) ticker,result,updated_at::text
+               FROM operator_pilot_items
+               WHERE status='COMPLETED'
+                 AND jsonb_typeof(result->'intelligence_v2')='object'
+               ORDER BY ticker,updated_at DESC"""
+        ).fetchall()
+    except (AttributeError, TypeError):
+        # Lightweight test/read adapters may expose only research_store reads.
+        return {}
+    return {
+        ticker: {
+            "payload": result["intelligence_v2"],
+            "recorded_at": updated_at,
+            "source": "PILOT_RUN_RESULT",
+        }
+        for ticker, result, updated_at in rows
+        if isinstance(result, dict) and isinstance(result.get("intelligence_v2"), dict)
+    }
+
+
+def _newest(*records):
+    values = [record for record in records if record]
+    return max(values, key=lambda record: record.get("recorded_at") or "") if values else None
+
+
 def intelligence_summary():
     """Owner-facing latest Agent Intelligence v2 state for the pilot."""
     from .. import research_store
     from ..agents.contracts import PILOT
     rows = []
     with store.connect() as conn:
+        run_records = _latest_run_intelligence(conn)
         for ticker in PILOT:
-            record = research_store.latest(conn, "AGENT_INTELLIGENCE_V2", ticker)
+            success = research_store.latest(conn, "AGENT_INTELLIGENCE_V2", ticker)
             failure = research_store.latest(conn, "AGENT_INTELLIGENCE_V2_FAILURE", ticker)
+            run_record = run_records.get(ticker)
+            if run_record:
+                run_status = (run_record.get("payload") or {}).get("status")
+                if run_status == "UNAVAILABLE":
+                    failure = _newest(failure, run_record)
+                else:
+                    success = _newest(success, run_record)
             reward = research_store.latest(conn, "AGENT_REWARD_V2", ticker)
-            if failure and (not record or failure.get("recorded_at", "") > record.get("recorded_at", "")):
+            latest = _newest(success, failure)
+            if failure and latest is failure:
                 failed = failure.get("payload") or {}
                 rows.append({
                     "ticker": ticker,
@@ -80,10 +118,10 @@ def intelligence_summary():
                     "recorded_at": failure.get("recorded_at"),
                 })
                 continue
-            if not record:
+            if not success:
                 rows.append({"ticker": ticker, "status": "NOT_RUN"})
                 continue
-            value = record.get("payload") or {}
+            value = success.get("payload") or {}
             state = value.get("state") or {}
             technical = state.get("technical") or {}
             news = state.get("news") or {}
@@ -116,10 +154,11 @@ def intelligence_summary():
                 "final_selected_instrument": selected.get("instrument"),
                 "latest_reward": ((reward_payload.get("reward") or {}).get("reward")
                                   if reward_payload else None),
+                "recorded_at": success.get("recorded_at"),
             })
     return {
         "schema_version": "agent-intelligence-admin.v1",
         "rows": rows,
         "broker_submission": False,
-        "note": "Research mode is SHADOW. PAPER mode can simulate stock instructions only; option selections remain proposals until the options paper executor exists.",
+        "note": "Latest v2 outcomes are reconciled from the evidence index and durable pilot-run results. Research mode is SHADOW; PAPER can simulate stock instructions only.",
     }
