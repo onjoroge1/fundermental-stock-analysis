@@ -201,3 +201,61 @@ def test_intelligence_summary_surfaces_latest_v2_failure(monkeypatch):
         "recorded_at": "2026-09-27T20:00:00+00:00",
     }
     assert [row["status"] for row in value["rows"][1:]] == ["NOT_RUN"] * 4
+
+
+@pytest.mark.parametrize(
+    ("intelligence", "expected_status", "expected_choice"),
+    [
+        (
+            {
+                "status": "OK", "mode": "SHADOW", "decision_id": "run-success",
+                "state": {
+                    "as_of": "2026-09-25", "direction": "BULLISH", "bias_score": 0.31,
+                    "technical": {"classification": {"trend": "UP", "volatility_regime": "NORMAL"}},
+                    "news": {"features": {"signed_event_pressure": 0.1, "event_counts": {}}},
+                },
+                "router": {"selected": {"action": "LONG_STOCK", "instrument": "STOCK"}},
+                "bandit": {"selected": {"action": "LONG_STOCK", "ucb": 0.5, "observations": 0}},
+                "selected": {"action": "LONG_STOCK", "instrument": "STOCK"},
+            },
+            "OK",
+            "LONG_STOCK",
+        ),
+        (
+            {
+                "status": "UNAVAILABLE", "mode": "SHADOW", "decision_id": "run-failure",
+                "reason_code": "INTELLIGENCE_PRICE_DATE_MISMATCH",
+            },
+            "UNAVAILABLE",
+            None,
+        ),
+    ],
+)
+def test_intelligence_summary_recovers_completed_pilot_result(
+        monkeypatch, intelligence, expected_status, expected_choice):
+    from stock_machine.admin_panel import operations
+    from stock_machine import research_store
+
+    class Result:
+        def fetchall(self):
+            return [(
+                "AAPL",
+                {"intelligence_v2": intelligence},
+                "2026-09-28T11:30:24+00:00",
+            )]
+
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def execute(self, *args): return Result()
+
+    monkeypatch.setattr(store, "connect", lambda: Conn())
+    monkeypatch.setattr(research_store, "latest", lambda *args, **kwargs: None)
+
+    value = operations.intelligence_summary()
+    aapl = value["rows"][0]
+    assert aapl["status"] == expected_status
+    assert aapl.get("bandit_selected") == expected_choice
+    assert aapl["decision_id"] == intelligence["decision_id"]
+    assert aapl["recorded_at"] == "2026-09-28T11:30:24+00:00"
+    assert [row["status"] for row in value["rows"][1:]] == ["NOT_RUN"] * 4
