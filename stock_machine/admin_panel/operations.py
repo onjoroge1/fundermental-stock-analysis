@@ -116,7 +116,6 @@ def intelligence_summary():
                     "decision_id": failed.get("decision_id"),
                     "reason_code": failed.get("reason_code") or "INTELLIGENCE_EVALUATION_FAILED",
                     "recorded_at": failure.get("recorded_at"),
-                    "source": failure.get("source") or "EVIDENCE_INDEX",
                 })
                 continue
             if not success:
@@ -156,7 +155,6 @@ def intelligence_summary():
                 "latest_reward": ((reward_payload.get("reward") or {}).get("reward")
                                   if reward_payload else None),
                 "recorded_at": success.get("recorded_at"),
-                "source": success.get("source") or "EVIDENCE_INDEX",
             })
     return {
         "schema_version": "agent-intelligence-admin.v1",
