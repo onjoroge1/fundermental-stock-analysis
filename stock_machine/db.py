@@ -15,7 +15,7 @@ from psycopg.types.json import Jsonb
 
 from .config import DATABASE_URL
 
-REQUIRED_SCHEMA_VERSION = "0022_admin_panel"
+REQUIRED_SCHEMA_VERSION = "0023_agent_intelligence_evidence"
 
 
 def connect() -> psycopg.Connection:

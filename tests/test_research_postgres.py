@@ -46,6 +46,29 @@ def test_evidence_append_only_and_conflicting_key_rolls_back(pg):
         assert research_store.get(conn, "EXPERIMENT_PROTOCOL", "test")["payload"] == {"frozen": True}
 
 
+def test_agent_intelligence_evidence_kinds_are_allowed_by_real_schema(pg):
+    kinds = (
+        "AGENT_INTELLIGENCE_V2",
+        "AGENT_INTELLIGENCE_V2_FAILURE",
+        "AGENT_BANDIT_STATE_V1",
+        "AGENT_REWARD_V2",
+        "AGENT_OPTION_PAPER_V1",
+        "AGENT_OPTION_PAPER_OUTCOME_V1",
+    )
+    for kind in kinds:
+        with pg() as conn:
+            saved = research_store.save(
+                conn, kind, "schema-contract:" + kind, {"kind": kind}, "VZ"
+            )
+        assert saved["payload"] == {"kind": kind}
+    with pg() as conn:
+        stored = {
+            kind: research_store.get(conn, kind, "schema-contract:" + kind)["payload"]
+            for kind in kinds
+        }
+    assert stored == {kind: {"kind": kind} for kind in kinds}
+
+
 def test_cycle_report_index_evidence_commit_together_and_replay(pg, monkeypatch, source_bundle):
     from stock_machine import research_contract, research_cycle, control_plane
     monkeypatch.setattr(research_contract, "read_inputs", lambda t: (source_bundle, None, None))

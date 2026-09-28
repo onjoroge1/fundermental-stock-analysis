@@ -1,0 +1,75 @@
+name: Agent Intelligence Migration 0023
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - migrations/versions/0023_agent_intelligence_evidence.py
+      - .github/workflows/agent-intelligence-migrate-0023.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-intelligence-migration-0023
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: github.ref == 'refs/heads/main'
+    environment: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install application
+        run: python -m pip install -e .
+      - name: Apply migration 0023 and verify Agent Intelligence evidence
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from alembic import command
+          from alembic.config import Config
+
+          dsn = os.environ.get('DATABASE_URL')
+          if not dsn:
+              raise SystemExit('DATABASE_URL_NOT_CONFIGURED')
+
+          with psycopg.connect(dsn, connect_timeout=20) as conn:
+              before = {row[0] for row in conn.execute('SELECT version_num FROM alembic_version')}
+          expected = {'0022_admin_panel'}
+          target = {'0023_agent_intelligence_evidence'}
+          if before not in (expected, target):
+              raise SystemExit('UNEXPECTED_DATABASE_REVISION')
+
+          if before != target:
+              command.upgrade(Config('alembic.ini'), '0023_agent_intelligence_evidence')
+
+          required = {
+              'AGENT_INTELLIGENCE_V2', 'AGENT_INTELLIGENCE_V2_FAILURE',
+              'AGENT_BANDIT_STATE_V1', 'AGENT_REWARD_V2',
+              'AGENT_OPTION_PAPER_V1', 'AGENT_OPTION_PAPER_OUTCOME_V1',
+          }
+          with psycopg.connect(dsn, connect_timeout=20) as conn:
+              after = {row[0] for row in conn.execute('SELECT version_num FROM alembic_version')}
+              if after != target:
+                  raise SystemExit('SCHEMA_NOT_AT_0023')
+              definition = conn.execute(
+                  "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                  "WHERE conrelid='research_evidence_records'::regclass "
+                  "AND conname='research_evidence_records_kind_check'"
+              ).fetchone()
+              if not definition or not all(kind in definition[0] for kind in required):
+                  raise SystemExit('AGENT_INTELLIGENCE_EVIDENCE_KINDS_MISSING')
+          print({'status': 'VERIFIED', 'before': sorted(before),
+                 'after': '0023_agent_intelligence_evidence',
+                 'agent_kinds': sorted(required)})
+          PY
