@@ -53,11 +53,21 @@ def select(state: dict, actions: list[str], arm_states: dict[str,dict] | None=No
         arm=arm_states.get(action) or empty_arm(len(x))
         est=estimate(arm,x,alpha)
         scored.append({"action":action,**est,
+                       "exploration_bonus":alpha*est["uncertainty"],
                        "observations":int(arm.get("observations") or 0)})
     selected=max(scored,key=lambda r:(r["ucb"],-r["observations"],r["action"]))
+    exploitation=max(scored,key=lambda r:(r["mean"],r["action"]))
+    if selected["observations"] == 0:
+        choice_driver="EXPLORE_UNTRIED"
+    elif selected["action"] != exploitation["action"]:
+        choice_driver="EXPLORE_UNCERTAINTY"
+    else:
+        choice_driver="EXPLOIT_ESTIMATE"
     return {"schema_version":"contextual-bandit.v1","mode":mode,
             "alpha":alpha,"features":dict(zip(FEATURE_NAMES,x)),
             "selected":selected,"arms":scored,
+            "choice_driver":choice_driver,
+            "exploitation_leader":exploitation["action"],
             "exploration_enabled":True,"broker_submission":False}
 
 

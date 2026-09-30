@@ -153,20 +153,31 @@ def test_intelligence_summary_is_read_only_owner_projection(monkeypatch):
                          "technical":{"classification":{"trend":"UP","volatility_regime":"NORMAL"}},
                          "news":{"features":{"signed_event_pressure":.15,"event_counts":{"GUIDANCE_RAISE":1}}},
                          "option_surface":{"features":{"atm_iv":.3}}},
-                "router":{"selected":{"action":"LONG_STOCK","instrument":"STOCK"}},
-                "bandit":{"selected":{"action":"LONG_STOCK","ucb":.71,"observations":2}},
+                "router":{"selected":{"action":"LONG_STOCK","instrument":"STOCK"},
+                          "candidates":[{"action":"NO_TRADE","eligible":True,"blockers":[]},
+                                        {"action":"LONG_STOCK","eligible":True,"blockers":[]}]},
+                "bandit":{"alpha":.35,"selected":{"action":"LONG_STOCK","mean":.5,
+                           "uncertainty":.6,"ucb":.71,"observations":2}},
                 "selected":{"action":"LONG_STOCK","instrument":"STOCK"},
             }}
         if kind == "AGENT_REWARD_V2":
             return {"payload":{"reward":{"reward":1.25}}}
         return None
     monkeypatch.setattr(research_store, "latest", latest)
+    monkeypatch.setattr(
+        research_store, "get",
+        lambda conn, kind, key: ({"payload":{"reward":{"reward":1.25}}}
+                                if kind == "AGENT_REWARD_V2" and key == "d1" else None),
+    )
     value=operations.intelligence_summary()
     aapl=value["rows"][0]
     assert aapl["ticker"]=="AAPL"
     assert aapl["direction"]=="BULLISH"
     assert aapl["bandit_selected"]=="LONG_STOCK"
+    assert aapl["bandit_exploration_bonus"]==pytest.approx(.21)
+    assert aapl["eligible_actions"]==["NO_TRADE","LONG_STOCK"]
     assert aapl["latest_reward"]==1.25
+    assert aapl["reward_status"]=="SCORED"
     assert value["broker_submission"] is False
 
 
@@ -193,6 +204,7 @@ def test_intelligence_summary_surfaces_latest_v2_failure(monkeypatch):
         return None
 
     monkeypatch.setattr(research_store, "latest", latest)
+    monkeypatch.setattr(research_store, "get", lambda *args, **kwargs: None)
     value = operations.intelligence_summary()
     aapl = value["rows"][0]
     assert aapl == {
@@ -251,6 +263,7 @@ def test_intelligence_summary_recovers_completed_pilot_result(
 
     monkeypatch.setattr(store, "connect", lambda: Conn())
     monkeypatch.setattr(research_store, "latest", lambda *args, **kwargs: None)
+    monkeypatch.setattr(research_store, "get", lambda *args, **kwargs: None)
 
     value = operations.intelligence_summary()
     aapl = value["rows"][0]

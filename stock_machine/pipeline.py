@@ -31,7 +31,8 @@ def _fetch_prices(ticker: str) -> tuple[list[dict], list[dict], str, list[dict]]
     mixed or silently downgraded.
 
     PRICE_SOURCE=tws forces the broker (raising if unavailable), =yahoo forces
-    Yahoo, =auto (default) tries the broker then falls back.
+    Yahoo, =yahoo_fmp uses FMP only after Yahoo fails, and =auto (default)
+    tries the broker, Yahoo, then FMP when configured.
     """
     events: list[dict] = []
     if PRICE_SOURCE in ("tws", "auto"):
@@ -49,8 +50,23 @@ def _fetch_prices(ticker: str) -> tuple[list[dict], list[dict], str, list[dict]]
                 "detail": (f"IBKR TWS unavailable ({type(exc).__name__}: "
                            f"{exc}); fell back to Yahoo for the full series"),
             })
-    rows, actions = price_ing.fetch_daily(ticker)
-    return _completed_prices(rows), actions, "yahoo", events
+    try:
+        rows, actions = price_ing.fetch_daily(ticker)
+        return _completed_prices(rows), actions, "yahoo", events
+    except Exception as exc:
+        if PRICE_SOURCE == "yahoo":
+            raise
+        if PRICE_SOURCE not in ("auto", "yahoo_fmp"):
+            raise ValueError(f"unsupported PRICE_SOURCE {PRICE_SOURCE!r}") from exc
+        events.append({
+            "event": "PRICE_SOURCE_FALLBACK",
+            "dataset": "prices",
+            "detail": (f"Yahoo unavailable ({type(exc).__name__}: {exc}); "
+                       "fell back to FMP for the full series"),
+        })
+        from .ingestion import prices_fmp
+        rows, actions = prices_fmp.fetch_daily(ticker)
+        return _completed_prices(rows), actions, "fmp", events
 
 
 def run(ticker: str) -> dict:
