@@ -77,3 +77,32 @@ def test_yahoo_forced_skips_the_broker_entirely(monkeypatch):
                         lambda t: ([{"date": "2026-01-02", "close": 1.0}], []))
     _, _, source, events = pipeline._fetch_prices("AAPL")
     assert source == "yahoo" and events == []
+
+
+def test_cloud_source_falls_back_from_yahoo_to_fmp(monkeypatch):
+    import stock_machine.pipeline as pipeline
+
+    monkeypatch.setattr(pipeline, "PRICE_SOURCE", "yahoo_fmp")
+    monkeypatch.setattr(
+        pipeline.price_ing, "fetch_daily",
+        lambda ticker: (_ for _ in ()).throw(RuntimeError("YAHOO_HTTP_429")),
+    )
+    monkeypatch.setattr(
+        "stock_machine.ingestion.prices_fmp.fetch_daily",
+        lambda ticker: ([{"date": "2026-01-02", "close": 1.0, "adj_close": 1.0}], []),
+    )
+    rows, actions, source, events = pipeline._fetch_prices("AAPL")
+    assert rows and actions == [] and source == "fmp"
+    assert any("Yahoo unavailable" in event["detail"] for event in events)
+
+
+def test_forced_yahoo_does_not_silently_use_fmp(monkeypatch):
+    import stock_machine.pipeline as pipeline
+
+    monkeypatch.setattr(pipeline, "PRICE_SOURCE", "yahoo")
+    monkeypatch.setattr(
+        pipeline.price_ing, "fetch_daily",
+        lambda ticker: (_ for _ in ()).throw(RuntimeError("YAHOO_HTTP_429")),
+    )
+    with pytest.raises(RuntimeError, match="YAHOO_HTTP_429"):
+        pipeline._fetch_prices("AAPL")

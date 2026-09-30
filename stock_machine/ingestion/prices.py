@@ -7,12 +7,42 @@ and delisted names."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import time
 
 import httpx
 
 from ..provenance import save_raw
 
 _UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
+
+
+class YahooPriceError(RuntimeError):
+    """A provider-safe failure suitable for workflow diagnostics."""
+
+
+def _payload(symbol: str) -> tuple[dict, str]:
+    errors = []
+    for host in ("query1.finance.yahoo.com", "query2.finance.yahoo.com"):
+        url = (f"https://{host}/v8/finance/chart/{symbol}"
+               f"?range=15y&interval=1d&events=div%2Csplits")
+        for attempt in range(2):
+            try:
+                resp = httpx.get(url, timeout=60, headers=_UA, follow_redirects=True)
+                if resp.status_code != 200:
+                    raise YahooPriceError(f"YAHOO_HTTP_{resp.status_code}")
+                payload = resp.json()
+                chart = payload.get("chart") if isinstance(payload, dict) else None
+                result = (chart or {}).get("result") or []
+                if not result:
+                    code = ((chart or {}).get("error") or {}).get("code") or "EMPTY_RESULT"
+                    raise YahooPriceError(f"YAHOO_{str(code).upper()}")
+                return payload, url
+            except (httpx.HTTPError, ValueError, YahooPriceError) as exc:
+                detail = str(exc) if isinstance(exc, YahooPriceError) else type(exc).__name__.upper()
+                errors.append(f"{host.split('.')[0]}:{detail}")
+                if attempt == 0:
+                    time.sleep(0.5)
+    raise YahooPriceError("YAHOO_ALL_ENDPOINTS_FAILED[" + ",".join(errors) + "]")
 
 
 def fetch_daily(ticker: str) -> tuple[list[dict], list[dict]]:
@@ -22,11 +52,7 @@ def fetch_daily(ticker: str) -> tuple[list[dict], list[dict]]:
     split-adjusted, without dividend adjustments). corporate_actions: {date, action_type, value} where value is
     the dividend amount or the split ratio (e.g. 4.0 for 4:1)."""
     symbol = ticker.upper()
-    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-           f"?range=15y&interval=1d&events=div%2Csplits")
-    resp = httpx.get(url, timeout=60, headers=_UA, follow_redirects=True)
-    resp.raise_for_status()
-    payload = resp.json()
+    payload, url = _payload(symbol)
     save_raw("prices", [symbol, "yahoo_chart_daily"], payload, url)
 
     result = payload["chart"]["result"][0]

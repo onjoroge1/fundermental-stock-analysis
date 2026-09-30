@@ -21,7 +21,7 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
-      PRICE_SOURCE: yahoo
+      PRICE_SOURCE: yahoo_fmp
       RESEARCH_ARCHIVE_RAW: 'true'
     steps:
       - uses: actions/checkout@v4
@@ -42,11 +42,25 @@ jobs:
       - name: Ingest missing configured universe names
         run: python scripts/sync_universe.py
       - name: Refresh benchmark and sector series
+        id: benchmarks
+        continue-on-error: true
         run: python scripts/refresh_prices.py --benchmarks
       - name: Refresh company inputs and canonical forecasts
+        id: daily
         run: python scripts/daily_refresh.py
       - name: Register or advance the predefined prospective experiment
+        if: steps.benchmarks.outcome == 'success' && steps.daily.outcome == 'success'
         run: python -m scripts.run_research_operations --experiment
+      - name: Require benchmark and company refresh success
+        if: always()
+        env:
+          BENCHMARKS_OUTCOME: ${{ steps.benchmarks.outcome }}
+          DAILY_OUTCOME: ${{ steps.daily.outcome }}
+        run: |
+          if [ "$BENCHMARKS_OUTCOME" != "success" ] || [ "$DAILY_OUTCOME" != "success" ]; then
+            echo "::error::Daily refresh is incomplete: benchmarks=$BENCHMARKS_OUTCOME daily=$DAILY_OUTCOME"
+            exit 1
+          fi
       - name: Preserve per-stage diagnostics and reconciliation
         if: always()
         uses: actions/upload-artifact@v4

@@ -1,3 +1,5 @@
+import pytest
+
 from stock_machine.agent_intelligence import bandit, reward, tool_lab
 
 
@@ -9,6 +11,10 @@ def state():
 def test_contextual_bandit_explores_uncertain_arms_in_paper_only():
     result=bandit.select(state(),["NO_TRADE","LONG_STOCK"],{},mode="PAPER")
     assert result["exploration_enabled"] is True
+    assert result["choice_driver"] == "EXPLORE_UNTRIED"
+    assert result["selected"]["ucb"] == pytest.approx(
+        result["selected"]["mean"] + result["selected"]["exploration_bonus"]
+    )
     assert result["broker_submission"] is False
     assert result["selected"]["action"] in {"NO_TRADE","LONG_STOCK"}
 

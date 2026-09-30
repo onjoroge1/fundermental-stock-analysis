@@ -122,3 +122,4 @@ def test_refresh_classifies_unresolved_stale_failure(monkeypatch):
     result = market_health.refresh_prices(Conn(), ["AAPL"])
     assert result["status"] == "ACTUAL_STALE_FAILURE"
     assert result["unresolved_failures"][0]["ticker"] == "AAPL"
+    assert result["unresolved_failures"][0]["error"] == "RuntimeError: provider"
