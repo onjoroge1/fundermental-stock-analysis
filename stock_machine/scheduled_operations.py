@@ -204,9 +204,9 @@ def progress_report():
     with db.connect() as conn:
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
         rows = conn.execute(
-            """SELECT c.ticker,p.day,s.max_record_date::text,s.status,
+            """SELECT c.ticker,p.market_date,s.max_record_date::text,s.status,
             f.as_of::text,f.status FROM companies c
-            LEFT JOIN LATERAL (SELECT max(date)::text day FROM prices_daily WHERE ticker=c.ticker) p ON true
+            LEFT JOIN LATERAL (SELECT max(date)::text AS market_date FROM prices_daily WHERE ticker=c.ticker) p ON true
             LEFT JOIN LATERAL (SELECT max_record_date,status FROM dataset_snapshots
                 WHERE ticker=c.ticker AND dataset='prices' ORDER BY last_checked_at DESC,observed_at DESC LIMIT 1) s ON true
             LEFT JOIN LATERAL (SELECT as_of,status FROM prediction_forecasts WHERE ticker=c.ticker

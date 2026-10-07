@@ -59,7 +59,7 @@ def test_concurrent_delivery_cannot_enter_locked_stage(pg):
 
 
 def test_progress_distinguishes_unfinished_receipt_and_coverage(pg, monkeypatch):
-    monkeypatch.setattr(ops, "latest_completed_session", lambda: "2026-10-07")
+    monkeypatch.setattr(ops, "latest_completed_session", lambda *args: "2026-10-07")
     with pg() as conn:
         ops.store.audit(
             conn, "fixture", "AGENT_STAGE_STARTED", ops.schedule("learning", NOW)
@@ -99,7 +99,7 @@ def test_research_waits_for_current_forecast_and_manifest(pg):
 def test_progress_only_counts_unscored_shadow_targets(pg, monkeypatch):
     from stock_machine import research_store
 
-    monkeypatch.setattr(ops, "latest_completed_session", lambda: "2026-10-07")
+    monkeypatch.setattr(ops, "latest_completed_session", lambda *args: "2026-10-07")
     with pg() as conn:
         for key, horizon, due in [
             ("due", 5, "2026-10-07"),
