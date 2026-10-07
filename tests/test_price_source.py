@@ -6,6 +6,11 @@ import pytest
 from stock_machine.ingestion.prices_tws import _parse_bar_date, merge_series
 
 
+@pytest.fixture(autouse=True)
+def fixed_session(monkeypatch):
+    monkeypatch.setattr("stock_machine.pipeline.latest_completed_session", lambda: "2026-01-02")
+
+
 def test_bar_date_parsing():
     assert _parse_bar_date("20260827") == "2026-08-27"
     assert _parse_bar_date("20260827 16:00:00 US/Eastern") == "2026-08-27"
@@ -40,7 +45,7 @@ def test_auto_falls_back_to_yahoo_and_records_the_downgrade(monkeypatch):
     monkeypatch.setattr("stock_machine.ingestion.prices_tws.fetch_daily",
                         broker_down)
     monkeypatch.setattr(pipeline.price_ing, "fetch_daily",
-                        lambda t: ([{"date": "2026-01-02", "close": 1.0}],
+                        lambda t: ([{"date": "2026-01-02", "close": 1.0, "volume": 10}],
                                    [{"date": "2026-01-02",
                                      "action_type": "split", "value": 4.0}]))
     rows, actions, source, events = pipeline._fetch_prices("AAPL")
@@ -74,7 +79,7 @@ def test_yahoo_forced_skips_the_broker_entirely(monkeypatch):
     monkeypatch.setattr("stock_machine.ingestion.prices_tws.fetch_daily",
                         must_not_run)
     monkeypatch.setattr(pipeline.price_ing, "fetch_daily",
-                        lambda t: ([{"date": "2026-01-02", "close": 1.0}], []))
+                        lambda t: ([{"date": "2026-01-02", "close": 1.0, "volume": 10}], []))
     _, _, source, events = pipeline._fetch_prices("AAPL")
     assert source == "yahoo" and events == []
 
@@ -89,7 +94,7 @@ def test_cloud_source_falls_back_from_yahoo_to_fmp(monkeypatch):
     )
     monkeypatch.setattr(
         "stock_machine.ingestion.prices_fmp.fetch_daily",
-        lambda ticker: ([{"date": "2026-01-02", "close": 1.0, "adj_close": 1.0}], []),
+        lambda ticker: ([{"date": "2026-01-02", "close": 1.0, "adj_close": 1.0, "volume": 10}], []),
     )
     rows, actions, source, events = pipeline._fetch_prices("AAPL")
     assert rows and actions == [] and source == "fmp"
@@ -106,3 +111,42 @@ def test_forced_yahoo_does_not_silently_use_fmp(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="YAHOO_HTTP_429"):
         pipeline._fetch_prices("AAPL")
+
+
+def test_stale_successful_yahoo_response_uses_fmp(monkeypatch):
+    from stock_machine import pipeline
+    monkeypatch.setattr(pipeline, "PRICE_SOURCE", "yahoo_fmp")
+    monkeypatch.setattr(pipeline.price_ing, "fetch_daily", lambda t: (
+        [{"date": "2025-12-31", "close": 100, "adj_close": 100, "volume": 10}], []))
+    monkeypatch.setattr("stock_machine.ingestion.prices_fmp.fetch_daily", lambda t: (
+        [{"date": "2026-01-02", "close": 101, "adj_close": 101, "volume": 10}], []))
+    rows, _, source, events = pipeline._fetch_prices("AAPL")
+    assert source == "fmp" and rows[-1]["date"] == "2026-01-02"
+    assert "PRICE_LATEST_COMPLETED_SESSION_MISSING" in events[-1]["detail"]
+
+
+def test_stale_forced_provider_fails_before_overwriting_prices(monkeypatch):
+    from stock_machine import pipeline
+    monkeypatch.setattr(pipeline, "PRICE_SOURCE", "yahoo")
+    monkeypatch.setattr(pipeline.price_ing, "fetch_daily", lambda t: (
+        [{"date": "2025-12-31", "close": 100}], []))
+    with pytest.raises(ValueError, match="PRICE_LATEST_COMPLETED_SESSION_MISSING"):
+        pipeline._fetch_prices("AAPL")
+
+
+def test_yahoo_retries_stale_http_200_on_other_host(monkeypatch):
+    from datetime import datetime, timezone
+    import httpx
+    from stock_machine.ingestion import prices
+    calls = []
+    monkeypatch.setattr(prices, "latest_completed_session", lambda: "2026-01-02")
+    monkeypatch.setattr(prices.time, "sleep", lambda seconds: None)
+    def get(url, **kwargs):
+        calls.append(url)
+        day = "2026-01-02" if "query2" in url else "2025-12-31"
+        ts = int(datetime.fromisoformat(day + "T14:30:00+00:00").timestamp())
+        return httpx.Response(200, json={"chart": {"result": [{
+            "timestamp": [ts], "indicators": {"quote": [{"close": [100]}]}}]}})
+    monkeypatch.setattr(prices.httpx, "get", get)
+    payload, url = prices._payload("AAPL")
+    assert len(calls) == 3 and "query2" in url
