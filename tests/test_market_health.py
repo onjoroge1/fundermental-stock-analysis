@@ -123,3 +123,27 @@ def test_refresh_classifies_unresolved_stale_failure(monkeypatch):
     assert result["status"] == "ACTUAL_STALE_FAILURE"
     assert result["unresolved_failures"][0]["ticker"] == "AAPL"
     assert result["unresolved_failures"][0]["error"] == "RuntimeError: provider"
+
+
+def test_health_includes_requested_benchmarks_outside_company_universe(monkeypatch):
+    now = datetime(2026, 9, 2, 21, tzinfo=timezone.utc)
+    monkeypatch.setattr(market_health, "_now_utc", lambda: now)
+    monkeypatch.setattr(market_health.db, "list_companies", lambda c: [{"ticker": "AAPL"}])
+    conn = _Conn([("AAPL", "2026-09-02"), ("SPY", "2026-09-01")], [])
+    result = market_health.health(conn, tickers=["SPY", "QQQ"])
+    assert result["ticker_count"] == 2
+    assert result["stale_tickers"] == ["SPY", "QQQ"]
+    assert result["stale_count"] == 1 and result["missing_count"] == 1
+
+
+def test_refresh_cli_accepts_verified_recovery(monkeypatch):
+    import sys
+    from scripts import refresh_prices
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+    monkeypatch.setattr(sys, "argv", ["refresh_prices.py", "SPY"])
+    monkeypatch.setattr(refresh_prices.db, "connect", lambda: Conn())
+    monkeypatch.setattr(refresh_prices, "health", lambda *a, **k: {})
+    monkeypatch.setattr(refresh_prices, "refresh_prices", lambda *a, **k: {"status": "PARTIAL_RECOVERED"})
+    assert refresh_prices.main() == 0
