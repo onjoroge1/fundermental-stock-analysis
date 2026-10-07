@@ -281,7 +281,7 @@ def test_cron_tick_stops_early_when_queue_is_idle(monkeypatch):
     assert value["processor"]["status"] == "IDLE"
 
 
-def test_late_day_scheduler_adds_one_idempotent_v2_outcome_scan(monkeypatch):
+def test_general_scheduler_delegates_outcomes_to_dedicated_learning_stage(monkeypatch):
     scheduled=[]
     monkeypatch.setattr(automation, "choose_agent_ticker", lambda conn, session: "AAPL")
     class FakeResult:
@@ -302,5 +302,4 @@ def test_late_day_scheduler_adds_one_idempotent_v2_outcome_scan(monkeypatch):
     monkeypatch.setattr(automation,"enqueue",enqueue)
     automation.schedule_due(datetime(2026,9,19,23,tzinfo=timezone.utc))
     outcome=[x for x in scheduled if x[0]=="agent_intelligence_outcomes"]
-    assert len(outcome)==1
-    assert outcome[0][1]["idempotency_key"]=="auto:agent_intelligence_outcomes:2026-09-19:23"
+    assert outcome == []

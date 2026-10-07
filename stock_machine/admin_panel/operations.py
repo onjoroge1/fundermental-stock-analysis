@@ -105,7 +105,7 @@ def _learning_loop_health(conn) -> dict:
         return {
             "status": "UNAVAILABLE",
             "cron_schedule": "every 10 minutes",
-            "outcome_scan_window_utc": "22:00 or later",
+            "outcome_scan_window_eastern": "18:10, 20:10, 22:10",
             "research_cycles": [],
             "latest_outcome_scan": None,
         }
@@ -113,7 +113,7 @@ def _learning_loop_health(conn) -> dict:
         return {
             "status": "UNAVAILABLE",
             "cron_schedule": "every 10 minutes",
-            "outcome_scan_window_utc": "22:00 or later",
+            "outcome_scan_window_eastern": "18:10, 20:10, 22:10",
             "research_cycles": [],
             "latest_outcome_scan": None,
         }
@@ -128,6 +128,19 @@ def _learning_loop_health(conn) -> dict:
             "status": (row[7] or {}).get("status"),
         } if row[0] == "agent_intelligence_outcomes" and isinstance(row[7], dict) else None),
     } for row in rows]
+    scheduled = conn.execute("""SELECT details FROM operator_audit
+        WHERE event='AGENT_STAGE_FINISHED' AND details->>'stage'='learning'
+        ORDER BY id DESC LIMIT 1""").fetchall()
+    if scheduled and len(scheduled[0]) == 1 and isinstance(scheduled[0][0], dict):
+        receipt = scheduled[0][0]
+        values = [v for v in values if v["job_type"] != "agent_intelligence_outcomes"]
+        values.append({"job_type": "agent_intelligence_outcomes", "ticker": None,
+            "status": receipt["status"], "created_at": receipt.get("started_at"),
+            "finished_at": receipt.get("finished_at"), "source": "scheduled-learning-stage",
+            "result_summary": {"scored": receipt.get("paper_scored",0),
+                "shadow_scored": receipt.get("shadow_scored",0),
+                "blocked": receipt.get("paper_blocked",0)+receipt.get("shadow_blocked",0),
+                "status": receipt["status"]}})
     cycles = sorted(
         (value for value in values if value["job_type"] == "research_cycle"),
         key=lambda value: value.get("ticker") or "",
@@ -135,7 +148,7 @@ def _learning_loop_health(conn) -> dict:
     outcome = next((value for value in values
                     if value["job_type"] == "agent_intelligence_outcomes"), None)
     statuses = [value["status"] for value in values]
-    if (any(status == "FAILED" for status in statuses)
+    if (any(status in {"FAILED", "ATTENTION"} for status in statuses)
             or any((value.get("result_summary") or {}).get("blocked", 0) for value in values)):
         status = "ATTENTION"
     elif cycles or outcome:
@@ -145,7 +158,7 @@ def _learning_loop_health(conn) -> dict:
     return {
         "status": status,
         "cron_schedule": "every 10 minutes",
-        "outcome_scan_window_utc": "22:00 or later",
+        "outcome_scan_window_eastern": "18:10, 20:10, 22:10",
         "research_cycles": cycles,
         "latest_outcome_scan": outcome,
     }
@@ -278,3 +291,8 @@ def intelligence_summary():
         "broker_submission": False,
         "note": "Latest v2 outcomes are reconciled from the evidence index and durable pilot-run results. Research mode is SHADOW; PAPER can simulate stock instructions only.",
     }
+
+
+def progress_summary():
+    from ..scheduled_operations import progress_report
+    return progress_report()

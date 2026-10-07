@@ -33,9 +33,8 @@ loss. Persist the exact price-path hash; never rewrite an already scored outcome
 Unscored, due snapshots are selected before the bounded limit. Missing-path attempts
 are recorded once per completed session and skipped for that session, allowing later
 snapshots to advance. Retry on a scheduled scan after the next completed session.
-Scoring uses per-snapshot transaction locks and is idempotent. Existing late-day
-outcome jobs score a maximum of 100 shadow snapshots per call in addition to existing
-paper rewards. With 54 names, three horizons may mature on the same day; monitor backlog.
+Scoring uses per-snapshot transaction locks and is idempotent. Dedicated learning
+cron stages score at most 100 shadow snapshots and 100 paper rewards per call. With 54 names, three horizons may mature on the same day; monitor backlog.
 
 ## Candidate weights
 
