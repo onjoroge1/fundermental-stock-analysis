@@ -43,3 +43,26 @@ def records(conn, kind, *, limit=1000):
     with conn.cursor() as cur:
         cur.execute("SELECT record_id,content_hash,payload,recorded_at::text FROM research_evidence_records WHERE kind=%s ORDER BY recorded_at,record_id LIMIT %s", (kind, limit))
         return [dict(zip(("record_id", "content_hash", "payload", "recorded_at"), row)) for row in cur.fetchall()]
+
+
+def outcome_candidates(conn, *, limit=100):
+    """Exclude terminal outcomes before LIMIT so scored history cannot starve learning.
+
+    Stock decisions precede options, whose settlement does not yet earn a
+    bandit reward. Settled options are terminal for this scanner as well.
+    """
+    if not 1 <= limit <= 1000:
+        raise ValueError("OUTCOME_LIMIT_INVALID")
+    with conn.cursor() as cur:
+        cur.execute("""SELECT r.record_id,r.content_hash,r.payload,r.recorded_at::text
+            FROM research_evidence_records r
+            WHERE r.kind='AGENT_INTELLIGENCE_V2'
+              AND NOT EXISTS (
+                SELECT 1 FROM research_evidence_records done
+                WHERE done.kind IN ('AGENT_REWARD_V2','AGENT_OPTION_PAPER_OUTCOME_V1')
+                  AND done.request_key=r.payload->>'decision_id')
+            ORDER BY CASE WHEN r.payload #>> '{bandit,selected,action}' LIKE 'OPTION:%%'
+                          THEN 1 ELSE 0 END, r.recorded_at,r.record_id
+            LIMIT %s""", (limit,))
+        return [dict(zip(("record_id", "content_hash", "payload", "recorded_at"), row))
+                for row in cur.fetchall()]
