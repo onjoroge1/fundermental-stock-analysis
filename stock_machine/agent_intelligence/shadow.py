@@ -126,6 +126,7 @@ def capture(conn, decision, packet, intelligence, *, now=None):
             model.get("as_of") == origin
             and stamp(model.get("generated_at")) <= now
             and bool(model.get("forecast_id"))
+            and bool(model.get("model_version"))
         )
     except (ValueError, TypeError):
         pass
@@ -198,7 +199,7 @@ def capture(conn, decision, packet, intelligence, *, now=None):
             "origin_session": origin,
             "due_session": session_offset(origin, horizon),
             "captured_at": now.isoformat(),
-            "first_future_session": next_close_after(now),
+            "first_future_session": next_close_after(now.isoformat()),
             "input_sha256": decision["input_sha256"],
             "sector": company.get("sector"),
             "components": components,
@@ -352,7 +353,13 @@ def score_matured(*, limit=100):
     }
 
 
+def metric_mean(metrics, field):
+    values = [m[field] for m in metrics if m[field] is not None]
+    return sum(values) / len(values) if values else None
+
+
 def weekly_summary(conn, *, end=None):
+    conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
     end = end or latest_completed_session()
     start = session_offset(end, -5)
     rows = conn.execute(
@@ -391,8 +398,7 @@ def weekly_summary(conn, *, end=None):
         forecasts = defaultdict(list)
         for value in values:
             for name, metrics in value["forecast_scores"].items():
-                if metrics["brier"] is not None:
-                    forecasts[name].append(metrics)
+                forecasts[name].append(metrics)
         summary.append(
             {
                 "ticker": ticker,
@@ -414,37 +420,15 @@ def weekly_summary(conn, *, end=None):
                 ),
                 "forecast_metrics": {
                     n: {
-                        "brier": sum(m["brier"] for m in v) / len(v),
-                        "observations": len(v),
-                        "median_abs_return_error_pct": (
-                            (
-                                sum(
-                                    m["median_abs_return_error_pct"]
-                                    for m in v
-                                    if m["median_abs_return_error_pct"] is not None
-                                )
-                                / sum(
-                                    m["median_abs_return_error_pct"] is not None
-                                    for m in v
-                                )
-                            )
-                            if any(
-                                m["median_abs_return_error_pct"] is not None for m in v
-                            )
-                            else None
+                        "brier": metric_mean(v, "brier"),
+                        "observations": sum(m["brier"] is not None for m in v),
+                        "price_observations": sum(
+                            m["median_abs_return_error_pct"] is not None for m in v
                         ),
-                        "interval_80_coverage": (
-                            (
-                                sum(
-                                    m["interval_80_covered"]
-                                    for m in v
-                                    if m["interval_80_covered"] is not None
-                                )
-                                / sum(m["interval_80_covered"] is not None for m in v)
-                            )
-                            if any(m["interval_80_covered"] is not None for m in v)
-                            else None
+                        "median_abs_return_error_pct": metric_mean(
+                            v, "median_abs_return_error_pct"
                         ),
+                        "interval_80_coverage": metric_mean(v, "interval_80_covered"),
                     }
                     for n, v in forecasts.items()
                 },

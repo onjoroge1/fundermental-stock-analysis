@@ -118,3 +118,58 @@ def test_snapshot_capture_blocks_stale_origin_before_any_db_read():
 def test_naive_capture_timestamp_is_rejected():
     with pytest.raises(ValueError, match="NOT_AWARE"):
         shadow.capture(None, {}, {}, {}, now=datetime(2026, 9, 1))
+
+
+def test_flat_days_keep_price_metrics_without_fabricating_direction_accuracy():
+    metrics = [
+        {"brier": None, "median_abs_return_error_pct": 5, "interval_80_covered": True}
+    ]
+    assert shadow.metric_mean(metrics, "brier") is None
+    assert shadow.metric_mean(metrics, "median_abs_return_error_pct") == 5
+    assert shadow.metric_mean(metrics, "interval_80_covered") == 1
+
+
+@pytest.mark.parametrize("version,forecast_count", [("v1", 1), (None, 0)])
+def test_capture_freezes_exchange_timestamp_and_requires_forecast_version(
+    monkeypatch, version, forecast_count
+):
+    saved = {}
+    monkeypatch.setattr(
+        shadow.db, "fetch_company", lambda *a: {"sector": "communications"}
+    )
+    monkeypatch.setattr(shadow, "training_history", lambda *a: [])
+    monkeypatch.setattr(shadow.research_store, "get", lambda *a: None)
+
+    def save(conn, kind, key, payload, ticker):
+        saved[(kind, key)] = payload
+
+    monkeypatch.setattr(shadow.research_store, "save", save)
+    decision = {
+        "ticker": "VZ",
+        "decision_id": "d",
+        "price_date": "2026-09-01",
+        "input_sha256": "a" * 64,
+    }
+    packet = {
+        "model_distribution": {
+            "as_of": "2026-09-01",
+            "generated_at": "2026-09-01T20:05:00Z",
+            "forecast_id": "f",
+            "model_version": version,
+            "short_horizon_models": {
+                "lstm": {"horizons": {"5d": {"days": 5, "prob_positive": 0.7}}}
+            },
+        }
+    }
+    result = shadow.capture(
+        None,
+        decision,
+        packet,
+        {"state": {"signal_components": {"technical": 0.5}, "bias_score": 0.5}},
+        now="2026-09-01T21:00:00Z",
+    )
+    assert result["status"] == "CAPTURED"
+    snap = saved[(shadow.SNAPSHOT, "d:5")]
+    assert snap["first_future_session"] == "2026-09-02"
+    assert len(snap["forecasts"]) == forecast_count
+    assert saved[(shadow.WEIGHTS, "d:5")]["training_history_hash"]
