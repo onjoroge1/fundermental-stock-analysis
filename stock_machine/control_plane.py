@@ -508,7 +508,15 @@ def execute(job: dict) -> dict:
         return run()
     if kind == "agent_intelligence_outcomes":
         from .agent_intelligence.outcomes import score_matured
-        return score_matured(limit=int(payload.get("limit", 100)))
+        result = score_matured(limit=int(payload.get("limit", 100)))
+        from .agent_intelligence.shadow import score_matured as score_shadow
+        try:
+            result["shadow_evaluation"] = score_shadow(limit=int(payload.get("limit", 100)))
+        except Exception as exc:
+            result["shadow_evaluation"] = {"status": "FAILED", "reason_code": type(exc).__name__}
+        if result["shadow_evaluation"]["status"] in {"ATTENTION", "FAILED"}:
+            result["status"] = "ATTENTION"
+        return result
     if kind == "ticker_refresh":
         if not job.get("ticker"):
             raise ValueError("ticker_refresh requires ticker")

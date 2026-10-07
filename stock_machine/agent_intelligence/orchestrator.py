@@ -190,5 +190,15 @@ def evaluate_decision(
             "option_paper": option_paper,
             "broker_submission": False,
         }
+        from .shadow import capture
+        try:
+            # Isolate optional shadow writes from the established decision path.
+            with conn.transaction():
+                result["shadow_evaluation"] = capture(conn, decision, packet, result)
+        except Exception as exc:
+            result["shadow_evaluation"] = {
+                "status": "FAILED", "reason_code": type(exc).__name__,
+                "promotion": "NOT_AUTHORIZED",
+            }
         research_store.save(conn, "AGENT_INTELLIGENCE_V2", str(key), result, ticker)
     return result

@@ -297,6 +297,13 @@ def stock_research(
             "generated_at": (prediction or {}).get("generated_at"),
             "forecast_id": (prediction or {}).get("forecast_id"),
             "actual_primary_model": (prediction or {}).get("primary_model"),
+            "short_horizon_models": {
+                name: {"horizons": {label: row for label, row in (summary.get("horizons") or {}).items()
+                                    if row.get("days") in (5, 10, 20)}}
+                for name, summary in ((prediction or {}).get("models") or {}).items()
+            },
+            "short_horizon_role": "diagnostic shadow inputs; no trading qualification",
+            "forecast_origin_adjusted_price": (prediction or {}).get("last_price"),
             "model_version": (prediction or {}).get("model_version", MODEL_VERSION),
             "three_month": pred3 if contract["guidance_eligible"] else None,
             "twelve_month": pred12 if contract["guidance_eligible"] else None,
