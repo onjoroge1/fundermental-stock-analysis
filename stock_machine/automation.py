@@ -31,11 +31,14 @@ def choose_agent_ticker(conn, session: str) -> str | None:
             FROM dataset_snapshots WHERE ticker=c.ticker AND dataset='prices'
             ORDER BY last_checked_at DESC,observed_at DESC LIMIT 1) s
             ON s.market_date=%s AND s.status='PASS'
+        JOIN LATERAL (SELECT as_of::text AS market_date,status FROM prediction_forecasts
+            WHERE ticker=c.ticker ORDER BY as_of DESC,generated_at DESC LIMIT 1) f
+            ON f.market_date=%s AND f.status='OK'
         WHERE c.ticker=ANY(%s) AND NOT EXISTS (
             SELECT 1 FROM orchestration_jobs j WHERE
                 j.idempotency_key='auto:research_cycle:' || c.ticker || ':' || %s)
         ORDER BY c.ticker LIMIT 1""",
-        (session, session, session, list(AGENT_UNIVERSE), session),
+        (session, session, session, session, list(AGENT_UNIVERSE), session),
     ).fetchone()
     return row[0] if row else None
 
@@ -139,17 +142,8 @@ def schedule_due(now: datetime | None = None) -> dict[str, Any]:
                 )
             )
 
-        # Score matured v2 outcomes once daily. Repeated late-day cron
-        # deliveries reuse the same idempotency key.
-        if now.hour >= 22:
-            scheduled.append(
-                enqueue(
-                    conn,
-                    "agent_intelligence_outcomes",
-                    payload={"limit": 100},
-                    idempotency_key=f"auto:agent_intelligence_outcomes:{today}:{now.hour}",
-                )
-            )
+        # Dedicated clock-gated learning cron owns outcome scans. The general
+        # processor continues to drain any legacy queued scans idempotently.
 
         # Sunday UTC; this only evaluates policies. It does not freeze cohorts.
         if now.weekday() == 6:
@@ -218,20 +212,7 @@ def cron_tick() -> dict[str, Any]:
     when every job is healthy. Two jobs per ten-minute tick keep expanded-universe throughput balanced while
     preserving a hard serverless work bound.
     """
-    # Frozen instructions precede fresh decisions. Bound DB-only fills separately
-    # from the two provider jobs so expanded coverage does not imply a long loop.
-    from . import agent_trading
-    from .admin_panel.store import controls
-
-    paper = {"status": "SKIPPED"}
-    if controls()["capture_enabled"] and agent_trading.get_mode()["mode"] == "PAPER":
-        pending = agent_trading.process_pending(limit=6)
-        exits = agent_trading.settle_holding_limits(limit=6)
-        try:
-            mark = agent_trading.mark_open_positions()
-        except ValueError as exc:
-            mark = {"status": "BLOCKED", "reason": str(exc)}
-        paper = {"pending": pending, "holding_limits": exits, "mark": mark}
+    paper = {"status": "DELEGATED_TO_SCHEDULED_PAPER_STAGE"}
     scheduled = schedule_due()
     from .control_plane import process_one
 

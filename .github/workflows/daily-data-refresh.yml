@@ -3,8 +3,9 @@ name: Daily Data and Forecast Refresh
 on:
   workflow_dispatch:
   schedule:
-    # 17:30 Eastern in summer / 16:30 in winter, after the regular close.
+    # Both UTC triggers; the Eastern/session gate selects 17:30 across DST.
     - cron: "30 21 * * 1-5"
+    - cron: "30 22 * * 1-5"
 
 permissions:
   contents: read
@@ -23,6 +24,7 @@ jobs:
       FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
       PRICE_SOURCE: yahoo_fmp
       RESEARCH_ARCHIVE_RAW: 'true'
+      REQUESTED_CRON: ${{ github.event.schedule }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -37,22 +39,40 @@ jobs:
           fi
       - name: Install application
         run: python -m pip install -e .
+      - name: Select completed-session Eastern ingestion window
+        id: gate
+        run: |
+          python - <<'PYTHON'
+          import json, os
+          from stock_machine.scheduled_operations import schedule
+          value = schedule('ingestion', workflow_cron=os.getenv('REQUESTED_CRON'),
+                           manual=os.getenv('GITHUB_EVENT_NAME') == 'workflow_dispatch')
+          print(json.dumps(value))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('run=' + str(value['due']).lower() + '\n')
+          PYTHON
       - name: Apply migrations
+        if: steps.gate.outputs.run == 'true'
         run: alembic upgrade head
       - name: Ingest missing configured universe names
+        if: steps.gate.outputs.run == 'true'
         run: python scripts/sync_universe.py
       - name: Refresh benchmark and sector series
+        if: steps.gate.outputs.run == 'true'
         id: benchmarks
         continue-on-error: true
         run: python scripts/refresh_prices.py --benchmarks
       - name: Refresh company inputs and canonical forecasts
+        if: steps.gate.outputs.run == 'true'
         id: daily
-        run: python scripts/daily_refresh.py
+        env:
+          BENCHMARKS_OUTCOME: ${{ steps.benchmarks.outcome }}
+        run: python -m scripts.run_agent_ingestion
       - name: Register or advance the predefined prospective experiment
-        if: steps.benchmarks.outcome == 'success' && steps.daily.outcome == 'success'
+        if: steps.gate.outputs.run == 'true' && steps.benchmarks.outcome == 'success' && steps.daily.outcome == 'success'
         run: python -m scripts.run_research_operations --experiment
       - name: Require benchmark and company refresh success
-        if: always()
+        if: always() && steps.gate.outputs.run == 'true'
         env:
           BENCHMARKS_OUTCOME: ${{ steps.benchmarks.outcome }}
           DAILY_OUTCOME: ${{ steps.daily.outcome }}
@@ -62,7 +82,7 @@ jobs:
             exit 1
           fi
       - name: Preserve per-stage diagnostics and reconciliation
-        if: always()
+        if: always() && steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: daily-research-evidence-${{ github.run_id }}

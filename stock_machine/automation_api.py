@@ -96,3 +96,15 @@ def price_refresh_cron(
     if result["status"] == "ACTUAL_STALE_FAILURE":
         raise HTTPException(503, detail=response)
     return response
+
+
+@router.get("/agent/cron/{stage}")
+def agent_stage_cron(stage: str, authorization: str | None = Header(default=None)) -> dict:
+    _require_processor(authorization)
+    if stage not in {"paper", "learning", "progress"}:
+        raise HTTPException(404, "Scheduled stage is not available on this runtime")
+    from .scheduled_operations import run
+    result = run(stage)
+    if result["status"] == "FAILED" or (stage != "progress" and result["status"] == "ATTENTION"):
+        raise HTTPException(503, detail=result)
+    return result
