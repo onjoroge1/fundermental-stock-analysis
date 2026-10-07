@@ -122,6 +122,8 @@ def _learning_loop_health(conn) -> dict:
         "result_summary": ({
             "scored": (row[7] or {}).get("scored"),
             "pending": (row[7] or {}).get("pending"),
+            "blocked": (row[7] or {}).get("blocked"),
+            "status": (row[7] or {}).get("status"),
         } if row[0] == "agent_intelligence_outcomes" and isinstance(row[7], dict) else None),
     } for row in rows]
     cycles = sorted(
@@ -131,7 +133,8 @@ def _learning_loop_health(conn) -> dict:
     outcome = next((value for value in values
                     if value["job_type"] == "agent_intelligence_outcomes"), None)
     statuses = [value["status"] for value in values]
-    if any(status == "FAILED" for status in statuses):
+    if (any(status == "FAILED" for status in statuses)
+            or any((value.get("result_summary") or {}).get("blocked", 0) for value in values)):
         status = "ATTENTION"
     elif cycles or outcome:
         status = "ACTIVE"

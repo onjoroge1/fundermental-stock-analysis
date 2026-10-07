@@ -69,6 +69,24 @@ def test_agent_intelligence_evidence_kinds_are_allowed_by_real_schema(pg):
     assert stored == {kind: {"kind": kind} for kind in kinds}
 
 
+def test_outcome_limit_excludes_scored_history_before_selecting_candidates(pg):
+    # The old oldest-100 scan never advanced beyond a fully scored page.
+    with pg() as conn:
+        for i in range(105):
+            decision = f"scored-{i}"
+            research_store.save(conn, "AGENT_INTELLIGENCE_V2", decision, {
+                "decision_id": decision, "bandit": {"selected": {"action": "NO_TRADE"}}}, "VZ")
+            research_store.save(conn, "AGENT_REWARD_V2", decision, {"reward": 0}, "VZ")
+        research_store.save(conn, "AGENT_INTELLIGENCE_V2", "option-done", {
+            "decision_id": "option-done", "bandit": {"selected": {"action": "OPTION:CALL"}}}, "VZ")
+        research_store.save(conn, "AGENT_OPTION_PAPER_OUTCOME_V1", "option-done", {"status": "MATURED"}, "VZ")
+        research_store.save(conn, "AGENT_INTELLIGENCE_V2", "next", {
+            "decision_id": "next", "bandit": {"selected": {"action": "LONG_STOCK"}}}, "VZ")
+    with pg() as conn:
+        values = research_store.outcome_candidates(conn, limit=1)
+    assert [r["payload"]["decision_id"] for r in values] == ["next"]
+
+
 def test_cycle_report_index_evidence_commit_together_and_replay(pg, monkeypatch, source_bundle):
     from stock_machine import research_contract, research_cycle, control_plane
     monkeypatch.setattr(research_contract, "read_inputs", lambda t: (source_bundle, None, None))

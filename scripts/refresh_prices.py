@@ -35,7 +35,7 @@ def main() -> int:
             max_age_hours=args.max_age_hours,
         )
     print(json.dumps({"before": before, "refresh": result}, indent=2, default=str))
-    return 0 if result["status"] == "OK" else 1
+    return 0 if result["status"] in {"OK", "PARTIAL_RECOVERED"} else 1
 
 
 if __name__ == "__main__":

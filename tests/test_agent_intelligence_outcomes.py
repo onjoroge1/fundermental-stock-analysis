@@ -40,7 +40,7 @@ def test_score_matured_records_only_matured_stock_action(monkeypatch):
          "state":{"as_of":"2026-09-01"},
          "bandit":{"selected":{"action":"LONG_STOCK"}}}
     monkeypatch.setattr(outcomes.db,"connect",lambda:Conn())
-    monkeypatch.setattr(research_store,"records",lambda conn,kind,limit:[{"payload":run}])
+    monkeypatch.setattr(research_store,"outcome_candidates",lambda conn,limit:[{"payload":run}])
     monkeypatch.setattr(research_store,"get",lambda *a,**k:None)
     monkeypatch.setattr(outcomes,"latest_completed_session",lambda:"2026-10-15")
     monkeypatch.setattr(outcomes,"session_offset",lambda entry,n:"2026-09-30")
@@ -53,3 +53,37 @@ def test_score_matured_records_only_matured_stock_action(monkeypatch):
     result=outcomes.score_matured()
     assert result["scored"]==1
     assert result["results"][0]["status"]=="SCORED"
+
+
+def test_blocked_matured_outcome_reports_attention(monkeypatch):
+    from stock_machine import research_store
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self,*args): return False
+    run={"ticker":"AAPL","decision_id":"blocked",
+         "state":{"as_of":"2026-09-01"},
+         "bandit":{"selected":{"action":"LONG_STOCK"}}}
+    monkeypatch.setattr(outcomes.db,"connect",lambda:Conn())
+    monkeypatch.setattr(research_store,"outcome_candidates",lambda conn,limit:[{"payload":run}])
+    monkeypatch.setattr(research_store,"get",lambda *a,**k:None)
+    monkeypatch.setattr(outcomes,"latest_completed_session",lambda:"2026-10-15")
+    monkeypatch.setattr(outcomes,"session_offset",lambda entry,n:"2026-09-30")
+    def fail(*args):
+        raise ValueError("OUTCOME_ENDPOINT_PRICE_MISSING")
+    monkeypatch.setattr(outcomes,"_stock_outcome",fail)
+    result=outcomes.score_matured()
+    assert result["status"]=="ATTENTION" and result["blocked"]==1
+    assert result["scored"]==0
+
+
+def test_loop_health_preserves_blocked_scan_after_job_completes():
+    from stock_machine.admin_panel.operations import _learning_loop_health
+    class Rows:
+        def fetchall(self):
+            return [("agent_intelligence_outcomes",None,"SUCCEEDED","2026-10-07",
+                     "2026-10-07",1,None,{"status":"ATTENTION","blocked":1,"scored":0})]
+    class Conn:
+        def execute(self,*args): return Rows()
+    result=_learning_loop_health(Conn())
+    assert result["status"]=="ATTENTION"
+    assert result["latest_outcome_scan"]["result_summary"]["blocked"]==1

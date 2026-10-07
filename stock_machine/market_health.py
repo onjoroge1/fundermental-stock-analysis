@@ -34,11 +34,12 @@ def _hours_since(ts: datetime | None, now: datetime) -> float | None:
     return max(0.0, (now - ts.astimezone(timezone.utc)).total_seconds() / 3600.0)
 
 
-def health(conn, *, max_age_hours: float = DEFAULT_MAX_AGE_HOURS) -> dict:
+def health(conn, *, max_age_hours: float = DEFAULT_MAX_AGE_HOURS,
+           tickers: Iterable[str] | None = None) -> dict:
     """Return one auditable freshness view over every covered ticker."""
     now = _now_utc()
-    companies = db.list_companies(conn)
-    tickers = [c["ticker"] for c in companies]
+    tickers = (list(dict.fromkeys(t.upper().strip() for t in tickers))
+               if tickers is not None else [c["ticker"] for c in db.list_companies(conn)])
 
     with conn.cursor() as cur:
         cur.execute(
@@ -129,7 +130,8 @@ def refresh_prices(
         if ticker and ticker not in seen:
             wanted.append(ticker)
             seen.add(ticker)
-    before = health(conn, max_age_hours=max_age_hours)
+    requested_tickers = wanted.copy()
+    before = health(conn, max_age_hours=max_age_hours, tickers=requested_tickers)
     stale = set(before["stale_tickers"])
     known = {r["ticker"] for r in before["tickers"]}
     if only_if_stale:
@@ -211,7 +213,7 @@ def refresh_prices(
                 if failure["ticker"] in bulk_candidates:
                     failure["fallback_error"] = fallback_error
 
-    after = health(conn, max_age_hours=max_age_hours)
+    after = health(conn, max_age_hours=max_age_hours, tickers=requested_tickers)
     states = {row["ticker"]: row["state"] for row in after.get("tickers", [])}
     unresolved = [
         failure for failure in failures

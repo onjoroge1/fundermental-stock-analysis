@@ -18,7 +18,13 @@ PRICE_SOURCE = os.environ.get("PRICE_SOURCE", "auto").lower()
 
 def _completed_prices(rows):
     cutoff = latest_completed_session()
-    return [r for r in rows if r["date"] <= cutoff]
+    completed = [r for r in rows if r["date"] <= cutoff]
+    if not completed or max(r["date"] for r in completed) != cutoff:
+        raise ValueError("PRICE_LATEST_COMPLETED_SESSION_MISSING")
+    snapshot = assess_dataset("prices", completed)
+    if snapshot["status"] == "FAIL":
+        raise ValueError("PRICE_DATA_QUALITY_FAILED")
+    return completed
 
 
 def _fetch_prices(ticker: str) -> tuple[list[dict], list[dict], str, list[dict]]:

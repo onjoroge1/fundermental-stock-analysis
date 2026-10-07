@@ -68,7 +68,7 @@ def score_matured(*, limit: int=100) -> dict:
     if not 1<=limit<=1000:
         raise ValueError("OUTCOME_LIMIT_INVALID")
     with db.connect() as conn:
-        records=research_store.records(conn,"AGENT_INTELLIGENCE_V2",limit=limit)
+        records=research_store.outcome_candidates(conn,limit=limit)
     latest=str(latest_completed_session())
     results=[]
     for record in records:
@@ -116,10 +116,13 @@ def score_matured(*, limit: int=100) -> dict:
         except ValueError as exc:
             results.append({"status":"BLOCKED_INPUTS","ticker":ticker,
                             "decision_id":decision_id,"reason":str(exc)})
+    blocked=sum(r["status"] in {"BLOCKED_INPUTS", "OPTION_UNAVAILABLE"} for r in results)
     return {"schema_version":"agent-intelligence-outcomes.v1",
+            "status":"ATTENTION" if blocked else "OK",
             "latest_completed_session":latest,
             "horizon_sessions":HORIZON_SESSIONS,
             "results":results,
             "scored":sum(r["status"]=="SCORED" for r in results),
             "pending":sum(r["status"]=="PENDING_MATURITY" for r in results),
+            "blocked":blocked,
             "broker_submission":False}
