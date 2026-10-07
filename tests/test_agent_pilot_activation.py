@@ -79,7 +79,7 @@ def test_live_protocol_proof_checks_readonly_tools_and_actual_decisions():
             result = {"tools": [{"name": n, "annotations": {"readOnlyHint": True, "destructiveHint": False}} for n in activate.TOOLS]}
         else:
             name = body["params"]["name"]
-            data = {"status": "OK", "capture_enabled": True, "policy": Policy().model_dump(mode="json"),
+            data = {"status": "OK", "capture_enabled": True, "policy": Policy(policy_id="research-pilot-v1",tickers=("AAPL","MSFT","UBER","HIMS","VZ")).model_dump(mode="json"),
                     "execution": {"status": "NOT_ENABLED"}} if name == "get_agent_status" else {"decisions": [row]}
             result = {"structuredContent": {"data": data}}
         return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": result})

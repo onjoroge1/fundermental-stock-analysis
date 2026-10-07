@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/admin/cron",
-      "schedule": "0 * * * *"
+      "schedule": "*/10 * * * *"
     },
     {
       "path": "/api/admin/prices/cron/0/18",

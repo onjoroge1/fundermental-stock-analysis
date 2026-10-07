@@ -62,6 +62,24 @@ def session_offset(origin: str, sessions: int) -> str:
     return cal.session_offset(start, sessions).date().isoformat()
 
 
+def next_close_after(value: str) -> str:
+    """First exchange close strictly after a persisted decision timestamp."""
+    stamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if stamp.tzinfo is None:
+        raise ValueError('DECISION_TIMESTAMP_REQUIRED')
+    local = stamp.astimezone(EASTERN)
+    cal = _calendar(local.year, local.year + 1)
+    session = cal.date_to_session(local.date().isoformat(), direction='next')
+    if cal.session_close(session).to_pydatetime() <= stamp:
+        session = cal.next_session(session)
+    return session.date().isoformat()
+
+
+def session_dates(start: str, end: str) -> list[str]:
+    a, b = date.fromisoformat(start[:10]), date.fromisoformat(end[:10])
+    return [s.date().isoformat() for s in _calendar(a.year, b.year).sessions_in_range(start, end)]
+
+
 def calendar_dte_to_sessions(as_of: date, calendar_days: int) -> int:
     return sessions_between(as_of.isoformat(), (as_of + timedelta(days=calendar_days)).isoformat())
 

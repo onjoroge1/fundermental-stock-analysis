@@ -9,7 +9,7 @@ import math
 from datetime import date, datetime
 from uuid import uuid4
 
-from .contracts import Decision, PILOT, digest, utc_now
+from .contracts import Decision, AGENT_UNIVERSE, digest, utc_now
 
 
 def _obj(value):
@@ -27,8 +27,8 @@ def _quoted(value) -> str | None:
 def build_decision(ticker: str, packet: dict, observed_at: datetime,
                    expected_session: str, previous_id: str | None = None) -> Decision:
     """Build a bounded research record from the packet actually captured now."""
-    if ticker not in PILOT:
-        raise ValueError("Ticker is outside the frozen research pilot")
+    if ticker not in AGENT_UNIVERSE:
+        raise ValueError("Ticker is outside the versioned agent universe")
     input_hash = digest(packet)  # reject malformed/nonfinite data before saving
     blockers = []
     from ..research_contract import VERSION, timestamp

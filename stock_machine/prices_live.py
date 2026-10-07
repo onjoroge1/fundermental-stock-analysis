@@ -1,18 +1,7 @@
-"""On-demand price refresh.
+"""On-demand coherent completed-session price refresh.
 
-The daily pipeline is the system of record for full history, but it is slow
-(SEC + consensus + insiders per ticker) and only runs on a schedule. This
-module updates ONLY the recent price tail, so prices can be brought current
-in seconds at any moment — before marking the paper book, before a scan, or
-whenever the UI shows a stale figure.
-
-Source order matches the pipeline: IBKR when Gateway is reachable, Yahoo
-otherwise, with the source recorded per run. Rows are upserted by date, so a
-refresh mid-session updates today's row rather than appending a duplicate.
-
-What this does NOT do: rebuild fundamentals, consensus, insiders or bundles.
-It touches prices only, so a refreshed price never implies refreshed
-analysis.
+Full history and its manifest share one adjustment vintage. Fundamentals,
+forecasts and analyst narratives still require their separate refresh paths.
 """
 from __future__ import annotations
 
@@ -25,77 +14,31 @@ TAIL_DAYS_DEFAULT = 10
 MAX_WORKERS = 8
 
 
-def _yahoo_tail(ticker: str, days: int) -> list[dict]:
-    """Recent daily bars from Yahoo, including today's in-progress bar."""
-    import httpx
-
-    span = "5d" if days <= 5 else ("1mo" if days <= 30 else "3mo")
-    url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker.upper()}"
-           f"?range={span}&interval=1d")
-    resp = httpx.get(url, timeout=30,
-                     headers={"User-Agent": "Mozilla/5.0 (Macintosh)"})
-    resp.raise_for_status()
-    result = resp.json()["chart"]["result"][0]
-    stamps = result.get("timestamp") or []
-    quote = result["indicators"]["quote"][0]
-    adj = (result["indicators"].get("adjclose") or [{}])[0].get("adjclose", [])
-    rows = []
-    for i, ts in enumerate(stamps):
-        close = quote["close"][i]
-        if close is None:
-            continue
-        day = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone().date()
-        rows.append({
-            "date": day.isoformat(),
-            "open": quote["open"][i], "high": quote["high"][i],
-            "low": quote["low"][i], "close": close,
-            "adj_close": adj[i] if i < len(adj) and adj[i] is not None else close,
-            "volume": quote["volume"][i] or 0,
-        })
-    return rows
-
-
-def _tws_tail(ticker: str, days: int) -> list[dict]:
-    """Recent bars from IB Gateway. Raises if the broker is unreachable."""
-    from .ingestion import prices_tws
-
-    duration = f"{max(days, 5)} D"
-    rows, _ = prices_tws.fetch_daily(ticker, duration=duration)
-    return rows
-
-
 def refresh_ticker(ticker: str, days: int = TAIL_DAYS_DEFAULT,
                    prefer: str = "auto") -> dict:
-    """Refresh one ticker's recent price tail. Never raises: a failure is
-    reported so a partial refresh is visible rather than silent."""
-    ticker = ticker.upper()
-    source, rows, error = None, [], None
-    if prefer in ("tws", "auto"):
-        try:
-            rows, source = _tws_tail(ticker, days), "ibkr_tws"
-        except Exception as exc:
-            if prefer == "tws":
-                return {"ticker": ticker, "status": "error", "source": "ibkr_tws",
-                        "error": f"{type(exc).__name__}: {exc}"}
-            error = f"{type(exc).__name__}"
-    if not rows:
-        try:
-            rows, source = _yahoo_tail(ticker, days), "yahoo"
-        except Exception as exc:
-            return {"ticker": ticker, "status": "error", "source": "yahoo",
-                    "error": f"{type(exc).__name__}: {exc}"}
-    if not rows:
-        return {"ticker": ticker, "status": "no_data", "source": source}
+    """Refresh one coherent adjustment vintage and its dated manifest.
 
-    with db.connect() as conn:
-        written = db.upsert_prices(conn, ticker, rows)
-    latest = rows[-1]
-    return {
-        "ticker": ticker, "status": "ok", "source": source,
-        "rows_written": written, "latest_date": latest["date"],
-        "latest_close": round(latest["close"], 4),
-        "broker_fallback": error,
-    }
+    `days` remains API-compatible; a partial adjusted-price tail cannot be
+    safely spliced into an older corporate-action vintage.
+    """
+    from .market_health import refresh_prices
+    ticker = ticker.upper()
+    if prefer != "auto":
+        return {"ticker": ticker, "status": "error", "source": None,
+                "error": "Use the configured PRICE_SOURCE for a coherent full-series refresh"}
+    try:
+        with db.connect() as conn:
+            result = refresh_prices(conn, [ticker], only_if_stale=False, limit=1)
+        row = next((r for r in result.get("results", []) if r.get("ticker") == ticker), {})
+        if result["status"] not in {"OK", "PARTIAL_RECOVERED"}:
+            return {"ticker": ticker, "status": "error", "source": row.get("source"),
+                    "error": "Completed-session price refresh failed", "refresh": result}
+        return {"ticker": ticker, "status": "ok", "source": row.get("source"),
+                "latest_date": result["health"]["latest_market_date"],
+                "refresh": result}
+    except Exception as exc:
+        return {"ticker": ticker, "status": "error", "source": None,
+                "error": type(exc).__name__}
 
 
 def refresh_many(tickers: list[str], days: int = TAIL_DAYS_DEFAULT,

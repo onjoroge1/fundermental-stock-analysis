@@ -137,9 +137,11 @@ def test_agent_cycle_rejects_any_research_execution_boundary_change(monkeypatch)
 
 def test_automated_control_plane_dispatches_shared_agent_cycle(monkeypatch):
     import stock_machine.control_plane as cp
+    from stock_machine.admin_panel import store
+    monkeypatch.setattr(store, "require_capture_enabled", lambda: None)
 
     calls = []
-    monkeypatch.setattr(cycle, "run", lambda ticker, key: (
+    monkeypatch.setattr(cycle, "run", lambda ticker, key, **kwargs: (
         calls.append((ticker, key))
         or {"status": "COMPLETED", "broker_submission": False}
     ))

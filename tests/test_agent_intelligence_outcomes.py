@@ -36,12 +36,17 @@ def test_score_matured_records_only_matured_stock_action(monkeypatch):
         def __enter__(self): return self
         def __exit__(self,*args): return False
 
-    run={"ticker":"AAPL","decision_id":"d1",
-         "state":{"as_of":"2026-09-01"},
+    run={"mode":"PAPER","learning_contract":"executed-paper.v3","ticker":"AAPL","decision_id":"d1",
+         "state":{"as_of":"2026-09-01","paper_eligible":True},
          "bandit":{"selected":{"action":"LONG_STOCK"}}}
     monkeypatch.setattr(outcomes.db,"connect",lambda:Conn())
     monkeypatch.setattr(research_store,"outcome_candidates",lambda conn,limit:[{"payload":run}])
     monkeypatch.setattr(research_store,"get",lambda *a,**k:None)
+    monkeypatch.setattr(outcomes,"execution",lambda conn,key:{"intent_status":"SIMULATED",
+        "intent_action":"OPEN_LONG","position_id":"position","position_status":"CLOSED",
+        "entry_market_date":"2026-09-02","exit_market_date":"2026-09-30",
+        "entry_notional_usd":1000,"entry_cost_usd":1,"exit_cost_usd":1,"realized_pnl_usd":28,
+        "risk_snapshot":{"equity_before_usd":100000,"execution_contract":"prospective-next-close.v2"}})
     monkeypatch.setattr(outcomes,"latest_completed_session",lambda:"2026-10-15")
     monkeypatch.setattr(outcomes,"session_offset",lambda entry,n:"2026-09-30")
     monkeypatch.setattr(outcomes,"_stock_outcome",lambda *a,**k:{
@@ -60,12 +65,17 @@ def test_blocked_matured_outcome_reports_attention(monkeypatch):
     class Conn:
         def __enter__(self): return self
         def __exit__(self,*args): return False
-    run={"ticker":"AAPL","decision_id":"blocked",
-         "state":{"as_of":"2026-09-01"},
+    run={"mode":"PAPER","learning_contract":"executed-paper.v3","ticker":"AAPL","decision_id":"blocked",
+         "state":{"as_of":"2026-09-01","paper_eligible":True},
          "bandit":{"selected":{"action":"LONG_STOCK"}}}
     monkeypatch.setattr(outcomes.db,"connect",lambda:Conn())
     monkeypatch.setattr(research_store,"outcome_candidates",lambda conn,limit:[{"payload":run}])
     monkeypatch.setattr(research_store,"get",lambda *a,**k:None)
+    monkeypatch.setattr(outcomes,"execution",lambda conn,key:{"intent_status":"SIMULATED",
+        "intent_action":"OPEN_LONG","position_id":"position","position_status":"CLOSED",
+        "entry_market_date":"2026-09-02","exit_market_date":"2026-09-30",
+        "entry_notional_usd":1000,"entry_cost_usd":1,"exit_cost_usd":1,"realized_pnl_usd":28,
+        "risk_snapshot":{"equity_before_usd":100000,"execution_contract":"prospective-next-close.v2"}})
     monkeypatch.setattr(outcomes,"latest_completed_session",lambda:"2026-10-15")
     monkeypatch.setattr(outcomes,"session_offset",lambda entry,n:"2026-09-30")
     def fail(*args):

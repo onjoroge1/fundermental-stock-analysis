@@ -33,12 +33,12 @@ def test_action_matrix_flattens_before_reversal():
 
 def test_fixed_risk_budget_caps_position_gross_and_count():
     target, blockers = agent_trading.position_budget(100_000, 0, 0)
-    assert target == 10_000 and blockers == []
+    assert target == 925.93 and blockers == []
     target, blockers = agent_trading.position_budget(100_000, 45_000, 4)
-    assert target == 5_000 and blockers == []
+    assert target == 925.93 and blockers == []
     target, blockers = agent_trading.position_budget(100_000, 49_700, 4)
-    assert target == 300 and "INSUFFICIENT_GROSS_CAPACITY" in blockers
-    _, blockers = agent_trading.position_budget(100_000, 10_000, 5)
+    assert target == 299.85 and "INSUFFICIENT_GROSS_CAPACITY" in blockers
+    _, blockers = agent_trading.position_budget(100_000, 10_000, 54)
     assert "MAX_OPEN_POSITIONS_REACHED" in blockers
 
 

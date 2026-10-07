@@ -53,16 +53,26 @@ def outcome_candidates(conn, *, limit=100):
     """
     if not 1 <= limit <= 1000:
         raise ValueError("OUTCOME_LIMIT_INVALID")
+    has_paper = conn.execute("SELECT to_regclass('agent_paper_positions')").fetchone()[0] is not None
+    joins = ("LEFT JOIN agent_paper_positions p ON p.source_decision_id::text=r.payload->>'decision_id' "
+             "LEFT JOIN agent_trade_intents i ON i.decision_id::text=r.payload->>'decision_id'"
+             if has_paper else "")
+    priority = ("CASE WHEN r.payload->>'learning_contract' IS DISTINCT FROM 'executed-paper.v3' THEN 0 "
+                "WHEN p.status='CLOSED' THEN 1 "
+                "WHEN i.status='BLOCKED' OR i.action IN ('HOLD','CLOSE') THEN 2 "
+                "WHEN p.status='OPEN' THEN 3 ELSE 4 END," if has_paper else "")
     with conn.cursor() as cur:
-        cur.execute("""SELECT r.record_id,r.content_hash,r.payload,r.recorded_at::text
+        cur.execute(f"""SELECT r.record_id,r.content_hash,r.payload,r.recorded_at::text
             FROM research_evidence_records r
+            {joins}
             WHERE r.kind='AGENT_INTELLIGENCE_V2'
               AND NOT EXISTS (
                 SELECT 1 FROM research_evidence_records done
-                WHERE done.kind IN ('AGENT_REWARD_V2','AGENT_OPTION_PAPER_OUTCOME_V1')
+                WHERE done.kind IN ('AGENT_REWARD_V2','AGENT_REWARD_V3','AGENT_OUTCOME_EXCLUSION_V1','AGENT_OPTION_PAPER_OUTCOME_V1')
                   AND done.request_key=r.payload->>'decision_id')
             ORDER BY CASE WHEN r.payload #>> '{bandit,selected,action}' LIKE 'OPTION:%%'
-                          THEN 1 ELSE 0 END, r.recorded_at,r.record_id
+                          THEN 1 ELSE 0 END, {priority}
+                     r.recorded_at,r.record_id
             LIMIT %s""", (limit,))
         return [dict(zip(("record_id", "content_hash", "payload", "recorded_at"), row))
                 for row in cur.fetchall()]

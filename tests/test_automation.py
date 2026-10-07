@@ -3,6 +3,14 @@ from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 
 import stock_machine.automation as automation
+import pytest
+
+@pytest.fixture(autouse=True)
+def operational_controls(monkeypatch):
+    from stock_machine.admin_panel import store
+    from stock_machine import agent_trading
+    monkeypatch.setattr(store,"controls",lambda conn=None:{"capture_enabled":True})
+    monkeypatch.setattr(agent_trading,"get_mode",lambda:{"mode":"RESEARCH"})
 
 
 def test_choose_refresh_ticker_prefers_unindexed_then_stalest():
@@ -136,6 +144,7 @@ def test_price_cron_surfaces_actual_stale_failure(monkeypatch):
 
 def test_sunday_scheduler_never_auto_syncs_forward_paper(monkeypatch):
     scheduled = []
+    monkeypatch.setattr(automation, "choose_agent_ticker", lambda conn, session: "AAPL")
 
     class FakeResult:
         def fetchone(self):
@@ -173,6 +182,7 @@ def test_sunday_scheduler_never_auto_syncs_forward_paper(monkeypatch):
 
 def test_agent_cycle_uses_completed_session_key_across_utc_weekend(monkeypatch):
     scheduled = []
+    monkeypatch.setattr(automation, "choose_agent_ticker", lambda conn, session: "AAPL")
 
     class FakeResult:
         def fetchone(self):
@@ -207,6 +217,7 @@ def test_agent_cycle_uses_completed_session_key_across_utc_weekend(monkeypatch):
 
 def test_agent_cycle_waits_until_selected_ticker_price_is_current(monkeypatch):
     scheduled = []
+    monkeypatch.setattr(automation, "choose_agent_ticker", lambda conn, session: "AAPL")
 
     class FakeResult:
         def fetchone(self):
@@ -229,6 +240,7 @@ def test_agent_cycle_waits_until_selected_ticker_price_is_current(monkeypatch):
     monkeypatch.setattr(automation, "enqueue", lambda conn, job_type, **kwargs:
                         scheduled.append(job_type) or {"job_type": job_type, "action": "created"})
 
+    monkeypatch.setattr(automation, "choose_agent_ticker", lambda conn, session: None)
     automation.schedule_due(datetime(2026, 9, 18, 21, tzinfo=timezone.utc))
     assert "research_cycle" not in scheduled
 
@@ -271,6 +283,7 @@ def test_cron_tick_stops_early_when_queue_is_idle(monkeypatch):
 
 def test_late_day_scheduler_adds_one_idempotent_v2_outcome_scan(monkeypatch):
     scheduled=[]
+    monkeypatch.setattr(automation, "choose_agent_ticker", lambda conn, session: "AAPL")
     class FakeResult:
         def fetchone(self): return ("2026-09-18",)
     class FakeConn:
@@ -290,4 +303,4 @@ def test_late_day_scheduler_adds_one_idempotent_v2_outcome_scan(monkeypatch):
     automation.schedule_due(datetime(2026,9,19,23,tzinfo=timezone.utc))
     outcome=[x for x in scheduled if x[0]=="agent_intelligence_outcomes"]
     assert len(outcome)==1
-    assert outcome[0][1]["idempotency_key"]=="auto:agent_intelligence_outcomes:2026-09-19"
+    assert outcome[0][1]["idempotency_key"]=="auto:agent_intelligence_outcomes:2026-09-19:23"

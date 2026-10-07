@@ -55,7 +55,7 @@ def test_a_new_decision_on_retry_is_not_a_success():
 
 
 def test_state_requires_every_research_safety_boundary():
-    state = {"status": "OK", "policy": Policy().model_dump(mode="json"), "execution": {"status": "NOT_ENABLED"}}
+    state = {"status": "OK", "policy": Policy(policy_id="research-pilot-v1",tickers=("AAPL","MSFT","UBER","HIMS","VZ")).model_dump(mode="json"), "execution": {"status": "NOT_ENABLED"}}
     assert verify_state(state) is state
     for name in ("order_submission", "simulated_execution", "exploration_enabled", "reward_enabled", "qualified_forward_paper"):
         bad = copy.deepcopy(state)

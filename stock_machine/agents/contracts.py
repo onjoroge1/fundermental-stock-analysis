@@ -9,7 +9,11 @@ from typing import Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 PILOT = ("AAPL", "MSFT", "UBER", "HIMS", "VZ")
-POLICY_ID = "research-pilot-v1"
+from ..sectors import UNIVERSE
+
+AGENT_UNIVERSE = tuple(sorted(set(UNIVERSE)))
+LEGACY_POLICY_ID = "research-pilot-v1"
+POLICY_ID = "research-universe-v2"
 SCHEMA_VERSION = "agent-journal.v1"
 
 
@@ -31,10 +35,10 @@ class Frozen(BaseModel):
 
 
 class Policy(Frozen):
-    policy_id: Literal["research-pilot-v1"] = POLICY_ID
+    policy_id: Literal["research-pilot-v1", "research-universe-v2"] = POLICY_ID
     schema_version: Literal["agent-journal.v1"] = SCHEMA_VERSION
     mode: Literal["RESEARCH"] = "RESEARCH"
-    tickers: tuple[str, ...] = PILOT
+    tickers: tuple[str, ...] = AGENT_UNIVERSE
     evaluation_horizon_sessions: Literal[20] = 20
     order_submission: Literal[False] = False
     simulated_execution: Literal[False] = False
@@ -45,7 +49,8 @@ class Policy(Frozen):
 
     @model_validator(mode="after")
     def fixed_universe(self):
-        if self.tickers != PILOT:
+        expected = PILOT if self.policy_id == LEGACY_POLICY_ID else AGENT_UNIVERSE
+        if self.tickers != expected:
             raise ValueError("A universe change requires a new reviewed policy version")
         return self
 
@@ -61,7 +66,7 @@ class ReviewRequest(CaptureRequest):
 class Decision(Frozen):
     schema_version: Literal["agent-journal.v1"] = SCHEMA_VERSION
     decision_id: str
-    policy_id: Literal["research-pilot-v1"] = POLICY_ID
+    policy_id: Literal["research-pilot-v1", "research-universe-v2"] = POLICY_ID
     ticker: str
     mode: Literal["RESEARCH"] = "RESEARCH"
     observed_at: AwareDatetime
@@ -93,8 +98,9 @@ class Decision(Frozen):
 
     @model_validator(mode="after")
     def boundaries(self):
-        if self.ticker not in PILOT:
-            raise ValueError("Ticker is outside the frozen research pilot")
+        universe = PILOT if self.policy_id == LEGACY_POLICY_ID else AGENT_UNIVERSE
+        if self.ticker not in universe:
+            raise ValueError("Ticker is outside the versioned agent universe")
         if self.observed_at > self.decided_at:
             raise ValueError("Evidence must precede the decision")
         if self.decided_at > utc_now():

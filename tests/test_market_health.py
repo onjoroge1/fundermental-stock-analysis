@@ -147,3 +147,14 @@ def test_refresh_cli_accepts_verified_recovery(monkeypatch):
     monkeypatch.setattr(refresh_prices, "health", lambda *a, **k: {})
     monkeypatch.setattr(refresh_prices, "refresh_prices", lambda *a, **k: {"status": "PARTIAL_RECOVERED"})
     assert refresh_prices.main() == 0
+
+
+def test_current_raw_rows_do_not_mask_an_older_price_manifest(monkeypatch):
+    now=datetime(2026,9,2,20,tzinfo=timezone.utc)
+    monkeypatch.setattr(market_health,'_now_utc',lambda:now)
+    monkeypatch.setattr(market_health.db,'list_companies',lambda conn:[{'ticker':'HIMS'}])
+    conn=_Conn([('HIMS','2026-09-02')],
+               [('HIMS',now,'2026-09-01','PASS',{},[],now)])
+    result=market_health.health(conn)
+    assert result['status']=='STALE' and result['current_count']==0
+    assert result['tickers'][0]['state']=='BLOCKED'

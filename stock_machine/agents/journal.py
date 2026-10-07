@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta, timezone
 from uuid import uuid4
 
-from .contracts import CaptureRequest, Decision, PILOT, POLICY_ID, Policy, ReviewRequest, canonical, digest, utc_now
+from .contracts import CaptureRequest, Decision, AGENT_UNIVERSE, LEGACY_POLICY_ID, POLICY_ID, Policy, ReviewRequest, canonical, digest, utc_now
 from .research import build_decision, failure_decision
 
 
@@ -66,8 +66,8 @@ def _event(cur, decision_id, event_type, key, message):
 
 def capture(ticker: str, request: CaptureRequest, *, reader=None) -> dict:
     ticker = ticker.strip().upper()
-    if ticker not in PILOT:
-        raise ValueError("Ticker is outside the frozen research pilot")
+    if ticker not in AGENT_UNIVERSE:
+        raise ValueError("Ticker is outside the versioned agent universe")
     reader = reader or read_research
     with connection() as conn:
         with conn.cursor() as cur:
@@ -79,7 +79,7 @@ def capture(ticker: str, request: CaptureRequest, *, reader=None) -> dict:
                 return {"replayed": True, "decision": prior}
             _policy(cur)
             previous_id = _one(cur, """SELECT decision_id::text FROM agent_lab_decisions
-                WHERE policy_id=%s AND ticker=%s ORDER BY recorded_at DESC, decision_id DESC LIMIT 1""", (POLICY_ID, ticker))
+                WHERE policy_id IN (%s,%s) AND ticker=%s ORDER BY recorded_at DESC, decision_id DESC LIMIT 1""", (LEGACY_POLICY_ID, POLICY_ID, ticker))
             try:
                 session = expected_session()
                 packet = reader(ticker)
@@ -126,13 +126,13 @@ def detail(decision_id: str) -> dict | None:
 
 def dashboard(ticker: str | None = None, status: str | None = None, limit: int = 50,
               day: date | None = None) -> dict:
-    if ticker is not None and ticker not in PILOT:
-        raise ValueError("Ticker is outside the frozen research pilot")
+    if ticker is not None and ticker not in AGENT_UNIVERSE:
+        raise ValueError("Ticker is outside the versioned agent universe")
     if status is not None and status not in {"RECORDED", "BLOCKED", "FAILED"}:
         raise ValueError("Invalid status")
     if not 1 <= limit <= 100:
         raise ValueError("Limit must be 1-100")
-    clauses, params = ["policy_id=%s"], [POLICY_ID]
+    clauses, params = ["policy_id IN (%s,%s)"], [LEGACY_POLICY_ID, POLICY_ID]
     if ticker:
         clauses.append("ticker=%s")
         params.append(ticker)
@@ -151,14 +151,14 @@ def dashboard(ticker: str | None = None, status: str | None = None, limit: int =
             cur.execute(f"SELECT payload FROM agent_lab_decisions WHERE {where} ORDER BY recorded_at DESC,decision_id DESC LIMIT %s", [*params, limit])
             decisions = [r[0] for r in cur.fetchall()]
             cur.execute("""SELECT DISTINCT ON (ticker) ticker,payload FROM agent_lab_decisions
-                WHERE policy_id=%s ORDER BY ticker,recorded_at DESC,decision_id DESC""", (POLICY_ID,))
+                WHERE policy_id IN (%s,%s) ORDER BY ticker,recorded_at DESC,decision_id DESC""", (LEGACY_POLICY_ID, POLICY_ID))
             latest = dict(cur.fetchall())
     return {
         "status": "OK", "as_of": utc_now().isoformat(), "policy": Policy().model_dump(mode="json"),
         "scope": {"ticker": ticker, "status": status, "day_utc": day.isoformat() if day else None},
         "counts": {"total": sum(counts.values()), "recorded": counts.get("RECORDED", 0),
                    "blocked": counts.get("BLOCKED", 0), "failed": counts.get("FAILED", 0)},
-        "agents": [{"ticker": t, "latest": latest.get(t), "status": latest[t]["status"] if t in latest else "NOT_STARTED"} for t in PILOT],
+        "agents": [{"ticker": t, "latest": latest.get(t), "status": latest[t]["status"] if t in latest else "NOT_STARTED"} for t in AGENT_UNIVERSE],
         "decisions": decisions, "returned": len(decisions), "truncated": sum(counts.values()) > limit,
         "execution": {"status": "NOT_ENABLED", "fills": None, "pnl": None, "reward": None},
         "report_delivery": "APP_ONLY; external delivery is not enabled",

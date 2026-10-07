@@ -160,24 +160,24 @@ def test_intelligence_summary_is_read_only_owner_projection(monkeypatch):
                            "uncertainty":.6,"ucb":.71,"observations":2}},
                 "selected":{"action":"LONG_STOCK","instrument":"STOCK"},
             }}
-        if kind == "AGENT_REWARD_V2":
+        if kind == "AGENT_REWARD_V3":
             return {"payload":{"reward":{"reward":1.25}}}
         return None
     monkeypatch.setattr(research_store, "latest", latest)
     monkeypatch.setattr(
         research_store, "get",
         lambda conn, kind, key: ({"payload":{"reward":{"reward":1.25}}}
-                                if kind == "AGENT_REWARD_V2" and key == "d1" else None),
+                                if kind == "AGENT_REWARD_V3" and key == "d1" else None),
     )
     value=operations.intelligence_summary()
-    aapl=value["rows"][0]
+    aapl=next(r for r in value["rows"] if r["ticker"]=="AAPL")
     assert aapl["ticker"]=="AAPL"
     assert aapl["direction"]=="BULLISH"
     assert aapl["bandit_selected"]=="LONG_STOCK"
     assert aapl["bandit_exploration_bonus"]==pytest.approx(.21)
     assert aapl["eligible_actions"]==["NO_TRADE","LONG_STOCK"]
     assert aapl["latest_reward"]==1.25
-    assert aapl["reward_status"]=="SCORED"
+    assert aapl["reward_status"]=="SCORED_REALIZED_PAPER"
     assert value["broker_submission"] is False
 
 
@@ -206,13 +206,13 @@ def test_intelligence_summary_surfaces_latest_v2_failure(monkeypatch):
     monkeypatch.setattr(research_store, "latest", latest)
     monkeypatch.setattr(research_store, "get", lambda *args, **kwargs: None)
     value = operations.intelligence_summary()
-    aapl = value["rows"][0]
+    aapl = next(r for r in value["rows"] if r["ticker"]=="AAPL")
     assert aapl == {
         "ticker": "AAPL", "status": "UNAVAILABLE", "mode": "SHADOW",
         "decision_id": "d2", "reason_code": "INTELLIGENCE_PRICE_DATE_MISMATCH",
         "recorded_at": "2026-09-27T20:00:00+00:00",
     }
-    assert [row["status"] for row in value["rows"][1:]] == ["NOT_RUN"] * 4
+    assert [row["status"] for row in value["rows"] if row["ticker"]!="AAPL"] == ["NOT_RUN"] * 53
 
 
 @pytest.mark.parametrize(
@@ -266,9 +266,9 @@ def test_intelligence_summary_recovers_completed_pilot_result(
     monkeypatch.setattr(research_store, "get", lambda *args, **kwargs: None)
 
     value = operations.intelligence_summary()
-    aapl = value["rows"][0]
+    aapl = next(r for r in value["rows"] if r["ticker"]=="AAPL")
     assert aapl["status"] == expected_status
     assert aapl.get("bandit_selected") == expected_choice
     assert aapl["decision_id"] == intelligence["decision_id"]
     assert aapl["recorded_at"] == "2026-09-28T11:30:24+00:00"
-    assert [row["status"] for row in value["rows"][1:]] == ["NOT_RUN"] * 4
+    assert [row["status"] for row in value["rows"] if row["ticker"]!="AAPL"] == ["NOT_RUN"] * 53

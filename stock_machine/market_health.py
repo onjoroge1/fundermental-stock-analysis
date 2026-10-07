@@ -78,6 +78,8 @@ def health(conn, *, max_age_hours: float = DEFAULT_MAX_AGE_HOURS,
         state = freshness["status"]
         if state == "CURRENT" and snap.get("snapshot_status") == "FAIL":
             state = "BLOCKED"
+        if state == "CURRENT" and snap.get("snapshot_market_date") != latest_market_date:
+            state = "BLOCKED"
         rows.append({
             "ticker": ticker,
             "state": state,
@@ -170,48 +172,8 @@ def refresh_prices(
                 "reason_code": "PRIMARY_PRICE_REFRESH_FAILED",
             })
 
-    # One dated bulk request is a low-call fallback for the common outage case:
-    # an otherwise complete series is missing only the latest session.  Never
-    # use a single row to conceal a multi-session gap or a missing history.
-    from .config import FMP_API_KEY
-    bulk_candidates = []
-    if FMP_API_KEY:
-        for failure in failures:
-            ticker = failure["ticker"]
-            existing = db.fetch_prices(conn, ticker)
-            latest = existing[-1]["date"] if existing else None
-            if price_freshness(latest)["missing_sessions"] == 1:
-                bulk_candidates.append(ticker)
-    if bulk_candidates:
-        try:
-            from .ingestion.prices_fmp import fetch_eod_bulk
-            cutoff = latest_completed_session()
-            bulk = fetch_eod_bulk(cutoff, bulk_candidates)
-            for ticker in bulk_candidates:
-                row = bulk.get(ticker)
-                if not row:
-                    continue
-                existing = db.fetch_prices(conn, ticker, cutoff)
-                combined = [value for value in existing if value["date"] != cutoff] + [row]
-                snapshot = assess_dataset("prices", combined)
-                if snapshot["status"] == "FAIL" or snapshot["max_record_date"] != cutoff:
-                    continue
-                db.upsert_prices(conn, ticker, [row])
-                db.record_dataset_snapshots(conn, ticker, [snapshot])
-                results.append({
-                    "ticker": ticker,
-                    "status": "OK",
-                    "source": "fmp_eod_bulk",
-                    "rows": 1,
-                    "latest_market_date": cutoff,
-                    "recovered_from": "PRIMARY_PRICE_REFRESH_FAILED",
-                })
-        except Exception as exc:
-            conn.rollback()
-            fallback_error = _safe_error(exc)
-            for failure in failures:
-                if failure["ticker"] in bulk_candidates:
-                    failure["fallback_error"] = fallback_error
+    # A single-row fallback cannot establish a coherent adjustment vintage.
+    # Keep the previous manifest stale until a complete provider history succeeds.
 
     after = health(conn, max_age_hours=max_age_hours, tickers=requested_tickers)
     states = {row["ticker"]: row["state"] for row in after.get("tickers", [])}

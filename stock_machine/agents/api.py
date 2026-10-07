@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from . import journal
-from .contracts import CaptureRequest, PILOT, ReviewRequest
+from .contracts import CaptureRequest, AGENT_UNIVERSE, ReviewRequest
 
 router = APIRouter(tags=["agent-lab"])
 
@@ -51,8 +51,8 @@ def _read(call):
 @router.get("/agents")
 @router.get("/agents/{ticker}")
 def page(ticker: str | None = None):
-    if ticker and ticker.upper() not in PILOT:
-        raise HTTPException(404, "Ticker is outside the research pilot")
+    if ticker and ticker.upper() not in AGENT_UNIVERSE:
+        raise HTTPException(404, "Ticker is outside the covered agent universe")
     from ..config import PROJECT_ROOT
     return FileResponse(PROJECT_ROOT / "webui" / "agents.html")
 

@@ -1,0 +1,57 @@
+name: Agent Universe Release 0024
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - migrations/versions/0024_agent_universe_learning.py
+      - .github/workflows/agent-universe-release-0024.yml
+      - scripts/activate_agent_universe.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-universe-release-0024
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    environment: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+      PRICE_SOURCE: yahoo_fmp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install application
+        run: python -m pip install -e .
+      - name: Apply and verify migration
+        run: |
+          python - <<'PY'
+          from alembic import command
+          from alembic.config import Config
+          from stock_machine import db
+          with db.connect() as conn:
+              before = {row[0] for row in conn.execute('SELECT version_num FROM alembic_version')}
+          if before not in ({'0023_agent_intelligence_evidence'}, {'0024_agent_universe_learning'}):
+              raise SystemExit('UNEXPECTED_DATABASE_REVISION')
+          command.upgrade(Config('alembic.ini'), '0024_agent_universe_learning')
+          with db.connect() as conn:
+              db.init_schema(conn)
+          print('SCHEMA_0024_VERIFIED')
+          PY
+      - name: Repair coherent stock histories and manifests
+        run: python scripts/refresh_prices.py --force
+      - name: Refresh benchmark histories
+        run: python scripts/refresh_prices.py --benchmarks --force
+      - name: Activate paper mode and retain owner pause setting
+        run: python scripts/activate_agent_universe.py

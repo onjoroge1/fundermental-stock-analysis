@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from stock_machine.agents import api, journal
-from stock_machine.agents.contracts import CaptureRequest, Decision, PILOT, Policy, ReviewRequest, digest
+from stock_machine.agents.contracts import CaptureRequest, Decision, PILOT, AGENT_UNIVERSE, Policy, ReviewRequest, digest
 from stock_machine.agents.research import build_decision, failure_decision
 
 NOW = datetime(2024, 1, 6, 12, tzinfo=timezone.utc)
@@ -31,7 +31,8 @@ def build(p=None):
 
 def test_policy_permissions_are_fixed():
     policy = Policy()
-    assert policy.tickers == PILOT
+    assert policy.tickers == AGENT_UNIVERSE
+    assert Policy(policy_id="research-pilot-v1",tickers=PILOT).tickers == PILOT
     assert not any((policy.order_submission, policy.simulated_execution, policy.exploration_enabled, policy.reward_enabled, policy.qualified_forward_paper))
     for key in ("order_submission", "simulated_execution", "exploration_enabled", "reward_enabled"):
         with pytest.raises(ValidationError):
