@@ -162,6 +162,11 @@ def main() -> int:
                 r = compute_and_save(t)
                 prediction_result["ok" if r["status"] == "OK"
                                   else "failed"] += 1
+                if r["status"] != "OK":
+                    prediction_result.setdefault("errors", []).append({
+                        "ticker": t, "status": r["status"],
+                        "reason": r.get("reason"),
+                    })
             except Exception as exc:
                 prediction_result["failed"] += 1
                 prediction_result.setdefault("errors", []).append({
@@ -224,6 +229,12 @@ def main() -> int:
     operational_failure = (failures or prediction_result.get("failed") or prediction_result.get("error")
                            or paper_result.get("error") or outcome_result.get("error")
                            or not coverage_result.get("ok"))
+    print(json.dumps({"event": "operational_summary",
+                      "status": "FAILED" if operational_failure else "OK",
+                      "prediction_precompute": prediction_result,
+                      "paper_portfolio": paper_result,
+                      "forecast_outcomes": outcome_result,
+                      "coverage_snapshot": coverage_result}, default=str))
     return 1 if operational_failure else 0
 
 
