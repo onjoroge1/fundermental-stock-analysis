@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import time
+from zoneinfo import ZoneInfo
 
 import httpx
 
 from ..provenance import save_raw
+from ..market_calendar import latest_completed_session
 
 _UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
 
@@ -36,6 +38,17 @@ def _payload(symbol: str) -> tuple[dict, str]:
                 if not result:
                     code = ((chart or {}).get("error") or {}).get("code") or "EMPTY_RESULT"
                     raise YahooPriceError(f"YAHOO_{str(code).upper()}")
+                # A successful HTTP response can still be a cached, stale
+                # series. Retry both hosts before handing off to FMP.
+                required = latest_completed_session()
+                bars = result[0]
+                closes = ((bars.get("indicators") or {}).get("quote") or [{}])[0].get("close") or []
+                days = [datetime.fromtimestamp(ts, timezone.utc).astimezone(
+                    ZoneInfo("America/New_York")).date().isoformat()
+                    for ts, close in zip(bars.get("timestamp") or [], closes)
+                    if close is not None and close > 0]
+                if required not in days:
+                    raise YahooPriceError("YAHOO_LATEST_COMPLETED_SESSION_MISSING")
                 return payload, url
             except (httpx.HTTPError, ValueError, YahooPriceError) as exc:
                 detail = str(exc) if isinstance(exc, YahooPriceError) else type(exc).__name__.upper()
@@ -61,7 +74,7 @@ def fetch_daily(ticker: str) -> tuple[list[dict], list[dict]]:
     adj = (result["indicators"].get("adjclose") or [{}])[0].get("adjclose", [])
 
     def _day(ts: int) -> str:
-        return datetime.fromtimestamp(ts, tz=timezone.utc).astimezone().date().isoformat()
+        return datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(ZoneInfo("America/New_York")).date().isoformat()
 
     rows = []
     for i, ts in enumerate(timestamps):
