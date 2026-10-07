@@ -135,6 +135,8 @@ def test_panel_page_and_assets_have_no_database_dependency(monkeypatch):
 
 def test_intelligence_summary_is_read_only_owner_projection(monkeypatch):
     from stock_machine.admin_panel import operations
+    from stock_machine.agent_intelligence import shadow
+    monkeypatch.setattr(shadow, "weekly_summary", lambda *a, **k: {"status": "AWAITING_MATURITY"})
     from stock_machine import research_store
 
     class Conn:
@@ -183,6 +185,8 @@ def test_intelligence_summary_is_read_only_owner_projection(monkeypatch):
 
 def test_intelligence_summary_surfaces_latest_v2_failure(monkeypatch):
     from stock_machine.admin_panel import operations
+    from stock_machine.agent_intelligence import shadow
+    monkeypatch.setattr(shadow, "weekly_summary", lambda *a, **k: {"status": "AWAITING_MATURITY"})
     from stock_machine import research_store
 
     class Conn:
@@ -246,6 +250,8 @@ def test_intelligence_summary_surfaces_latest_v2_failure(monkeypatch):
 def test_intelligence_summary_recovers_completed_pilot_result(
         monkeypatch, intelligence, expected_status, expected_choice):
     from stock_machine.admin_panel import operations
+    from stock_machine.agent_intelligence import shadow
+    monkeypatch.setattr(shadow, "weekly_summary", lambda *a, **k: {"status": "AWAITING_MATURITY"})
     from stock_machine import research_store
 
     class Result:

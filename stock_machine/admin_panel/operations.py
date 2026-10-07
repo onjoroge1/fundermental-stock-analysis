@@ -160,6 +160,8 @@ def intelligence_summary():
     completed_session = str(latest_completed_session())
     rows = []
     with store.connect() as conn:
+        from ..agent_intelligence.shadow import weekly_summary
+        shadow = weekly_summary(conn)
         loop_health = _learning_loop_health(conn)
         run_records = _latest_run_intelligence(conn)
         for ticker in AGENT_UNIVERSE:
@@ -272,6 +274,7 @@ def intelligence_summary():
                      "paper_eligible": sum(r.get("paper_eligible") is True and r.get("as_of") == completed_session for r in rows)},
         "latest_completed_session": completed_session,
         "learning_loop": loop_health,
+        "shadow_evaluation": shadow,
         "broker_submission": False,
         "note": "Latest v2 outcomes are reconciled from the evidence index and durable pilot-run results. Research mode is SHADOW; PAPER can simulate stock instructions only.",
     }
