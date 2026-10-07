@@ -11,13 +11,13 @@ from urllib.parse import urlparse
 
 import httpx
 
-from stock_machine.agents.contracts import CaptureRequest, PILOT
+from stock_machine.agents.contracts import CaptureRequest, AGENT_UNIVERSE
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", required=True, help="Stable idempotency key; reuse on retry")
-    parser.add_argument("--ticker", choices=PILOT, help="Omit to capture all five sequentially")
+    parser.add_argument("--ticker", choices=AGENT_UNIVERSE, help="Omit to capture all five sequentially")
     args = parser.parse_args()
     request = CaptureRequest(idempotency_key=args.run_id)
     origin = os.environ.get("STOCK_MACHINE_API_BASE_URL", "").rstrip("/")
@@ -28,7 +28,7 @@ def main() -> int:
         return 2
     failed = False
     with httpx.Client(timeout=310, follow_redirects=False) as client:
-        for ticker in ([args.ticker] if args.ticker else PILOT):
+        for ticker in ([args.ticker] if args.ticker else AGENT_UNIVERSE):
             try:
                 response = client.post(f"{origin}/api/admin/agents/{ticker}/capture",
                     headers={"Authorization": f"Bearer {token}"}, json=request.model_dump())

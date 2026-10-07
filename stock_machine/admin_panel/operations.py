@@ -36,18 +36,20 @@ def trading_summary():
     from .. import agent_trading
     mode = agent_trading.get_mode()
     paper = agent_trading.portfolio()
-    return {"mode": mode, "paper": paper, "broker_submission": False,
+    from ..agent_performance import report
+    weekly = report()
+    return {"mode": mode, "paper": paper, "weekly": weekly, "broker_submission": False,
             "live_trading_available": False,
             "note": "PAPER uses deterministic simulated fills only. No broker order path exists in Agent Trading v1."}
 
 
 def connection_summary():
     from .. import research_store
-    from ..agents.contracts import PILOT
+    from ..agents.contracts import AGENT_UNIVERSE
     from ..ingestion.massive import configured
     with store.connect() as conn:
         values = []
-        for ticker in PILOT:
+        for ticker in AGENT_UNIVERSE:
             record = research_store.latest(conn, "PROVIDER_DAILY", ticker)
             value = record.get("payload", {}) if record else {}
             values.append({"ticker": ticker, "status": value.get("status", "NOT_TESTED"),
@@ -102,7 +104,7 @@ def _learning_loop_health(conn) -> dict:
     except Exception:
         return {
             "status": "UNAVAILABLE",
-            "cron_schedule": "hourly",
+            "cron_schedule": "every 10 minutes",
             "outcome_scan_window_utc": "22:00 or later",
             "research_cycles": [],
             "latest_outcome_scan": None,
@@ -110,7 +112,7 @@ def _learning_loop_health(conn) -> dict:
     if any(len(row) < 8 for row in rows):
         return {
             "status": "UNAVAILABLE",
-            "cron_schedule": "hourly",
+            "cron_schedule": "every 10 minutes",
             "outcome_scan_window_utc": "22:00 or later",
             "research_cycles": [],
             "latest_outcome_scan": None,
@@ -142,7 +144,7 @@ def _learning_loop_health(conn) -> dict:
         status = "NO_EVIDENCE"
     return {
         "status": status,
-        "cron_schedule": "hourly",
+        "cron_schedule": "every 10 minutes",
         "outcome_scan_window_utc": "22:00 or later",
         "research_cycles": cycles,
         "latest_outcome_scan": outcome,
@@ -152,7 +154,7 @@ def _learning_loop_health(conn) -> dict:
 def intelligence_summary():
     """Owner-facing latest Agent Intelligence v2 state for the pilot."""
     from .. import research_store
-    from ..agents.contracts import PILOT
+    from ..agents.contracts import AGENT_UNIVERSE
     from ..agent_intelligence.outcomes import HORIZON_SESSIONS
     from ..market_calendar import latest_completed_session, session_offset
     completed_session = str(latest_completed_session())
@@ -160,7 +162,7 @@ def intelligence_summary():
     with store.connect() as conn:
         loop_health = _learning_loop_health(conn)
         run_records = _latest_run_intelligence(conn)
-        for ticker in PILOT:
+        for ticker in AGENT_UNIVERSE:
             success = research_store.latest(conn, "AGENT_INTELLIGENCE_V2", ticker)
             failure = research_store.latest(conn, "AGENT_INTELLIGENCE_V2_FAILURE", ticker)
             run_record = run_records.get(ticker)
@@ -194,24 +196,18 @@ def intelligence_summary():
             bandit_selected = bandit.get("selected") or {}
             selected = value.get("selected") or {}
             decision_id = value.get("decision_id")
-            reward = (research_store.get(conn, "AGENT_REWARD_V2", str(decision_id))
+            reward = (research_store.get(conn, "AGENT_REWARD_V3", str(decision_id))
                       if decision_id else None)
             reward_payload = (reward or {}).get("payload") or {}
             action = bandit_selected.get("action")
-            entry_session = state.get("as_of")
-            reward_due_session = None
-            if entry_session and action in {"LONG_STOCK", "SHORT_STOCK", "NO_TRADE"}:
-                reward_due_session = session_offset(entry_session, HORIZON_SESSIONS)
-            if reward_payload:
-                reward_status = "SCORED"
-            elif str(action or "").startswith("OPTION:"):
-                reward_status = "OPTION_PATH_REWARD_UNAVAILABLE"
-            elif reward_due_session and completed_session >= reward_due_session:
-                reward_status = "DUE_UNSCORED"
-            elif reward_due_session:
-                reward_status = "PENDING_MATURITY"
+            from ..agent_intelligence.outcomes import execution, learning_status
+            if value.get('learning_contract') == 'executed-paper.v3':
+                ledger = execution(conn, str(decision_id)) if decision_id else None
+                reward_status, reward_due_session = learning_status(value, ledger, completed_session)
             else:
-                reward_status = "NOT_APPLICABLE"
+                reward_status, reward_due_session = 'LEGACY_HYPOTHETICAL_NOT_TRAINING', None
+            if reward_payload:
+                reward_status = 'SCORED_REALIZED_PAPER'
             arms = bandit.get("arms") or []
             eligible_actions = [arm.get("action") for arm in arms if arm.get("action")]
             if not eligible_actions:
@@ -262,9 +258,18 @@ def intelligence_summary():
                 "reward_horizon_sessions": HORIZON_SESSIONS,
                 "recorded_at": success.get("recorded_at"),
             })
+    current = [r for r in rows if r.get('as_of') == completed_session]
+    if any(r.get('paper_eligible') is False for r in current):
+        loop_health['status'] = 'ATTENTION'
+    elif len(current) < len(AGENT_UNIVERSE) and loop_health['status'] != 'ATTENTION':
+        loop_health['status'] = 'COVERAGE_PENDING'
     return {
         "schema_version": "agent-intelligence-admin.v2",
         "rows": rows,
+        "universe": list(AGENT_UNIVERSE),
+        "coverage": {"expected": len(AGENT_UNIVERSE),
+                     "observed": sum(r.get("as_of") == completed_session for r in rows),
+                     "paper_eligible": sum(r.get("paper_eligible") is True and r.get("as_of") == completed_session for r in rows)},
         "latest_completed_session": completed_session,
         "learning_loop": loop_health,
         "broker_submission": False,

@@ -69,7 +69,8 @@ def main():
     parser.add_argument("--reconcile", action="store_true")
     parser.add_argument("--refresh-sec", action="store_true")
     parser.add_argument("--index", action="store_true")
-    parser.add_argument("--cycle", choices=["AAPL", "MSFT", "UBER", "HIMS", "VZ", "all"])
+    from stock_machine.agents.contracts import AGENT_UNIVERSE
+    parser.add_argument("--cycle", choices=[*AGENT_UNIVERSE, "all"])
     parser.add_argument("--experiment", action="store_true")
     args = parser.parse_args()
     now = datetime.now(timezone.utc)
@@ -80,9 +81,9 @@ def main():
             result["reconciliation"] = reconcile(refresh_sec=args.refresh_sec)
             failed |= result["reconciliation"]["status"] == "FAILED"
         if args.cycle:
-            from stock_machine.agents.contracts import PILOT
+            from stock_machine.agents.contracts import AGENT_UNIVERSE
             from stock_machine.research_cycle import run
-            result["cycles"] = [run(t, "operations:" + now.date().isoformat()) for t in (PILOT if args.cycle == "all" else [args.cycle])]
+            result["cycles"] = [run(t, "operations:" + now.date().isoformat()) for t in (AGENT_UNIVERSE if args.cycle == "all" else [args.cycle])]
         if args.index:
             from scripts.build_coverage_snapshot import main as index
             result["index_exit_code"] = index()

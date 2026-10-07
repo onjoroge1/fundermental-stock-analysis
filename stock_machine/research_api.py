@@ -3,7 +3,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from . import db, research_store
-from .agents.contracts import PILOT
+from .agents.contracts import AGENT_UNIVERSE
 from .automation_api import _require_admin
 
 router = APIRouter(tags=["research-integrity"])
@@ -16,8 +16,8 @@ class RunRequest(BaseModel):
 @router.post("/api/admin/research/{ticker}/run")
 def run_cycle(ticker: str, body: RunRequest, authorization: str | None = Header(default=None)):
     _require_admin(authorization)
-    if ticker.upper() not in PILOT:
-        raise HTTPException(400, "Ticker is outside the five-name research pilot")
+    if ticker.upper() not in AGENT_UNIVERSE:
+        raise HTTPException(400, "Ticker is outside the covered agent universe")
     from .research_cycle import run
     try:
         return run(ticker.upper(), body.idempotency_key)
@@ -29,8 +29,8 @@ def run_cycle(ticker: str, body: RunRequest, authorization: str | None = Header(
 def state():
     try:
         with db.connect() as conn:
-            cycles = {t: research_store.latest(conn, "CYCLE_RESULT", t) for t in PILOT}
-            provider = {t: research_store.latest(conn, "PROVIDER_DAILY", t) for t in PILOT}
+            cycles = {t: research_store.latest(conn, "CYCLE_RESULT", t) for t in AGENT_UNIVERSE}
+            provider = {t: research_store.latest(conn, "PROVIDER_DAILY", t) for t in AGENT_UNIVERSE}
             protocol = research_store.latest(conn, "EXPERIMENT_PROTOCOL")
             forecast = research_store.latest(conn, "EXPERIMENT_FORECAST")
             outcomes = research_store.records(conn, "EXPERIMENT_OUTCOME")

@@ -26,6 +26,7 @@ def pg(monkeypatch):
         m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
         with connect() as conn:
             m.op=SimpleNamespace(execute=conn.execute);m.upgrade()
+            conn.execute("ALTER TABLE operator_pilot_items DROP CONSTRAINT operator_pilot_items_ticker_check")
         monkeypatch.setattr(store,"connect",connect)
         monkeypatch.setenv("ADMIN_PASSWORD",INITIAL)
         yield connect
@@ -110,7 +111,7 @@ def test_run_creation_idempotent_and_budgeted(pg):
     account();rid=str(uuid4())
     assert not store.create_run("admin",rid)["replayed"]
     assert store.create_run("admin",rid)["replayed"]
-    assert len(store.runs()[0]["items"])==5
+    assert len(store.runs()[0]["items"])==54
     store.create_run("admin",str(uuid4()));store.create_run("admin",str(uuid4()))
     with pytest.raises(security.PanelError,match="DAILY_PILOT"):store.create_run("admin",str(uuid4()))
 

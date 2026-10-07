@@ -70,9 +70,8 @@ def prices_refresh(ticker: str | None = None, days: int = 10,
                    prefer: str = "auto") -> dict:
     """Bring stored prices current on demand.
 
-    Touches the recent price tail only: fundamentals, consensus, insiders and
-    bundles are untouched, so a refreshed price never implies refreshed
-    analysis. Omit `ticker` to refresh the whole universe (~3-4 minutes).
+    Refreshes a coherent completed-session price vintage and its manifest.
+    Fundamentals and forecasts require their separate scheduled refresh. Omit `ticker` to refresh the whole universe (~3-4 minutes).
     """
     from .prices_live import refresh_many, refresh_universe
 

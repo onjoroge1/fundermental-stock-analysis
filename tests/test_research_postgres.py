@@ -167,3 +167,25 @@ def test_public_coverage_uses_read_only_index_and_keeps_pending_names(pg, monkey
     with pg() as conn:
         control_plane.coverage_rows(conn)
         assert conn.execute("SHOW transaction_read_only").fetchone()[0] == "on"
+
+
+def test_concurrent_realized_learning_updates_are_serialized_and_replays_do_not_double_count(pg):
+    from concurrent.futures import ThreadPoolExecutor
+    from stock_machine.agent_intelligence.learning import record_outcome
+    outcome={'learning_basis':'REALIZED_PAPER_FILL_V1','gross_return_pct':3.,
+             'max_drawdown_pct':-1.,'capital_used_pct':.93,'turnover_pct':1.86,'costs_pct':.2}
+    with pg() as conn:
+        for key in ['learn-one','learn-two']:
+            research_store.save(conn,'AGENT_INTELLIGENCE_V2',key,{
+                'ticker':'VZ','decision_id':key,'learning_contract':'executed-paper.v3',
+                'state':{'bias_score':.5},'bandit':{'selected':{'action':'LONG_STOCK'}}},'VZ')
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results=list(pool.map(lambda key:record_outcome('VZ',key,outcome),['learn-one','learn-two']))
+    assert not any(r['replayed'] for r in results)
+    with pg() as conn:
+        state=research_store.latest(conn,'AGENT_BANDIT_STATE_V2','VZ')['payload']
+        assert state['arms']['LONG_STOCK']['observations']==2
+        assert research_store.get(conn,'AGENT_REWARD_V3','learn-one')
+    assert record_outcome('VZ','learn-one',outcome)['replayed']
+    with pg() as conn:
+        assert research_store.latest(conn,'AGENT_BANDIT_STATE_V2','VZ')['payload']['arms']['LONG_STOCK']['observations']==2

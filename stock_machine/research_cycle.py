@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from . import db, research_store
-from .agents.contracts import PILOT
+from .agents.contracts import AGENT_UNIVERSE
 from .bundle import build_bundle
 from .claim_evidence import audit_claims, fact_text, FACT_FIELDS
 from .research_contract import bundle_identity, digest, evaluate
@@ -55,8 +55,8 @@ def build_brief(bundle: dict, previous: dict | None = None, *, now=None, news=No
 
 
 def run(ticker: str, request_key: str, *, collect_market_data=True) -> dict:
-    if ticker not in PILOT:
-        raise ValueError("Fresh research is restricted to the reviewed five-name pilot")
+    if ticker not in AGENT_UNIVERSE:
+        raise ValueError("Fresh research is restricted to the covered agent universe")
     key = f"{ticker}:{request_key}"
     # Session advisory lock spans provider reads but holds no transaction or
     # partial writes. It prevents duplicate paid calls on concurrent retries.

@@ -500,7 +500,9 @@ def execute(job: dict) -> dict:
                 "research_contract": row["research_contract"]}
     if kind == "research_cycle":
         from .agent_cycle import run
-        return run(job.get("ticker"), job["idempotency_key"])
+        from .admin_panel.store import require_capture_enabled
+        require_capture_enabled()
+        return run(job.get("ticker"), job["idempotency_key"], capture_guard=require_capture_enabled)
     if kind == "research_experiment":
         from .prospective_experiment import run
         return run()

@@ -67,6 +67,7 @@ def test_orchestrator_freezes_clock_and_replays_before_rebuilding(monkeypatch):
         def __exit__(self, *args): return False
         def execute(self, *args): return self
         def fetchone(self): return (packet,)
+        def fetchall(self): return []
     monkeypatch.setattr(db, "connect", Conn)
     monkeypatch.setattr(research_store, "get", lambda conn, kind, key: records.get(key))
     monkeypatch.setattr(research_store, "latest", lambda *a: None)
@@ -79,7 +80,7 @@ def test_orchestrator_freezes_clock_and_replays_before_rebuilding(monkeypatch):
         return {}
     monkeypatch.setattr(o, "build_news", news)
     monkeypatch.setattr(o, "assemble", lambda *a, **k: state())
-    def choose(context, actions, arms, mode):
+    def choose(context, actions, arms, mode, **kwargs):
         assert "LONG_STOCK" in actions
         return {"selected": {"action": "LONG_STOCK"}}
     monkeypatch.setattr(o.bandit, "select", choose)

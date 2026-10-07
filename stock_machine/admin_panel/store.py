@@ -173,7 +173,7 @@ def recent_audit():
 
 
 def create_run(actor: str, run_id: str):
-    from ..agents.contracts import PILOT
+    from ..agents.contracts import AGENT_UNIVERSE
     run_id = str(UUID(run_id))
     with connect() as conn:
         conn.execute("SELECT pg_advisory_xact_lock(hashtextextended('operator-pilot-create',0))")
@@ -185,9 +185,9 @@ def create_run(actor: str, run_id: str):
         if count >= 3:
             raise PanelError("DAILY_PILOT_LIMIT_REACHED", 429)
         conn.execute("INSERT INTO operator_pilot_runs(run_id,actor) VALUES (%s,%s)", (run_id, actor))
-        for ticker in PILOT:
+        for ticker in AGENT_UNIVERSE:
             conn.execute("INSERT INTO operator_pilot_items(run_id,ticker) VALUES (%s,%s)", (run_id, ticker))
-        audit(conn, actor, "PILOT_REQUESTED", {"run_id": run_id, "tickers": list(PILOT)})
+        audit(conn, actor, "PILOT_REQUESTED", {"run_id": run_id, "tickers": list(AGENT_UNIVERSE)})
     return {"run_id": run_id, "replayed": False}
 
 
