@@ -70,7 +70,7 @@ def outcome_candidates(conn, *, limit=100):
                 SELECT 1 FROM research_evidence_records done
                 WHERE done.kind IN ('AGENT_REWARD_V2','AGENT_REWARD_V3','AGENT_OUTCOME_EXCLUSION_V1','AGENT_OPTION_PAPER_OUTCOME_V1')
                   AND done.request_key=r.payload->>'decision_id')
-            ORDER BY CASE WHEN r.payload #>> '{bandit,selected,action}' LIKE 'OPTION:%%'
+            ORDER BY CASE WHEN r.payload #>> '{{bandit,selected,action}}' LIKE 'OPTION:%%'
                           THEN 1 ELSE 0 END, {priority}
                      r.recorded_at,r.record_id
             LIMIT %s""", (limit,))

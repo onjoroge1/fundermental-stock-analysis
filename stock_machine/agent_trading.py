@@ -990,9 +990,9 @@ def settle_holding_limits(*, limit: int = 6) -> dict:
                 continue
             if len(closed) + len(blocked) >= limit:
                 break
-            _, price = _latest_price(conn, ticker)
+            price_date, price = _latest_price(conn, ticker)
             _, basis = _latest_price(conn, ticker, pos["entry_market_date"])
-            if price is None or basis is None:
+            if price_date != completed or price is None or basis is None:
                 blocked.append(ticker)
                 continue
             units = float(pos["entry_notional_usd"]) / basis
