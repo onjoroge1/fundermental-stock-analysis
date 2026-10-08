@@ -12,7 +12,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: technical-setup-shadow
+  group: agent-shadow-schema-and-technical
   cancel-in-progress: false
 jobs:
   evaluate:

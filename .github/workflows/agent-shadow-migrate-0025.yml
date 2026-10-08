@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: agent-shadow-migration-0025
+  group: agent-shadow-schema-and-technical
   cancel-in-progress: false
 
 jobs:
