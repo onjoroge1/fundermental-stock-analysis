@@ -109,3 +109,19 @@ def test_missing_prospective_path_has_durable_retry_evidence(pg, monkeypatch):
             == 1
         )
         assert research_store.get(conn, store.OUTCOME, "missing") is None
+
+
+def test_capture_pause_skips_new_candidates_and_resume_runs(pg, monkeypatch):
+    monkeypatch.setattr(store, "AGENT_UNIVERSE", ("VZ",))
+    monkeypatch.setattr(db, "fetch_prices", lambda *args: bars())
+    now = datetime(2026, 10, 7, 23, 40, tzinfo=timezone.utc)
+    with pg() as conn:
+        conn.execute("UPDATE operator_controls SET capture_paused=true")
+    assert store.run_daily(now=now)["reason"] == "CAPTURE_PAUSED"
+    with pg() as conn:
+        assert (
+            conn.execute("SELECT count(*) FROM research_evidence_records").fetchone()[0]
+            == 0
+        )
+        conn.execute("UPDATE operator_controls SET capture_paused=false")
+    assert store.run_daily(now=now)["status"] == "OK"

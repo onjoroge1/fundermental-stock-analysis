@@ -113,6 +113,19 @@ def run_daily(*, now=None):
             )
             # Resolve prior frozen predictions even on a replay or a revised vintage.
             outcomes = score_pending(cutoff)
+            from ..admin_panel.store import controls
+
+            if not controls()["capture_enabled"]:
+                receipt = {
+                    "status": "SKIPPED",
+                    "reason": "CAPTURE_PAUSED",
+                    "stage": "technical",
+                    "as_of": cutoff,
+                    "outcomes": outcomes,
+                    "broker_submission": False,
+                }
+                audit(lock, "technical-scheduler", "TECHNICAL_STAGE_FINISHED", receipt)
+                return receipt
             with db.connect() as conn:
                 conn.execute(
                     "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"

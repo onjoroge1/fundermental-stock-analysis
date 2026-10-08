@@ -10,7 +10,8 @@ stock bandit state, or trading mode.
 
 The dedicated Production workflow runs at 03:30 UTC Tuesday–Saturday (23:30 Eastern
 in summer, 22:30 in winter on the preceding market day), after existing refresh
-jobs. It also runs on the migration's main-branch merge and supports manual repair.
+jobs. Capture pause skips new training/capture; existing frozen outcomes can still
+be scored, and work already in flight may finish. It also runs on the migration's main-branch merge and supports manual repair.
 GitHub scheduling can be delayed; execution receipts confirm operation. It applies
 migration 0026, verifies the schema, scores previous frozen targets and recomputes
 5/10/20-session candidates for all 54 covered stocks. Missing current complete

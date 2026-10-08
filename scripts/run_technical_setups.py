@@ -11,7 +11,7 @@ def main():
     directory.mkdir(parents=True, exist_ok=True)
     (directory / (result["as_of"] + ".json")).write_text(json.dumps(result, indent=2))
     print(json.dumps(result))
-    return 1 if result["status"] not in ("OK",) else 0
+    return 1 if result["status"] not in ("OK", "SKIPPED") else 0
 
 
 if __name__ == "__main__":
