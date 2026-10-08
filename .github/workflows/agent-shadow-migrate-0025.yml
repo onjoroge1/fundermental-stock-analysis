@@ -37,9 +37,9 @@ jobs:
           from stock_machine import db
           with db.connect() as conn:
               before = {r[0] for r in conn.execute('SELECT version_num FROM alembic_version')}
-          if before not in ({'0024_agent_universe_learning'}, {'0025_agent_shadow'}):
+          if before not in ({'0024_agent_universe_learning'}, {'0025_agent_shadow'}, {'0026_technical_setup_shadow'}):
               raise SystemExit('UNEXPECTED_DATABASE_REVISION')
-          command.upgrade(Config('alembic.ini'), '0025_agent_shadow')
+          command.upgrade(Config('alembic.ini'), 'head')
           with db.connect() as conn:
               db.init_schema(conn)
           print('SHADOW_SCHEMA_VERIFIED; paper settings unchanged')
