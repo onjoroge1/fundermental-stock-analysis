@@ -296,3 +296,8 @@ def intelligence_summary():
 def progress_summary():
     from ..scheduled_operations import progress_report
     return progress_report()
+
+
+def technical_setup_summary():
+    from ..agent_intelligence.technical_setup_store import summary
+    return summary()

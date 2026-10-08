@@ -149,6 +149,7 @@ async def dashboard(request: Request):
                          "intelligence_v2": await run_in_threadpool(operations.intelligence_summary),
                          "trading": trading,
                          "progress": await run_in_threadpool(operations.progress_summary),
+                         "technical_setups": await run_in_threadpool(operations.technical_setup_summary),
                          "trade_execution": trading["mode"]["mode"] == "PAPER",
                          "mode": trading["mode"]["mode"],
                          "broker_submission": False})

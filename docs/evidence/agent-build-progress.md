@@ -61,3 +61,14 @@ workflow_dispatch. No new migration, promotion, live order or trading-mode chang
 The options-capture authorization issue observed previously remains separate and
 unresolved. An unavailable owner endpoint must not be described as a healthy or
 failed learning loop without evidence.
+
+
+## Technical setup evaluator awaiting merge
+
+Added a daily historical walk-forward technical setup evaluator with eight fixed
+setups/combinations, per-stock/horizon candidate weights, immutable input vintages,
+and separate prospective frozen predictions. The owner panel reports historical
+mix/equal/trend/buy-and-hold comparisons and actual job receipts. Read
+[the technical contract](technical-setup-shadow.md) before interpreting performance.
+Migration 0026 and the first successful 54-stock daily receipt require verification
+after merge. Existing five-session PR96 observations continue independently.
