@@ -471,5 +471,7 @@ def test_complete_pending_fill_exit_reward_and_replay_flow(pg, monkeypatch):
     assert row["outcome"]["realized_pnl_usd"] == pytest.approx(90.648547)
     assert outcomes.score_matured()["scored"] == 0
     with pg() as c:
-        state = research_store.latest(c, "AGENT_BANDIT_STATE_V2", "HIMS")["payload"]
+        from stock_machine.agent_intelligence.learning import pooled_state
+
+        state = pooled_state(c)
         assert state["arms"]["LONG_STOCK"]["observations"] == 1

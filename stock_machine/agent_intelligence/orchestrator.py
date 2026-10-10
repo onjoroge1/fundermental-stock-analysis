@@ -7,7 +7,7 @@ from .news_events import build as build_news
 from .state import assemble
 from .strategy_router import route, eligible_actions
 from . import bandit
-from .learning import current_arms
+from .learning import current_arms, pooled_state
 
 
 def _regime(conn, ticker: str, as_of: str):
@@ -86,8 +86,7 @@ def evaluate_decision(
         technical = build_for_ticker(conn, ticker, as_of=as_of)
         regime = _regime(conn, ticker, as_of)
         surface = latest_as_of(conn, ticker, observed.isoformat(), max_age_days=10)
-        latest = research_store.latest(conn, "AGENT_BANDIT_STATE_V2", ticker)
-        arms = current_arms(latest)
+        arms = current_arms(pooled_state(conn))
         news = build_news(
             (packet.get("analysis") or {}).get("news_context") or {}, now=observed
         )
@@ -123,21 +122,12 @@ def evaluate_decision(
         # Unvalued option paths cannot compete with execution-backed stock rewards.
         # Keep candidates visible, but paper learning uses supported stock arms.
         choices = {k: v for k, v in choices.items() if not k.startswith("OPTION:")}
-        trials = conn.execute(
-            """SELECT payload #>> '{bandit,selected,action}',count(*)
-            FROM research_evidence_records WHERE kind='AGENT_INTELLIGENCE_V2'
-              AND ticker=%s AND payload->>'learning_contract'='executed-paper.v3'
-              AND payload #>> '{state,paper_eligible}'='true'
-            GROUP BY payload #>> '{bandit,selected,action}'""",
-            (ticker,),
-        ).fetchall()
         selection = bandit.select(
             state,
             sorted(choices),
             arms,
             mode=mode,
             decision_key=decision_id,
-            trial_counts=dict(trials),
         )
         selected_key = selection["selected"]["action"]
         if selected_key not in choices:
