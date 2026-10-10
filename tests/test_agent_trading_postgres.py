@@ -140,14 +140,50 @@ def test_recorded_attractive_decision_opens_bounded_simulated_long_idempotently(
     assert p["gross_exposure_usd"] == 925.93
 
 
-def test_reversal_requires_two_independent_decisions(pg):
+def mature(monkeypatch, on="2026-09-16"):
+    """Move the clock to the opening position's 20-session commitment target."""
+    from stock_machine.market_calendar import session_offset
+
+    due = session_offset(on, agent_trading.HOLDING_SESSIONS)
+    monkeypatch.setattr(agent_trading, "latest_completed_session", lambda: due)
+    return due
+
+
+def test_signal_change_cannot_close_a_committed_position_early(pg, monkeypatch):
+    from stock_machine.market_calendar import session_offset
+
+    agent_trading.set_mode("PAPER", None)
+    assert agent_trading.process_decision(seed(pg, "ATTRACTIVE"))["action"] == "OPEN_LONG"
+    for on in ("2026-09-17", session_offset("2026-09-16", 19)):
+        monkeypatch.setattr(agent_trading, "latest_completed_session", lambda on=on: on)
+        held = agent_trading.process_decision(seed(pg, "UNATTRACTIVE", on=on))
+        assert held["action"] == "HOLD" and held["status"] == "NO_ACTION", on
+        commitment = held["risk_snapshot"]["holding_commitment"]
+        assert commitment["due_session"] == session_offset("2026-09-16", 20)
+        assert "Committed 20-session" in held["rationale"]
+        assert agent_trading.portfolio()["open_count"] == 1
+    with pg() as c:
+        assert c.execute("SELECT count(*) FROM agent_paper_fills WHERE fill_kind='CLOSE'").fetchone()[0] == 0
+
+
+def test_legacy_positions_keep_signal_driven_exits(pg):
+    agent_trading.set_mode("PAPER", None)
+    agent_trading.process_decision(seed(pg, "ATTRACTIVE"))
+    with pg() as c:
+        c.execute("UPDATE agent_trade_intents SET risk_snapshot=risk_snapshot-'execution_contract'")
+    close = agent_trading.process_decision(seed(pg, "UNATTRACTIVE"))
+    assert close["status"] == "SIMULATED" and close["action"] == "CLOSE"
+
+
+def test_reversal_after_commitment_requires_two_independent_decisions(pg, monkeypatch):
     agent_trading.set_mode("PAPER", None)
     first = agent_trading.process_decision(seed(pg, "ATTRACTIVE", 100.0))
     assert first["action"] == "OPEN_LONG"
-    close = agent_trading.process_decision(seed(pg, "UNATTRACTIVE", 100.0))
+    due = mature(monkeypatch)
+    close = agent_trading.process_decision(seed(pg, "UNATTRACTIVE", 100.0, on=due))
     assert close["status"] == "SIMULATED" and close["action"] == "CLOSE"
     assert agent_trading.portfolio()["open_count"] == 0
-    short = agent_trading.process_decision(seed(pg, "UNATTRACTIVE", 100.0))
+    short = agent_trading.process_decision(seed(pg, "UNATTRACTIVE", 100.0, on=due))
     assert short["status"] == "SIMULATED" and short["action"] == "OPEN_SHORT"
     assert agent_trading.portfolio()["positions"][0]["side"] == "SHORT"
 
@@ -250,8 +286,8 @@ def test_trade_history_preserves_open_and_close_evidence_with_separate_dates(
     assert p["source_report_id"] == opening["source_report_id"]
     assert p["entry_cost_usd"] == pytest.approx(0.92593)
 
-    monkeypatch.setattr(agent_trading, "latest_completed_session", lambda: "2026-09-17")
-    closing = seed(pg, "UNATTRACTIVE", price=110.0, on="2026-09-17")
+    due = mature(monkeypatch)
+    closing = seed(pg, "UNATTRACTIVE", price=110.0, on=due)
     exit_intent = agent_trading.process_decision(closing)
     with pg() as c:
         # Explicit timestamps prove that price session dates aren't presented
@@ -268,7 +304,7 @@ def test_trade_history_preserves_open_and_close_evidence_with_separate_dates(
     assert closed["status"] == "CLOSED"
     assert closed["opened_at"] == "2026-09-17T02:00:00+00:00"
     assert closed["closed_at"] == "2026-09-18T03:00:00+00:00"
-    assert closed["exit_market_date"] == "2026-09-17"
+    assert closed["exit_market_date"] == due
     assert closed["source_decision_id"] == opening["decision_id"]
     assert closed["exit_decision_id"] == closing["decision_id"]
     assert closed["exit_rationale"] == exit_intent["rationale"]
@@ -297,11 +333,12 @@ def test_open_trade_details_survive_missing_marks_and_missing_legacy_reason(pg):
     assert p["entry_rationale"] and p["source_decision_id"] == decision["decision_id"]
 
 
-def test_closed_trade_history_is_bounded_without_hiding_open_positions(pg):
+def test_closed_trade_history_is_bounded_without_hiding_open_positions(pg, monkeypatch):
     agent_trading.set_mode("PAPER", None)
     agent_trading.process_decision(seed(pg, "ATTRACTIVE"))
-    agent_trading.process_decision(seed(pg, "UNATTRACTIVE"))
-    agent_trading.process_decision(seed(pg, "UNATTRACTIVE"))
+    due = mature(monkeypatch)
+    agent_trading.process_decision(seed(pg, "UNATTRACTIVE", on=due))
+    agent_trading.process_decision(seed(pg, "UNATTRACTIVE", on=due))
     with pg() as c:
         history = agent_trading._position_history(c, closed_limit=0)
     assert len(history["open_details"]) == 1
@@ -405,11 +442,11 @@ def test_holding_limit_closes_future_entries_and_retains_exit_evidence(pg, monke
     assert history["realized_pnl_usd"] == pytest.approx(90.648547)
 
 
-def test_complete_pending_fill_exit_reward_and_replay_flow(pg, monkeypatch):
+def test_complete_pending_fill_exit_counterfactual_learning_and_replay_flow(pg, monkeypatch):
     from stock_machine import research_store
     from stock_machine.agent_intelligence import outcomes
+    from stock_machine.agent_intelligence.learning import pooled_state
     from stock_machine.market_calendar import session_offset, session_dates
-    from psycopg.types.json import Jsonb
 
     clock = ["2026-09-16"]
     monkeypatch.setattr(agent_trading, "latest_completed_session", lambda: clock[0])
@@ -421,6 +458,7 @@ def test_complete_pending_fill_exit_reward_and_replay_flow(pg, monkeypatch):
             record_id TEXT PRIMARY KEY,kind TEXT,ticker TEXT,request_key TEXT,
             content_hash TEXT,payload JSONB,recorded_at TIMESTAMPTZ DEFAULT clock_timestamp(),
             UNIQUE(kind,request_key))""")
+        window = outcomes.learning_window(c, decision["decision_id"], decision["decided_at"])
         research_store.save(
             c,
             "AGENT_INTELLIGENCE_V2",
@@ -429,18 +467,19 @@ def test_complete_pending_fill_exit_reward_and_replay_flow(pg, monkeypatch):
                 "ticker": "HIMS",
                 "decision_id": decision["decision_id"],
                 "mode": "PAPER",
-                "learning_contract": "executed-paper.v3",
+                "learning_contract": outcomes.CONTRACT,
+                "learning": window,
                 "state": {
                     "as_of": "2026-09-16",
                     "paper_eligible": True,
-                    "bias_score": 0.5,
+                    "signal_components": {"fundamental": 0.5},
+                    "technical": {"features": {"realized_vol_20": 0.35}},
                 },
                 "bandit": {"selected": {"action": "LONG_STOCK"}},
             },
             "HIMS",
         )
     assert agent_trading.process_decision(decision)["status"] == "PENDING"
-    assert outcomes.score_matured()["scored"] == 0
     clock[0] = "2026-09-17"
     with pg() as c:
         c.execute(
@@ -448,11 +487,13 @@ def test_complete_pending_fill_exit_reward_and_replay_flow(pg, monkeypatch):
             (clock[0],),
         )
     assert agent_trading.process_pending()["results"][0]["status"] == "SIMULATED"
-    waiting = outcomes.score_matured()
-    assert waiting["scored"] == 0 and waiting["results"][0][
-        "due_session"
-    ] == session_offset(clock[0], 20)
+    # The counterfactual entry is the paper fill session, frozen at decision time.
+    position = agent_trading.portfolio()["positions"][0]
+    assert window["execution_session"] == position["entry_market_date"] == "2026-09-17"
     due = session_offset(clock[0], 20)
+    assert window["due_session"] == due
+    # Immature windows are skipped in SQL, never re-read on every pass.
+    assert outcomes.score_matured() ["results"] == []
     days = session_dates(clock[0], due)
     with pg() as c:
         for i, day in enumerate(days[1:], 1):
@@ -465,11 +506,19 @@ def test_complete_pending_fill_exit_reward_and_replay_flow(pg, monkeypatch):
     assert agent_trading.settle_holding_limits()["closed"] == 1
     learned = outcomes.score_matured()
     assert learned["scored"] == 1 and learned["blocked"] == 0
-    row = learned["results"][0]
-    assert row["outcome"]["entry_date"] == "2026-09-17"
-    assert row["outcome"]["learning_basis"] == "REALIZED_PAPER_FILL_V1"
-    assert row["outcome"]["realized_pnl_usd"] == pytest.approx(90.648547)
-    assert outcomes.score_matured()["scored"] == 0
+    rewards = learned["results"][0]["rewards"]
+    assert rewards["LONG_STOCK"] > 0 > rewards["SHORT_STOCK"]
     with pg() as c:
-        state = research_store.latest(c, "AGENT_BANDIT_STATE_V2", "HIMS")["payload"]
-        assert state["arms"]["LONG_STOCK"]["observations"] == 1
+        record = research_store.get(c, "AGENT_REWARD_V3", decision["decision_id"])["payload"]
+        long_outcome = record["arms"]["LONG_STOCK"]["outcome"]
+        assert long_outcome["entry_date"] == "2026-09-17" and long_outcome["exit_date"] == due
+        assert long_outcome["gross_return_pct"] == pytest.approx(10.0)
+        assert long_outcome["learning_basis"] == "PROSPECTIVE_COUNTERFACTUAL_V1"
+        # Realized ledger P&L for the same window remains the execution evidence.
+        closed = agent_trading.portfolio()["closed_positions"][0]
+        assert closed["realized_pnl_usd"] == pytest.approx(90.648547)
+        state = pooled_state(c)
+        for arm in outcomes.LEARNED_ARMS:
+            assert state["arms"][arm]["observations"] == 1
+            assert state["arms"][arm]["effective_observations"] == pytest.approx(1 / 20)
+    assert outcomes.score_matured()["scored"] == 0

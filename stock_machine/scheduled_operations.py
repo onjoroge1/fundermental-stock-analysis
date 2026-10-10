@@ -104,7 +104,17 @@ def learning_operation():
             results[name] = fn(limit=100)
         except Exception as exc:
             results[name] = {"status": "FAILED", "reason_code": type(exc).__name__}
+    # Read-only evidence for the pre-registered direction test; never changes trading.
+    try:
+        from . import db
+        from .agent_intelligence.direction import summary as direction_summary
+
+        with db.connect() as conn:
+            direction = direction_summary(conn)
+    except Exception as exc:
+        direction = {"status": "FAILED", "reason_code": type(exc).__name__}
     return {
+        "direction_challenger": direction,
         "status": (
             "ATTENTION" if any(r["status"] != "OK" for r in results.values()) else "OK"
         ),

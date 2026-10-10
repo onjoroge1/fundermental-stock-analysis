@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from math import isfinite
+from math import isfinite, sqrt
 from collections import defaultdict
 
 from .. import db, research_store
@@ -15,13 +15,21 @@ from ..market_calendar import (
     next_close_after,
 )
 
-VERSION = "agent-shadow.v1"
+VERSION = "agent-shadow.v2"
+TARGET = "spy-beta-residual.v1"
 HORIZONS = (5, 10, 20)
 SNAPSHOT = "AGENT_SHADOW_SNAPSHOT_V1"
 OUTCOME = "AGENT_SHADOW_OUTCOME_V1"
 WEIGHTS = "AGENT_SHADOW_WEIGHTS_V1"
 CHECK = "AGENT_SHADOW_CHECK_V1"
 PRIOR_STRENGTH = 32.0
+# The regime signal is a market-timing call: scored against SPY and kept out
+# of the stock-specific candidate score.
+MARKET_COMPONENTS = frozenset({"regime"})
+BETA_RANGE = (0.0, 3.0)
+DEFAULT_BETA = 1.0
+DEFAULT_ANNUAL_VOL = 0.40
+MIN_ANNUAL_VOL = 0.05
 
 
 def number(value, lo=None, hi=None):
@@ -41,48 +49,79 @@ def stamp(value):
     return d.astimezone(timezone.utc)
 
 
-def candidate_weights(history, components, ticker, horizon):
-    """Inverse directional error, stock estimates shrunk to pooled history.
+def _ic(pairs):
+    """Uncentered correlation of signal with target: direction-sensitive, scale-free.
 
-    Correlated forecast models share one family budget. These are candidates,
-    not calibrated probabilities or estimates of independent sample size.
+    A signal that is always zero, or a target that never moves, has no skill.
     """
+    svz = sum(v * z for v, z in pairs)
+    svv = sum(v * v for v, _ in pairs)
+    szz = sum(z * z for _, z in pairs)
+    return svz / sqrt(svv * szz) if svv > 0 and szz > 0 else 0.0
+
+
+def candidate_weights(history, components, ticker, horizon):
+    """Shrunk information coefficient against stock-specific returns.
+
+    Squared error against a +/-1 direction (v1) rewarded timid signals: a
+    zero-skill signal near 0 outscored a skilled confident one. The IC is
+    independent of signal amplitude. Stock estimates shrink toward pooled
+    history; components without positive skill get no weight; correlated
+    forecast models share one family budget. These are candidates, not
+    calibrated probabilities or estimates of independent sample size.
+    """
+    names = [n for n in components if n not in MARKET_COMPONENTS]
     pooled, local = defaultdict(list), defaultdict(list)
     for row in history:
-        if row["horizon_sessions"] != horizon:
+        if row.get("horizon_sessions") != horizon or row.get("target") != TARGET:
             continue
-        for name, value in row["component_errors"].items():
-            if name in components:
-                pooled[name].append(value)
-                if row["ticker"] == ticker:
-                    local[name].append(value)
-    errors, counts = {}, {}
-    for name in components:
-        base = sum(pooled[name]) / len(pooled[name]) if pooled[name] else 1.0
-        errors[name] = (sum(local[name]) + PRIOR_STRENGTH * base) / (
-            len(local[name]) + PRIOR_STRENGTH
+        z = row.get("residual_z")
+        if not number(z):
+            continue
+        for name, value in (row.get("component_values") or {}).items():
+            if name in names and number(value):
+                pooled[name].append((value, z))
+                if row.get("ticker") == ticker:
+                    local[name].append((value, z))
+    skill, counts = {}, {}
+    for name in names:
+        n = len(local[name])
+        skill[name] = (n * _ic(local[name]) + PRIOR_STRENGTH * _ic(pooled[name])) / (
+            n + PRIOR_STRENGTH
         )
-        counts[name] = {"stock": len(local[name]), "pooled": len(pooled[name])}
+        counts[name] = {"stock": n, "pooled": len(pooled[name])}
     groups = defaultdict(list)
-    for name in components:
+    for name in names:
         groups["forecast" if name.startswith("forecast:") else name].append(name)
-    family_scores = {
-        g: 1 / (0.25 + sum(errors[n] for n in names) / len(names))
-        for g, names in groups.items()
-    }
-    total = sum(family_scores.values())
-    weights = {}
-    for g, names in groups.items():
-        within = {n: 1 / (0.25 + errors[n]) for n in names}
-        subtotal = sum(within.values())
-        for n in names:
-            weights[n] = family_scores[g] / total * within[n] / subtotal
+    cold = not any(pooled[n] for n in names)
+    if cold:
+        family = {g: 1.0 for g in groups}
+        within = {n: 1.0 for n in names}
+    else:
+        family = {
+            g: max(0.0, sum(skill[n] for n in members) / len(members))
+            for g, members in groups.items()
+        }
+        within = {n: max(0.0, skill[n]) for n in names}
+    total = sum(family.values())
+    weights = {n: 0.0 for n in components}
+    for g, members in groups.items():
+        subtotal = sum(within[n] for n in members)
+        if total > 0 and subtotal > 0:
+            for n in members:
+                weights[n] = family[g] / total * within[n] / subtotal
+    status = (
+        "COLD_START" if cold else "SHADOW_CANDIDATE" if total > 0 else "NO_POSITIVE_SKILL"
+    )
     return {
         "weights": weights,
+        "skill": skill,
         "counts": counts,
         "prior_strength": PRIOR_STRENGTH,
-        "method": "family-budget-inverse-directional-error.v1",
-        "status": "COLD_START" if not any(pooled.values()) else "SHADOW_CANDIDATE",
+        "method": "family-budget-shrunk-information-coefficient.v2",
+        "target": TARGET,
+        "market_components_excluded": sorted(set(components) & MARKET_COMPONENTS),
+        "status": status,
         "promotion": "NOT_AUTHORIZED",
     }
 
@@ -93,8 +132,9 @@ def training_history(conn, now):
     rows = conn.execute(
         """SELECT payload FROM research_evidence_records
         WHERE kind=%s AND recorded_at<%s AND payload->>'due_session'<=%s
+          AND payload->>'target'=%s
         ORDER BY recorded_at DESC,record_id DESC LIMIT 5000""",
-        (OUTCOME, now, latest_completed_session(now)),
+        (OUTCOME, now, latest_completed_session(now), TARGET),
     ).fetchall()
     return [r[0] for r in rows]
 
@@ -131,6 +171,9 @@ def capture(conn, decision, packet, intelligence, *, now=None):
     except (ValueError, TypeError):
         pass
     company = db.fetch_company(conn, ticker) or {}
+    features = (state.get("technical") or {}).get("features") or {}
+    beta = features.get("beta_63_vs_spy")
+    vol = features.get("realized_vol_20")
     history = training_history(conn, now)
     history_hash = digest(history)
     for horizon in HORIZONS:
@@ -216,6 +259,10 @@ def capture(conn, decision, packet, intelligence, *, now=None):
             "training_cutoff": now.isoformat(),
             "broker_submission": False,
             "evaluation_basis": "direction-from-known-close; no simulated fill or P&L",
+            # Frozen at capture: the outcome target never uses later estimates.
+            "target": TARGET,
+            "beta": float(beta) if number(beta) else None,
+            "ex_ante_vol": float(vol) if number(vol, 0) and vol > 0 else None,
         }
         research_store.save(conn, SNAPSHOT, key, snapshot, ticker)
         keys.append(key)
@@ -227,25 +274,49 @@ def capture(conn, decision, packet, intelligence, *, now=None):
     }
 
 
-def evaluate(snapshot, prices, *, completed):
+def _path(prices, origin, due, error):
+    by_date = {r["date"]: r.get("adj_close") for r in prices}
+    if any(
+        not number(by_date.get(day), 0.000000001) for day in session_dates(origin, due)
+    ):
+        raise ValueError(error)
+    return by_date
+
+
+def evaluate(snapshot, prices, *, completed, market_prices):
     if snapshot["due_session"] > completed:
         raise ValueError("SHADOW_NOT_MATURE")
     origin, due = snapshot["origin_session"], snapshot["due_session"]
     if snapshot["first_future_session"] > due:
         raise ValueError("SHADOW_CAPTURE_AFTER_TARGET")
-    by_date = {r["date"]: r.get("adj_close") for r in prices}
-    if any(
-        not number(by_date.get(day), 0.000000001) for day in session_dates(origin, due)
-    ):
-        raise ValueError("SHADOW_ADJUSTED_PATH_INCOMPLETE")
+    by_date = _path(prices, origin, due, "SHADOW_ADJUSTED_PATH_INCOMPLETE")
+    market = _path(market_prices, origin, due, "SHADOW_MARKET_PATH_INCOMPLETE")
     ret = by_date[due] / by_date[origin] - 1
-    target = 1.0 if ret > 0 else (-1.0 if ret < 0 else 0.0)
+    market_ret = market[due] / market[origin] - 1
+    beta, beta_basis = snapshot.get("beta"), "frozen_beta_63_vs_spy"
+    if not number(beta):
+        beta, beta_basis = DEFAULT_BETA, "default_beta"
+    beta = min(BETA_RANGE[1], max(BETA_RANGE[0], float(beta)))
+    vol = snapshot.get("ex_ante_vol")
+    vol = max(MIN_ANNUAL_VOL, float(vol)) if number(vol, 0) and vol > 0 else DEFAULT_ANNUAL_VOL
+    residual = ret - beta * market_ret
+    # Per-stock volatility scaling keeps volatile names from dominating skill.
+    residual_z = residual / (vol * sqrt(snapshot["horizon_sessions"] / 252))
 
-    def hit(score):
+    def sign(x):
+        return 1.0 if x > 0 else (-1.0 if x < 0 else 0.0)
+
+    raw_target, residual_target = sign(ret), sign(residual)
+
+    def hit(score, target):
         return None if target == 0 or score == 0 else (score > 0) == (target > 0)
+
+    def thresholded(score):
+        return score if abs(score) >= 0.25 else 0
 
     forecast_scores = {}
     for name, row in snapshot["forecasts"].items():
+        # Forecast models predict raw stock prices; their own metrics stay raw.
         reference = row.get("origin_adjusted_price")
         quantiles = [row.get(n) for n in ("p10", "p50", "p90")]
         price_valid = (
@@ -263,13 +334,14 @@ def evaluate(snapshot, prices, *, completed):
                 else None
             ),
             "brier": (
-                None if target == 0 else (row["prob_positive"] - (target > 0)) ** 2
+                None if raw_target == 0 else (row["prob_positive"] - (raw_target > 0)) ** 2
             ),
-            "direction_hit": hit(2 * row["prob_positive"] - 1),
+            "direction_hit": hit(2 * row["prob_positive"] - 1, raw_target),
             "calibration_status": row.get("calibration_status", "pending"),
         }
     return {
         "schema_version": VERSION,
+        "target": TARGET,
         "status": "SCORED",
         "ticker": snapshot["ticker"],
         "decision_id": snapshot["decision_id"],
@@ -277,26 +349,34 @@ def evaluate(snapshot, prices, *, completed):
         "origin_session": origin,
         "due_session": due,
         "realized_return_pct": ret * 100,
-        "component_errors": {
-            n: (v - target) ** 2 for n, v in snapshot["components"].items()
-        },
-        "candidate_error": (snapshot["candidate_score"] - target) ** 2,
-        "baseline_error": (snapshot["baseline_score"] - target) ** 2,
-        "candidate_hit": hit(
-            snapshot["candidate_score"]
-            if abs(snapshot["candidate_score"]) >= 0.25
-            else 0
-        ),
-        "baseline_hit": hit(
-            snapshot["baseline_score"] if abs(snapshot["baseline_score"]) >= 0.25 else 0
-        ),
+        "market_return_pct": market_ret * 100,
+        "beta": beta,
+        "beta_basis": beta_basis,
+        "residual_return_pct": residual * 100,
+        "residual_z": residual_z,
+        "component_values": dict(snapshot["components"]),
+        # Errors and hits judge the stock-specific move; the agent's action
+        # is a raw stock position and is judged on the raw move.
+        "candidate_error": (snapshot["candidate_score"] - residual_target) ** 2,
+        "baseline_error": (snapshot["baseline_score"] - residual_target) ** 2,
+        "candidate_hit": hit(thresholded(snapshot["candidate_score"]), residual_target),
+        "baseline_hit": hit(thresholded(snapshot["baseline_score"]), residual_target),
         "agent_action_hit": hit(
-            {"LONG_STOCK": 1, "SHORT_STOCK": -1}.get(snapshot["agent_action"], 0)
+            {"LONG_STOCK": 1, "SHORT_STOCK": -1}.get(snapshot["agent_action"], 0),
+            raw_target,
         ),
+        "market_component_hits": {
+            n: hit(v, sign(market_ret))
+            for n, v in snapshot["components"].items()
+            if n in MARKET_COMPONENTS
+        },
         "forecast_scores": forecast_scores,
         "weight_version": snapshot["weight_version"],
         "price_vintage_hash": digest(
-            {d: by_date[d] for d in session_dates(origin, due)}
+            {
+                "stock": {d: by_date[d] for d in session_dates(origin, due)},
+                "SPY": {d: market[d] for d in session_dates(origin, due)},
+            }
         ),
         "broker_submission": False,
         "promotion": "NOT_AUTHORIZED",
@@ -332,6 +412,7 @@ def score_matured(*, limit=100):
                     snapshot,
                     db.fetch_prices(conn, snapshot["ticker"], completed),
                     completed=completed,
+                    market_prices=db.fetch_prices(conn, "SPY", completed),
                 )
                 research_store.save(conn, OUTCOME, key, outcome, snapshot["ticker"])
                 results.append({"key": key, "status": "SCORED"})
@@ -365,8 +446,9 @@ def weekly_summary(conn, *, end=None):
     rows = conn.execute(
         """SELECT payload FROM research_evidence_records
         WHERE kind=%s AND payload->>'due_session'>%s AND payload->>'due_session'<=%s
+          AND payload->>'target'=%s
         ORDER BY recorded_at DESC,record_id DESC LIMIT 5001""",
-        (OUTCOME, start, end),
+        (OUTCOME, start, end, TARGET),
     ).fetchall()
     if len(rows) > 5000:
         return {
@@ -451,8 +533,10 @@ def weekly_summary(conn, *, end=None):
         "rows": summary,
         "promotion": "NOT_AUTHORIZED",
         "broker_submission": False,
+        "target": TARGET,
         "limitations": [
             "Directional comparison, not portfolio P&L or calibrated signal probabilities.",
+            "Candidate and current scores are judged on the beta-adjusted move relative to SPY; agent actions on the raw move; forecast Brier and intervals on raw prices.",
             "Overlapping horizons and correlated stocks are not independent observations.",
             "Candidate weights are evaluated prospectively; no automatic promotion.",
         ],
