@@ -134,3 +134,49 @@ def test_negative_training_edge_abstains_and_cached_folds_match():
         samples, samples, dates[-1], context=t.prepare_walk_forward(samples, dates[-1])
     )
     assert direct == cached
+
+
+def overlapping_samples(returns, horizon=5, start="2023-01-03"):
+    dates = session_dates(start, "2026-10-07")
+    return [
+        {"origin": dates[i], "entry": dates[i + 1], "due": dates[i + 1 + horizon],
+         "return": r, "signals": {n: (1 if n == "trend" else 0) for n in t.NAMES}}
+        for i, r in enumerate(returns)
+    ]
+
+
+def test_effective_windows_count_non_overlapping_holds_and_dates_once():
+    samples = overlapping_samples([0.01] * 60, horizon=5)
+    # 60 consecutive daily signals share windows: one per 6 sessions.
+    assert t.non_overlapping_windows(samples) == 10
+    stock_b = [{**s, "return": -0.01} for s in samples]
+    stats = t.pooled_statistics(samples + stock_b)
+    # Two stocks on the same dates are one market observation per date.
+    assert stats["trend"]["windows"] == 10 and stats["trend"]["active"] == 120
+
+
+def test_realistic_edge_is_no_longer_rejected_by_per_trade_dispersion():
+    # Mean net edge 1.8% per 5-session trade with 6% dispersion: v1 utility
+    # (mean - 0.5*std) was negative; the standard-error rule finds the edge.
+    samples = overlapping_samples([0.08 if i % 2 else -0.04 for i in range(400)])
+    values = [s["return"] - t.POLICY["round_trip_cost"] for s in samples]
+    from statistics import mean, pstdev
+    assert mean(values) - 0.5 * pstdev(values) < 0
+    result = t.fit(samples, samples)
+    assert result["status"] == "SHADOW_CANDIDATE"
+    assert result["weights"]["trend"] == pytest.approx(1.0)
+    assert result["counts"]["trend"]["stock_windows"] == result["counts"]["trend"]["pooled_windows"] == 67
+
+
+def test_thin_evidence_does_not_act_on_a_noisy_positive_mean():
+    # Same mean, but only a few independent windows: the uncertainty dominates.
+    samples = overlapping_samples([0.20 if i % 2 else -0.16 for i in range(40)])
+    stats = t.pooled_statistics(overlapping_samples([0.20 if i % 2 else -0.16 for i in range(40)]))
+    stats["trend"]["dates"] = t.POLICY["minimum_active"]
+    assert t.fit(samples, [], pooled_stats=stats)["status"] == "NO_POSITIVE_TRAINING_EDGE"
+
+
+def test_policy_change_produces_new_versioned_runs():
+    assert t.POLICY["standard_error_penalty"] == 1.645
+    assert "risk_penalty" not in t.POLICY
+    assert t.POLICY_HASH == t.digest(t.POLICY)
