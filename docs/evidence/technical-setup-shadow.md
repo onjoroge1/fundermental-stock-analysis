@@ -39,9 +39,14 @@ around large adjustment-factor changes.
 
 ## Candidate mixture learning
 
-Training utility is mean signed net return shrunk with a 32-observation pooled prior,
-minus half the observed return standard deviation. Require at least 20 distinct pooled
-active dates per setup. Use a fixed 0.005 softmax temperature to create nonnegative
+Training utility is mean signed net return shrunk toward the pooled mean, minus 1.645
+standard errors of that shrunk mean (a 95% one-sided bar). Evidence is counted in
+non-overlapping holding windows: consecutive daily signals on one stock share most of a
+forward window, and stocks on the same date share market moves, so the pooled count takes
+each date once. The prior strength is 32 such windows. Require at least 20 distinct pooled
+active dates per setup. (The first policy subtracted half the per-trade standard
+deviation, which demanded a per-trade Sharpe above 0.5, roughly 3.5 annualized at five
+sessions, and so abstained on any realistic edge. Its runs keep their own policy hash.) Use a fixed 0.005 softmax temperature to create nonnegative
 weights summing to one across eligible setups. If no setup has positive training
 utility, abstain with zero weights. An aggregate score must reach ±0.25 to express a
 long or short shadow action. The policy is predeclared; no automatic threshold search

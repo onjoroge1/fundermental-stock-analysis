@@ -27,14 +27,16 @@ POLICY = {
     "minimum_train_sessions": 252,
     "minimum_active": 20,
     "prior_strength": 32,
-    "risk_penalty": 0.5,
+    "prior_units": "non-overlapping holding windows",
+    "standard_error_penalty": 1.645,
+    "effective_sample": "non-overlapping holding windows per stock plus pooled windows counting each date once",
     "temperature": 0.005,
     "round_trip_cost": 0.002,
     "threshold": 0.25,
     "entry": "next_session_close",
     "mixtures": "nonnegative_simplex",
     "no_positive_training_edge": "ABSTAIN",
-    "candidate_selection": "training_only_shrunk_mean_net_return_minus_half_std",
+    "candidate_selection": "training_only_shrunk_mean_net_return_minus_one_standard_error",
 }
 POLICY_HASH = digest(POLICY)
 
@@ -198,17 +200,32 @@ def examples(rows, cutoff, horizon):
     return samples, current
 
 
+def non_overlapping_windows(samples):
+    """Holding windows that share no session: a conservative effective count.
+
+    Daily signals on one stock re-use most of the same forward window, and
+    stocks on the same date share market moves, so neither active days nor
+    stock-days are independent observations.
+    """
+    count, last_due = 0, None
+    for s in sorted(samples, key=lambda s: (s["origin"], s["due"])):
+        if last_due is None or s["entry"] > last_due:
+            count += 1
+            last_due = s["due"]
+    return count
+
+
 def pooled_statistics(samples):
     stats = {}
     for name in NAMES:
-        values = [
-            s["signals"][name] * s["return"] - POLICY["round_trip_cost"]
-            for s in samples
-            if s["signals"][name]
-        ]
+        active = [s for s in samples if s["signals"][name]]
+        values = [s["signals"][name] * s["return"] - POLICY["round_trip_cost"] for s in active]
+        by_date = {s["origin"]: s for s in active}
         stats[name] = {
             "active": len(values),
-            "dates": len({s["origin"] for s in samples if s["signals"][name]}),
+            "dates": len(by_date),
+            # Each date counts once across stocks.
+            "windows": non_overlapping_windows(list(by_date.values())),
             "mean": mean(values) if values else 0.0,
             "risk": pstdev(values) if len(values) >= 2 else 0.0,
         }
@@ -221,20 +238,32 @@ def fit(local, pooled, *, pooled_stats=None):
     prior = POLICY["prior_strength"]
     stats = pooled_stats if pooled_stats is not None else pooled_statistics(pooled)
     for name in NAMES:
-        values = [
-            s["signals"][name] * s["return"] - POLICY["round_trip_cost"]
-            for s in local
-            if s["signals"][name]
-        ]
+        active = [s for s in local if s["signals"][name]]
+        values = [s["signals"][name] * s["return"] - POLICY["round_trip_cost"] for s in active]
         pool = stats[name]
-        base = pool["mean"] if pool["dates"] >= POLICY["minimum_active"] else 0.0
-        avg = (sum(values) + prior * base) / (len(values) + prior)
-        risk = pstdev(values) if len(values) >= 2 else pool["risk"]
-        utilities[name] = avg - POLICY["risk_penalty"] * risk
+        usable = pool["dates"] >= POLICY["minimum_active"]
+        base = pool["mean"] if usable else 0.0
+        local_risk = pstdev(values) if len(values) >= 2 else pool["risk"]
+        # Shrink in effective (non-overlapping) windows: overlapping trade-days
+        # once gave a stock with ~6 independent windows the weight of ~120.
+        n_local = non_overlapping_windows(active)
+        n_pool = pool.get("windows", 0) if usable else 0
+        w_local = n_local / (n_local + prior) if values else 0.0
+        local_mean = mean(values) if values else 0.0
+        avg = w_local * local_mean + (1 - w_local) * base
+        # Penalize uncertainty in that shrunk average, not per-trade
+        # dispersion: v1's "mean - 0.5 std" demanded a per-trade Sharpe above
+        # 0.5 (about 3.5 annualized at 5 sessions), so it abstained on any
+        # realistic edge. Missing windows fall back to one (JSON has no infinity).
+        variance = (w_local**2 * local_risk**2 / max(n_local, 1)
+                    + (1 - w_local) ** 2 * pool["risk"] ** 2 / max(n_pool, 1))
+        utilities[name] = avg - POLICY["standard_error_penalty"] * sqrt(variance)
         counts[name] = {
             "stock_active": len(values),
             "pooled_active": pool["active"],
             "pooled_active_dates": pool["dates"],
+            "stock_windows": n_local,
+            "pooled_windows": n_pool,
         }
     available = [
         n for n in NAMES if counts[n]["pooled_active_dates"] >= POLICY["minimum_active"]
