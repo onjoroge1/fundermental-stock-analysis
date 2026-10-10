@@ -1,12 +1,12 @@
-name: Agent Shadow Migration 0025
+name: Agent Outcome Checks Migration 0027
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - migrations/versions/0025_agent_shadow.py
-      - .github/workflows/agent-shadow-migrate-0025.yml
+      - migrations/versions/0027_agent_outcome_checks.py
+      - .github/workflows/agent-outcome-checks-migrate-0027.yml
 
 permissions:
   contents: read
@@ -29,7 +29,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -e .
-      - name: Apply and verify shadow migration
+      - name: Apply and verify outcome-check migration
         run: |
           python - <<'PY'
           from alembic import command
@@ -37,10 +37,16 @@ jobs:
           from stock_machine import db
           with db.connect() as conn:
               before = {r[0] for r in conn.execute('SELECT version_num FROM alembic_version')}
-          if before not in ({'0024_agent_universe_learning'}, {'0025_agent_shadow'}, {'0026_technical_setup_shadow'}, {'0027_agent_outcome_checks'}):
+          if before not in ({'0026_technical_setup_shadow'}, {'0027_agent_outcome_checks'}):
               raise SystemExit('UNEXPECTED_DATABASE_REVISION')
-          command.upgrade(Config('alembic.ini'), 'head')
+          command.upgrade(Config('alembic.ini'), '0027_agent_outcome_checks')
           with db.connect() as conn:
               db.init_schema(conn)
-          print('SHADOW_SCHEMA_VERIFIED; paper settings unchanged')
+              definition = conn.execute(
+                  "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                  "WHERE conname='research_evidence_records_kind_check'"
+              ).fetchone()[0]
+          if 'AGENT_OUTCOME_CHECK_V1' not in definition:
+              raise SystemExit('OUTCOME_CHECK_KIND_NOT_ALLOWED')
+          print('OUTCOME_CHECK_SCHEMA_VERIFIED; paper settings unchanged')
           PY

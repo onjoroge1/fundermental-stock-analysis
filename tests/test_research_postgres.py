@@ -220,3 +220,40 @@ def test_direction_evidence_counts_only_matured_decisions_under_the_current_prot
                    'rewards':{'LONG':-.2,'SHORT':.2}}]
     assert value['status']=='PENDING_EVIDENCE' and value['decisions']==1
     assert value['mean_paired_difference']==pytest.approx(.4)
+
+
+def test_blocked_decisions_wait_one_session_and_cannot_starve_ready_ones(pg):
+    from stock_machine.agent_intelligence import outcomes
+    def run(key, due):
+        return {'ticker':'VZ','decision_id':key,'learning_contract':outcomes.CONTRACT,
+                'learning':{'contract':outcomes.CONTRACT,'execution_session':'2026-09-01','due_session':due},
+                'state':{'paper_eligible':True},'bandit':{'selected':{'action':'NO_TRADE'}}}
+    with pg() as conn:
+        research_store.save(conn,'AGENT_INTELLIGENCE_V2','blocked',run('blocked','2026-09-29'),'VZ')
+        research_store.save(conn,'AGENT_INTELLIGENCE_V2','ready',run('ready','2026-09-30'),'VZ')
+    def first(completed):
+        with pg() as conn:
+            rows=research_store.outcome_candidates(conn,limit=1,completed=completed,contract=outcomes.CONTRACT)
+        return [r['payload']['decision_id'] for r in rows]
+    assert first('2026-10-01')==['blocked']
+    status=outcomes.record_check({'decision_id':'blocked','ticker':'VZ','status':'BLOCKED_INPUTS',
+                                  'reason':'OUTCOME_PATH_SESSION_MISSING'},'2026-10-01')
+    assert status=='NEXT_SESSION'
+    # The blocked decision no longer occupies the single slot this session...
+    assert first('2026-10-01')==['ready']
+    # ...and retries after the next completed session.
+    assert first('2026-10-02')==['blocked']
+    assert outcomes.record_check({'decision_id':'blocked','ticker':'VZ','status':'BLOCKED_INPUTS'},'2026-10-01')=='NEXT_SESSION'
+
+
+def test_check_falls_back_to_every_pass_before_the_0027_migration(pg):
+    from stock_machine.agent_intelligence import outcomes
+    with pg() as conn:
+        definition=conn.execute("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='research_evidence_records_kind_check'").fetchone()[0]
+        conn.execute("ALTER TABLE research_evidence_records DROP CONSTRAINT research_evidence_records_kind_check")
+        conn.execute("ALTER TABLE research_evidence_records ADD CONSTRAINT research_evidence_records_kind_check "
+                     + definition.replace(", 'AGENT_OUTCOME_CHECK_V1'::text",""))
+        assert "AGENT_OUTCOME_CHECK_V1" not in conn.execute("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='research_evidence_records_kind_check'").fetchone()[0]
+    assert outcomes.record_check({'decision_id':'x','ticker':'VZ'},'2026-10-01')=='EVERY_PASS_CHECK_UNAVAILABLE'
+    with pg() as conn:
+        assert conn.execute("SELECT count(*) FROM research_evidence_records").fetchone()[0]==0

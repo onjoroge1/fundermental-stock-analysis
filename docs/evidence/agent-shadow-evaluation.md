@@ -86,3 +86,21 @@ are manufactured. First 5-session metrics appear only after new captures mature;
 10- and 20-session comparisons follow. Inspect capture failures and due backlog before
 interpreting an empty panel as successful operation. Promotion requires a separate
 reviewed change and prospective evidence against the existing agent and simple controls.
+
+## Candidate-weight promotion test (added 2026-10-11)
+
+Protocol `shadow-candidate-weights-vs-heuristic.v1` is defined in code
+(`shadow.WEIGHTS_PROTOCOL`). Its SHA-256 is frozen into every snapshot and copied to the
+outcome; only outcomes carrying the current hash count, so any change to the protocol, or
+to the weighting method it names, starts fresh evidence.
+
+- **Comparison:** candidate weights (frozen at capture) against the heuristic bias score,
+  using the information coefficient against the volatility-scaled stock-specific move.
+- **Primary horizon:** 20 sessions. The 5- and 10-session results are reported but never
+  used for promotion.
+- **Resampling:** blocks of 20 origin sessions; at least 12 blocks; 5,000 draws with a
+  fixed seed.
+- **Pass:** the IC difference > 0, its bootstrap lower 2.5% bound > 0, and the candidate
+  IC > 0.
+- **Outcome of a pass:** `PASS_REQUIRES_INDEPENDENT_REVIEW` only. Changing the heuristic
+  weights remains a separate reviewed change. The result is shown in the admin shadow card.

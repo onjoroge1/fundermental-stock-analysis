@@ -92,3 +92,15 @@ def test_loop_health_preserves_blocked_scan_after_job_completes():
     result=_learning_loop_health(Conn())
     assert result["status"]=="ATTENTION"
     assert result["latest_outcome_scan"]["result_summary"]["blocked"]==1
+
+
+def test_blocked_outcomes_record_a_once_per_session_retry(monkeypatch):
+    patch_scan(monkeypatch,counterfactual_run("blocked","LONG_STOCK"))
+    def fail(*args):
+        raise ValueError("OUTCOME_PATH_SESSION_MISSING")
+    monkeypatch.setattr(outcomes,"_stock_outcome",fail)
+    checks=[]
+    monkeypatch.setattr(outcomes,"record_check",lambda row,completed:checks.append((row["decision_id"],completed)) or "NEXT_SESSION")
+    result=outcomes.score_matured()
+    assert checks==[("blocked","2026-10-15")]
+    assert result["results"][0]["retry"]=="NEXT_SESSION"

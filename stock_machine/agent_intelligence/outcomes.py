@@ -28,6 +28,7 @@ HORIZON_SESSIONS = 20
 LEARNED_ARMS = ("LONG_STOCK", "SHORT_STOCK")
 OVERLAP_WEIGHT = 1.0 / HORIZON_SESSIONS
 FILL_COST_BPS_PER_SIDE = 10.0
+CHECK_KIND = "AGENT_OUTCOME_CHECK_V1"
 
 
 def learning_window(conn, decision_id: str, observed_iso: str) -> dict:
@@ -138,6 +139,32 @@ def counterfactual_outcomes(conn, ticker: str, entry: str, due: str) -> dict:
     return result
 
 
+def record_check(row: dict, completed: str) -> str:
+    """Durable once-per-session attempt record for a blocked outcome.
+
+    The candidate query skips decisions already checked this session, so a
+    pile of incomplete price paths cannot fill every bounded pass; each one
+    retries after the next completed session. If the schema predates the
+    check kind, scanning falls back to retrying every pass.
+    """
+    from .. import research_store
+
+    key = f"{row['decision_id']}:{completed}"
+    try:
+        with db.connect() as conn:
+            # One record per decision and session; a later attempt in the same
+            # session (with a different reason) is already covered.
+            if research_store.get(conn, CHECK_KIND, key):
+                return "NEXT_SESSION"
+            with conn.transaction():
+                research_store.save(
+                    conn, CHECK_KIND, key, {**row, "session": completed}, row.get("ticker")
+                )
+        return "NEXT_SESSION"
+    except Exception:
+        return "EVERY_PASS_CHECK_UNAVAILABLE"
+
+
 def score_matured(*, limit: int = 100) -> dict:
     from .. import research_store
 
@@ -214,16 +241,16 @@ def score_matured(*, limit: int = 100) -> dict:
                 }
             )
         except (ValueError, TypeError, KeyError, ZeroDivisionError) as exc:
-            results.append(
-                {
-                    "status": "BLOCKED_INPUTS",
-                    "ticker": ticker,
-                    "decision_id": key,
-                    "reason": (
-                        str(exc) if isinstance(exc, ValueError) else type(exc).__name__
-                    ),
-                }
-            )
+            row = {
+                "status": "BLOCKED_INPUTS",
+                "ticker": ticker,
+                "decision_id": key,
+                "reason": (
+                    str(exc) if isinstance(exc, ValueError) else type(exc).__name__
+                ),
+            }
+            row["retry"] = record_check(row, completed)
+            results.append(row)
     blocked = sum(r["status"] == "BLOCKED_INPUTS" for r in results)
     return {
         "schema_version": "agent-intelligence-outcomes.v3",

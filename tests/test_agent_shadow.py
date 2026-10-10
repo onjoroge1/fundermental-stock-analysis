@@ -294,3 +294,51 @@ def test_outcome_records_frozen_scores_for_pooled_ic():
     s = snapshot()
     result = score(s)
     assert (result["candidate_score"], result["baseline_score"]) == (0.5, -0.5)
+
+
+def protocol_rows(horizon, origins, candidate_skill, baseline_skill, seed=5, per=8):
+    import random
+
+    rng = random.Random(seed)
+    rows = []
+    for origin in origins:
+        for _ in range(per):
+            z = rng.gauss(0, 1)
+            def score(skill):
+                return (0.5 if z > 0 else -0.5) if rng.random() < skill else rng.choice([-0.5, 0.5])
+            rows.append({**pooled_row(origin, horizon, z, score(candidate_skill), score(baseline_skill)),
+                         "weights_protocol_sha256": shadow.WEIGHTS_PROTOCOL_SHA256})
+    return rows
+
+
+def test_weights_protocol_is_frozen_into_snapshots_and_outcomes():
+    s = snapshot(weights_protocol_sha256=shadow.WEIGHTS_PROTOCOL_SHA256)
+    assert score(s)["weights_protocol_sha256"] == shadow.WEIGHTS_PROTOCOL_SHA256
+    assert shadow.WEIGHTS_PROTOCOL["primary_horizon_sessions"] == 20
+
+
+def test_weights_test_needs_twelve_primary_blocks():
+    origins = session_dates("2026-10-01", "2027-03-01")   # ~5 blocks of 20 sessions
+    value = shadow.weights_promotion_test(protocol_rows(20, origins, 0.9, 0.0))
+    assert value["status"] == "PENDING_EVIDENCE" and value["blocks"] < 12
+    assert value["promotion"] == "NOT_AUTHORIZED"
+
+
+def test_better_candidate_passes_only_to_review_and_worse_does_not():
+    origins = session_dates("2026-10-01", "2028-01-31")   # ~17 blocks of 20 sessions
+    better = shadow.weights_promotion_test(protocol_rows(20, origins, 0.6, 0.0))
+    assert better["status"] == "PASS_REQUIRES_INDEPENDENT_REVIEW"
+    assert better["ic_difference_interval_95"][0] > 0 and better["trade_qualification"] is False
+    worse = shadow.weights_promotion_test(protocol_rows(20, origins, 0.0, 0.6))
+    assert worse["status"] == "NOT_SUPERIOR"
+
+
+def test_secondary_horizons_and_other_protocols_never_decide():
+    origins = session_dates("2026-10-01", "2028-01-31")
+    five_day = protocol_rows(5, origins, 0.9, 0.0)
+    value = shadow.weights_promotion_test(five_day)
+    assert value["status"] == "AWAITING_MATURED_OUTCOMES" and "5" in value["secondary"]
+    stale = [{**r, "weights_protocol_sha256": "0" * 64} for r in protocol_rows(20, origins, 0.9, 0.0)]
+    assert shadow.weights_promotion_test(stale)["status"] == "AWAITING_MATURED_OUTCOMES"
+    changed = {**shadow.WEIGHTS_PROTOCOL, "minimum_blocks": 6}
+    assert shadow.weights_promotion_test(protocol_rows(20, origins, 0.9, 0.0), changed)["status"] == "AWAITING_MATURED_OUTCOMES"
