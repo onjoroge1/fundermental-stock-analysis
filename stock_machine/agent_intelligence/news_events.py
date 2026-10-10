@@ -9,23 +9,35 @@ import math
 import re
 from datetime import datetime, timezone
 
+# Patterns are regexes matched on word boundaries; plain substrings matched
+# inside other words ("sued" in "issued") and are not used.
 EVENT_RULES = (
-    ("GUIDANCE_RAISE", ("raises guidance","raises outlook","boosts outlook","raises forecast"), 0.85, 1),
-    ("GUIDANCE_CUT", ("cuts guidance","lowers guidance","cuts outlook","lowers outlook","warning"), 0.90, -1),
-    ("EARNINGS_BEAT", ("beats estimates","beats expectations","earnings beat","revenue beat"), 0.75, 1),
-    ("EARNINGS_MISS", ("misses estimates","misses expectations","earnings miss","revenue miss"), 0.80, -1),
-    ("REGULATORY_ACTION", ("investigation","subpoena","antitrust","regulator","regulatory","ftc","doj","sec probe"), 0.85, -1),
-    ("LITIGATION", ("lawsuit","sued","litigation","settlement"), 0.60, -1),
-    ("M_AND_A", ("acquire","acquisition","merger","to buy","takeover"), 0.65, 0),
-    ("CAPITAL_RAISE", ("stock offering","share offering","convertible notes","debt offering","capital raise"), 0.65, -1),
-    ("BUYBACK", ("buyback","share repurchase","repurchase authorization"), 0.60, 1),
-    ("MANAGEMENT_CHANGE", ("ceo resigns","ceo departs","cfo resigns","appoints ceo","new ceo"), 0.60, 0),
-    ("PRODUCT_EVENT", ("launches","launch","approval","approved","clearance","product recall","recall"), 0.55, 0),
-    ("CUSTOMER_CONTRACT", ("contract win","wins contract","partnership","customer deal","agreement with"), 0.55, 1),
-    ("LAYOFF", ("layoffs","job cuts","cuts jobs","workforce reduction"), 0.50, 0),
+    ("GUIDANCE_RAISE", (r"raises? (full[- ]year )?(guidance|outlook|forecast)", r"boosts? (guidance|outlook|forecast)"), 0.85, 1),
+    ("GUIDANCE_CUT", (r"(cuts?|lowers?|slashes) (full[- ]year )?(guidance|outlook|forecast)", r"(profit|revenue|sales|earnings) warning"), 0.90, -1),
+    ("EARNINGS_BEAT", (r"beats? (estimates|expectations|forecasts?)", r"(earnings|revenue|profit) beat"), 0.75, 1),
+    ("EARNINGS_MISS", (r"miss(es)? (estimates|expectations|forecasts?)", r"(earnings|revenue|profit) miss"), 0.80, -1),
+    ("REGULATORY_ACTION", (r"investigations?", r"subpoena(s|ed)?", r"antitrust", r"regulators?", r"regulatory", r"ftc", r"doj", r"sec probe"), 0.85, -1),
+    ("LITIGATION", (r"lawsuits?", r"sued", r"sues", r"litigation", r"settlement"), 0.60, -1),
+    ("M_AND_A", (r"acquires?", r"acquired", r"acquisitions?", r"mergers?", r"(agrees|deal|offer|bid) to buy", r"takeover"), 0.65, 0),
+    ("CAPITAL_RAISE", (r"(stock|share|equity|debt) offering", r"convertible notes", r"capital raise"), 0.65, -1),
+    ("BUYBACK", (r"buybacks?", r"share repurchases?", r"repurchase (authorization|program)"), 0.60, 1),
+    ("MANAGEMENT_CHANGE", (r"ceo (resigns|departs|steps down)", r"cfo (resigns|departs|steps down)", r"(appoints|names) (new )?ceo", r"new ceo"), 0.60, 0),
+    ("PRODUCT_EVENT", (r"launch(es|ed)?", r"approvals?", r"approved", r"clearance", r"recalls?"), 0.55, 0),
+    ("CUSTOMER_CONTRACT", (r"contract win", r"wins (\w+ )?contract", r"partnership", r"customer deal", r"agreement with"), 0.55, 1),
+    ("LAYOFF", (r"layoffs?", r"job cuts", r"cuts jobs", r"workforce reduction"), 0.50, 0),
 )
+# A regulator granting something is not an adverse regulatory action.
+EVENT_EXCLUSIONS = {
+    "REGULATORY_ACTION": re.compile(r"\b(approv\w*|clear(s|ed|ance)|authoriz\w*|grants?|granted)\b"),
+}
+NEGATIONS = {"no", "not", "never", "without", "denies", "deny", "denied", "avoids", "avoided", "dismissed"}
+NEGATION_WINDOW = 3
 
 TOKEN_RE = re.compile(r"[a-z0-9]+")
+_COMPILED = tuple(
+    (event, tuple(re.compile(r"\b" + p + r"\b") for p in phrases), materiality, direction)
+    for event, phrases, materiality, direction in EVENT_RULES
+)
 
 
 def _tokens(title: str) -> set[str]:
@@ -39,11 +51,24 @@ def _similarity(a: str, b: str) -> float:
     return len(x & y) / len(x | y)
 
 
+def _negated(lowered: str, start: int) -> bool:
+    before = TOKEN_RE.findall(lowered[:start])[-NEGATION_WINDOW:]
+    return any(word in NEGATIONS for word in before)
+
+
 def classify_title(title: str) -> dict:
     lowered = str(title or "").lower()
     hits = []
-    for event, phrases, materiality, direction in EVENT_RULES:
-        matched = [p for p in phrases if p in lowered]
+    for event, patterns, materiality, direction in _COMPILED:
+        exclusion = EVENT_EXCLUSIONS.get(event)
+        if exclusion and exclusion.search(lowered):
+            continue
+        matched = [
+            m.group(0)
+            for pattern in patterns
+            for m in pattern.finditer(lowered)
+            if not _negated(lowered, m.start())
+        ]
         if matched:
             hits.append({"event_type": event, "materiality": materiality,
                          "direction": direction, "matched_phrases": matched})

@@ -7,6 +7,7 @@ from .news_events import build as build_news
 from .state import assemble
 from .strategy_router import route, eligible_actions
 from . import bandit
+from .learning import current_arms
 
 
 def _regime(conn, ticker: str, as_of: str):
@@ -86,7 +87,7 @@ def evaluate_decision(
         regime = _regime(conn, ticker, as_of)
         surface = latest_as_of(conn, ticker, observed.isoformat(), max_age_days=10)
         latest = research_store.latest(conn, "AGENT_BANDIT_STATE_V2", ticker)
-        arms = (latest or {}).get("payload", {}).get("arms", {})
+        arms = current_arms(latest)
         news = build_news(
             (packet.get("analysis") or {}).get("news_context") or {}, now=observed
         )

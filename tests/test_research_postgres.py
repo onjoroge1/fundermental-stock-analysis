@@ -173,7 +173,8 @@ def test_concurrent_realized_learning_updates_are_serialized_and_replays_do_not_
     from concurrent.futures import ThreadPoolExecutor
     from stock_machine.agent_intelligence.learning import record_outcome
     outcome={'learning_basis':'REALIZED_PAPER_FILL_V1','gross_return_pct':3.,
-             'max_drawdown_pct':-1.,'capital_used_pct':.93,'turnover_pct':1.86,'costs_pct':.2}
+             'max_drawdown_pct':-1.,'capital_used_pct':.93,'turnover_pct':1.86,'costs_pct':.2,
+             'entry_date':'2026-09-01','exit_date':'2026-09-29'}
     with pg() as conn:
         for key in ['learn-one','learn-two']:
             research_store.save(conn,'AGENT_INTELLIGENCE_V2',key,{

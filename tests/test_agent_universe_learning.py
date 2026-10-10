@@ -134,6 +134,7 @@ def test_missing_path_session_and_unadjusted_fallback_do_not_earn_rewards(monkey
         ("costs_pct", -1),
         ("capital_used_pct", 101),
         ("turnover_pct", True),
+        ("risk_scale_pct", 0.0),
     ],
 )
 def test_reward_rejects_invalid_operating_inputs(field, value):
@@ -143,6 +144,7 @@ def test_reward_rejects_invalid_operating_inputs(field, value):
         capital_used_pct=1.0,
         turnover_pct=2.0,
         costs_pct=0.2,
+        risk_scale_pct=9.0,
     )
     args[field] = value
     with pytest.raises(ValueError, match="REWARD_INPUT_INVALID"):

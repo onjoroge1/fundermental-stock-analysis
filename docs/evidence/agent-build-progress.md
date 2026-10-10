@@ -72,3 +72,8 @@ mix/equal/trend/buy-and-hold comparisons and actual job receipts. Read
 [the technical contract](technical-setup-shadow.md) before interpreting performance.
 Migration 0026 and the first successful 54-stock daily receipt require verification
 after merge. Existing five-session PR96 observations continue independently.
+
+## Learning-loop review (2026-10-10)
+
+Open gaps in reward, bandit, shadow metrics and technical utility are tracked with
+status in [agent-learning-review-2026-10-10.md](agent-learning-review-2026-10-10.md).
