@@ -13,21 +13,14 @@ def run(action="LONG_STOCK", **overrides):
         "ticker": "HIMS",
         "decision_id": "decision",
         "mode": "PAPER",
-        "learning_contract": "executed-paper.v3",
+        "learning_contract": outcomes.CONTRACT,
+        "learning": {
+            "contract": outcomes.CONTRACT,
+            "execution_session": "2026-09-01",
+            "due_session": "2026-09-30",
+        },
         "state": {"paper_eligible": True},
         "bandit": {"selected": {"action": action}},
-        **overrides,
-    }
-
-
-def ledger(**overrides):
-    return {
-        "intent_status": "SIMULATED",
-        "intent_action": "OPEN_LONG",
-        "position_id": "pos",
-        "position_status": "OPEN",
-        "entry_market_date": "2026-09-01",
-        "risk_snapshot": {"execution_contract": "prospective-next-close.v2"},
         **overrides,
     }
 
@@ -65,52 +58,50 @@ def test_naive_decision_timestamp_cannot_authorize_a_fill():
     "value,expected",
     [
         (run(learning_contract="old"), "EXCLUDED_LEGACY_HYPOTHETICAL"),
-        (run(mode="SHADOW"), "EXCLUDED_SHADOW"),
+        (run(learning_contract="executed-paper.v3"), "EXCLUDED_PRIOR_LEARNING_CONTRACT"),
         (run(state={"paper_eligible": False}), "EXCLUDED_BLOCKED_STATE"),
+        (run(learning={}), "EXCLUDED_INVALID_LEARNING_WINDOW"),
+        (run(learning={"contract": outcomes.CONTRACT, "execution_session": "2026-10-01",
+                       "due_session": "2026-09-30"}), "EXCLUDED_INVALID_LEARNING_WINDOW"),
     ],
 )
-def test_invalid_and_legacy_runs_are_not_zero_reward_successes(value, expected):
-    assert outcomes.learning_status(value, None, "2026-10-07")[0] == expected
+def test_invalid_and_legacy_runs_are_not_training_samples(value, expected):
+    assert outcomes.learning_status(value, "2026-10-07")[0] == expected
 
 
-def test_rejected_hold_and_close_intents_do_not_train_the_selected_stock_arm():
-    for value, expected in [
-        (ledger(intent_status="BLOCKED"), "EXCLUDED_REJECTED_INTENT"),
-        (ledger(intent_action="HOLD", position_id=None), "EXCLUDED_NO_NEW_POSITION"),
-        (ledger(intent_action="CLOSE", position_id=None), "EXCLUDED_NO_NEW_POSITION"),
-    ]:
-        assert outcomes.learning_status(run(), value, "2026-10-07")[0] == expected
-    assert (
-        outcomes.learning_status(run(), ledger(intent_status="PENDING"), "2026-10-07")[
-            0
-        ]
-        == "PENDING_EXECUTION"
-    )
+@pytest.mark.parametrize("action", ["LONG_STOCK", "SHORT_STOCK", "NO_TRADE"])
+def test_every_eligible_decision_matures_on_its_frozen_window(action):
+    # Shadow, abstaining, held or capacity-blocked decisions all have an
+    # observable outcome; maturity depends only on the frozen window.
+    for mode in ("PAPER", "SHADOW"):
+        value = run(action, mode=mode)
+        assert outcomes.learning_status(value, "2026-09-29") == ("PENDING_MATURITY", "2026-09-30")
+        assert outcomes.learning_status(value, "2026-09-30") == ("READY_COUNTERFACTUAL", "2026-09-30")
 
 
-def test_actual_entry_session_controls_maturity_and_only_closed_positions_are_ready():
-    status, due = outcomes.learning_status(run(), ledger(), "2026-09-10")
-    assert status == "PENDING_MATURITY" and due == "2026-09-30"
-    assert outcomes.learning_status(run(), ledger(), "2026-10-07")[0] == "PENDING_EXIT"
-    assert outcomes.learning_status(
-        run(),
-        ledger(position_status="CLOSED", exit_market_date="2026-09-09"),
-        "2026-10-07",
-    ) == ("READY_REALIZED", "2026-09-09")
+def test_learning_window_uses_the_journal_time_like_a_paper_fill():
+    from uuid import uuid4
+
+    class Conn:
+        def __init__(self, value):
+            self.value = value
+        def execute(self, *args):
+            return self
+        def fetchone(self):
+            return self.value
+    decision = str(uuid4())
+    window = outcomes.learning_window(Conn(("2026-10-07 21:00:00+00",)), decision, "2026-10-07T19:00:00+00:00")
+    assert window["entry_basis"] == "journal_recorded_at"
+    assert window["execution_session"] == next_close_after("2026-10-07T21:00:00Z") == "2026-10-08"
+    assert window["due_session"] == "2026-11-05"
+    assert window["overlap_weight"] == pytest.approx(1 / 20)
+    fallback = outcomes.learning_window(Conn(None), "not-a-uuid", "2026-10-07T19:00:00+00:00")
+    assert fallback["entry_basis"] == "observed_at" and fallback["execution_session"] == "2026-10-07"
 
 
-def test_abstention_is_separately_labelled_and_starts_after_recording():
-    value = ledger(
-        intent_status="NO_ACTION",
-        intent_action="NO_TRADE",
-        position_id=None,
-        risk_snapshot={
-            "execution_contract": "prospective-next-close.v2",
-            "execution_session": "2026-09-02",
-        },
-    )
-    status, due = outcomes.learning_status(run("NO_TRADE"), value, "2026-09-10")
-    assert status == "PENDING_MATURITY" and due == "2026-10-01"
+def test_learning_and_paper_horizons_agree():
+    from stock_machine import agent_trading
+    assert outcomes.HORIZON_SESSIONS == agent_trading.HOLDING_SESSIONS
 
 
 def test_missing_path_session_and_unadjusted_fallback_do_not_earn_rewards(monkeypatch):

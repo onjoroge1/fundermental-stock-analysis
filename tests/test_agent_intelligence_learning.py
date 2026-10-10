@@ -117,11 +117,27 @@ def test_risk_scale_uses_decision_time_volatility_with_documented_fallbacks():
 
 
 def test_pooled_model_ignores_state_from_earlier_contracts():
-    from stock_machine.agent_intelligence.learning import POOLED_SCOPE, current_arms
+    from stock_machine.agent_intelligence.learning import LEARNING_BASIS, POOLED_SCOPE, current_arms
     arm=bandit.empty_arm()
-    current={"scope":POOLED_SCOPE,"reward_version":reward.VERSION,"bandit_version":bandit.VERSION,"arms":{"LONG_STOCK":arm}}
+    current={"scope":POOLED_SCOPE,"reward_version":reward.VERSION,"bandit_version":bandit.VERSION,
+             "learning_basis":LEARNING_BASIS,"arms":{"LONG_STOCK":arm}}
     assert current_arms(current)=={"LONG_STOCK":arm}
     assert current_arms({**current,"reward_version":"risk-adjusted-paper-reward.v3"})=={}
     assert current_arms({**current,"bandit_version":"contextual-bandit.v1"})=={}
+    assert current_arms({**current,"learning_basis":"REALIZED_PAPER_FILL_V1"})=={}
     assert current_arms({"reward_version":reward.VERSION,"bandit_version":bandit.VERSION,"arms":{"LONG_STOCK":arm}})=={}
     assert current_arms(None)=={}
+
+
+def test_overlap_weight_scales_information_not_estimate():
+    x=bandit.context_vector(state())
+    full=bandit.update(bandit.empty_arm(len(x)),x,1.0)
+    tiny=bandit.update(bandit.empty_arm(len(x)),x,1.0,weight=1/20)
+    assert tiny["effective_observations"]==pytest.approx(1/20)
+    assert bandit.estimate(tiny,x)["uncertainty"]>bandit.estimate(full,x)["uncertainty"]
+    twenty=bandit.empty_arm(len(x))
+    for _ in range(20):
+        twenty=bandit.update(twenty,x,1.0,weight=1/20)
+    assert bandit.estimate(twenty,x)["mean"]==pytest.approx(bandit.estimate(full,x)["mean"])
+    with pytest.raises(ValueError,match="BANDIT_WEIGHT_INVALID"):
+        bandit.update(full,x,1.0,weight=0)

@@ -215,14 +215,11 @@ def intelligence_summary():
                       if decision_id else None)
             reward_payload = (reward or {}).get("payload") or {}
             action = bandit_selected.get("action")
-            from ..agent_intelligence.outcomes import execution, learning_status
-            if value.get('learning_contract') == 'executed-paper.v3':
-                ledger = execution(conn, str(decision_id)) if decision_id else None
-                reward_status, reward_due_session = learning_status(value, ledger, completed_session)
-            else:
-                reward_status, reward_due_session = 'LEGACY_HYPOTHETICAL_NOT_TRAINING', None
+            from ..agent_intelligence.outcomes import learning_status
+            reward_status, reward_due_session = learning_status(value, completed_session)
             if reward_payload:
-                reward_status = 'SCORED_REALIZED_PAPER'
+                reward_status = ('SCORED_COUNTERFACTUAL' if reward_payload.get('arms')
+                                 else 'SCORED_REALIZED_PAPER')
             arms = bandit.get("arms") or []
             eligible_actions = [arm.get("action") for arm in arms if arm.get("action")]
             if not eligible_actions:
@@ -266,8 +263,12 @@ def intelligence_summary():
                 "eligible_actions": eligible_actions,
                 "final_selected_action": selected.get("action"),
                 "final_selected_instrument": selected.get("instrument"),
-                "latest_reward": ((reward_payload.get("reward") or {}).get("reward")
-                                  if reward_payload else None),
+                # Counterfactual records score both stock directions; show the
+                # selected one (abstentions have no single reward to show).
+                "latest_reward": (((((reward_payload.get("arms") or {}).get(action) or {})
+                                    .get("reward") or {}).get("reward"))
+                                  if reward_payload.get("arms")
+                                  else (reward_payload.get("reward") or {}).get("reward")),
                 "reward_status": reward_status,
                 "reward_due_session": reward_due_session,
                 "reward_horizon_sessions": HORIZON_SESSIONS,

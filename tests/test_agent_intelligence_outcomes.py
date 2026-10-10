@@ -19,67 +19,62 @@ def test_stock_outcome_scores_long_and_short_from_adjusted_prices(monkeypatch):
     assert long["max_drawdown_pct"]==-10.0
     assert short["gross_return_pct"]==-10.0
     assert round(short["max_drawdown_pct"],4)==-18.1818
-    assert long["costs_pct"]==.20
 
 
-def test_no_trade_has_zero_capital_and_zero_reward_inputs():
-    value=outcomes._stock_outcome(object(),"AAPL","NO_TRADE","2026-09-01","2026-09-30")
-    assert value["gross_return_pct"]==0
-    assert value["capital_used_pct"]==0
-    assert value["turnover_pct"]==0
-    assert value["costs_pct"]==0
+def test_no_trade_is_not_a_learned_arm():
+    import pytest
+    with pytest.raises(ValueError,match="OUTCOME_ACTION_NOT_LEARNED"):
+        outcomes._stock_outcome(object(),"AAPL","NO_TRADE","2026-09-01","2026-09-30")
 
 
-def test_score_matured_records_only_matured_stock_action(monkeypatch):
+def counterfactual_run(decision_id="d1", action="NO_TRADE"):
+    return {"mode":"PAPER","learning_contract":outcomes.CONTRACT,"ticker":"AAPL","decision_id":decision_id,
+            "state":{"as_of":"2026-09-01","paper_eligible":True},
+            "learning":{"contract":outcomes.CONTRACT,"execution_session":"2026-09-02","due_session":"2026-09-30"},
+            "bandit":{"selected":{"action":action}}}
+
+
+def patch_scan(monkeypatch, run, completed="2026-10-15"):
     from stock_machine import research_store
     class Conn:
         def __enter__(self): return self
         def __exit__(self,*args): return False
-
-    run={"mode":"PAPER","learning_contract":"executed-paper.v3","ticker":"AAPL","decision_id":"d1",
-         "state":{"as_of":"2026-09-01","paper_eligible":True},
-         "bandit":{"selected":{"action":"LONG_STOCK"}}}
+    seen={}
+    def candidates(conn,limit,completed,contract):
+        seen.update(completed=completed,contract=contract)
+        return [{"payload":run}]
     monkeypatch.setattr(outcomes.db,"connect",lambda:Conn())
-    monkeypatch.setattr(research_store,"outcome_candidates",lambda conn,limit:[{"payload":run}])
+    monkeypatch.setattr(research_store,"outcome_candidates",candidates)
     monkeypatch.setattr(research_store,"get",lambda *a,**k:None)
-    monkeypatch.setattr(outcomes,"execution",lambda conn,key:{"intent_status":"SIMULATED",
-        "intent_action":"OPEN_LONG","position_id":"position","position_status":"CLOSED",
-        "entry_market_date":"2026-09-02","exit_market_date":"2026-09-30",
-        "entry_notional_usd":1000,"entry_cost_usd":1,"exit_cost_usd":1,"realized_pnl_usd":28,
-        "risk_snapshot":{"equity_before_usd":100000,"execution_contract":"prospective-next-close.v2"}})
-    monkeypatch.setattr(outcomes,"latest_completed_session",lambda:"2026-10-15")
-    monkeypatch.setattr(outcomes,"session_offset",lambda entry,n:"2026-09-30")
-    monkeypatch.setattr(outcomes,"_stock_outcome",lambda *a,**k:{
-        "status":"MATURED","gross_return_pct":3.0,"max_drawdown_pct":-1.0,
-        "capital_used_pct":10.0,"turnover_pct":20.0,"costs_pct":.2,
-        "entry_date":"2026-09-01","exit_date":"2026-09-30"})
-    monkeypatch.setattr(outcomes,"record_outcome",lambda ticker,decision_id,outcome:{
-        "reward_record":{"reward":{"reward":.2}}})
+    monkeypatch.setattr(outcomes,"latest_completed_session",lambda:completed)
+    return seen
+
+
+def test_score_matured_learns_both_directions_even_when_the_agent_abstained(monkeypatch):
+    seen=patch_scan(monkeypatch,counterfactual_run(action="NO_TRADE"))
+    windows=[]
+    def path(conn,ticker,action,entry,due):
+        windows.append((action,entry,due))
+        return {"status":"MATURED","gross_return_pct":3.0 if action=="LONG_STOCK" else -3.0,
+                "max_drawdown_pct":-1.0,"entry_date":entry,"exit_date":due}
+    monkeypatch.setattr(outcomes,"_stock_outcome",path)
+    captured={}
+    def record(ticker,decision_id,arm_outcomes):
+        captured.update(arm_outcomes)
+        return {"reward_record":{"arms":{a:{"reward":{"reward":1.0}} for a in arm_outcomes}}}
+    monkeypatch.setattr(outcomes,"record_counterfactual",record)
     result=outcomes.score_matured()
-    assert result["scored"]==1
-    assert result["results"][0]["status"]=="SCORED"
+    assert seen=={"completed":"2026-10-15","contract":outcomes.CONTRACT}
+    assert result["scored"]==1 and result["results"][0]["selected_action"]=="NO_TRADE"
+    assert windows==[("LONG_STOCK","2026-09-02","2026-09-30"),("SHORT_STOCK","2026-09-02","2026-09-30")]
+    assert captured["LONG_STOCK"]["costs_pct"]==.2
+    assert captured["SHORT_STOCK"]["learning_basis"]=="PROSPECTIVE_COUNTERFACTUAL_V1"
 
 
 def test_blocked_matured_outcome_reports_attention(monkeypatch):
-    from stock_machine import research_store
-    class Conn:
-        def __enter__(self): return self
-        def __exit__(self,*args): return False
-    run={"mode":"PAPER","learning_contract":"executed-paper.v3","ticker":"AAPL","decision_id":"blocked",
-         "state":{"as_of":"2026-09-01","paper_eligible":True},
-         "bandit":{"selected":{"action":"LONG_STOCK"}}}
-    monkeypatch.setattr(outcomes.db,"connect",lambda:Conn())
-    monkeypatch.setattr(research_store,"outcome_candidates",lambda conn,limit:[{"payload":run}])
-    monkeypatch.setattr(research_store,"get",lambda *a,**k:None)
-    monkeypatch.setattr(outcomes,"execution",lambda conn,key:{"intent_status":"SIMULATED",
-        "intent_action":"OPEN_LONG","position_id":"position","position_status":"CLOSED",
-        "entry_market_date":"2026-09-02","exit_market_date":"2026-09-30",
-        "entry_notional_usd":1000,"entry_cost_usd":1,"exit_cost_usd":1,"realized_pnl_usd":28,
-        "risk_snapshot":{"equity_before_usd":100000,"execution_contract":"prospective-next-close.v2"}})
-    monkeypatch.setattr(outcomes,"latest_completed_session",lambda:"2026-10-15")
-    monkeypatch.setattr(outcomes,"session_offset",lambda entry,n:"2026-09-30")
+    patch_scan(monkeypatch,counterfactual_run("blocked","LONG_STOCK"))
     def fail(*args):
-        raise ValueError("OUTCOME_ENDPOINT_PRICE_MISSING")
+        raise ValueError("OUTCOME_PATH_SESSION_MISSING")
     monkeypatch.setattr(outcomes,"_stock_outcome",fail)
     result=outcomes.score_matured()
     assert result["status"]=="ATTENTION" and result["blocked"]==1
