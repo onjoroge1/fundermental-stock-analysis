@@ -21,8 +21,8 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
 | # | Gap | Evidence | Fix direction | Status |
 |---|---|---|---|---|
 | 6 | Direction is never learned (hand-set weights 0.50/0.25/0.15/0.10, ±0.25 threshold); no promotion rule for shadow weights. | `state.assemble` | Each decision freezes the heuristic direction and the pooled model's learned direction (`direction_challenger`). Both are scored on the same matured counterfactual rewards, with FLAT = 0. A paired test is fixed in code (`learned-direction-vs-heuristic.v1`, hashed into every snapshot): resample 20-session blocks, ≥12 blocks, pass if the mean and the bootstrap lower 2.5% bound of (learned − heuristic) are > 0 and the learned mean reward is > 0. | PARTIAL, IN PR (`feat/learned-direction-challenger`, stacked on #101): the direction is learned and measured; acting on it needs a pass plus a separate reviewed change. The earliest possible pass is about 12 blocks (~240 sessions) after release. |
-| 7 | Shadow weight metric (squared error vs ±1) penalizes conviction. | A 56%-hit, magnitude-0.6 signal got 0.459 weight vs 0.541 for zero-skill ±0.1 noise. | Rank IC or calibrated log-loss, or a stacked ridge/logistic model. | OPEN |
-| 8 | Shadow targets use raw returns, which mostly measure market beta over 5 sessions. | `shadow.evaluate` | Score stock-specific components against SPY/sector-excess returns. | OPEN |
+| 7 | Shadow weight metric (squared error vs ±1) penalizes conviction. | A 56%-hit, magnitude-0.6 signal got 0.459 weight vs 0.541 for zero-skill ±0.1 noise. | Rank IC or calibrated log-loss, or a stacked ridge/logistic model. | IN PR (`fix/shadow-skill-metric-excess-returns`, stacked on #102): shrunk uncentered information coefficient against volatility-scaled stock-specific returns; no positive skill → zero weight, and the candidate abstains if nothing has skill. The same probe now gives the skilled signal > 0.8 of the weight. |
+| 8 | Shadow targets use raw returns, which mostly measure market beta over 5 sessions. | `shadow.evaluate` | Score stock-specific components against SPY/sector-excess returns. | IN PR (same branch): beta (63-day, clipped 0–3, default 1) and ex-ante volatility frozen at capture; candidate and current scores judged on the beta-adjusted move relative to SPY; the regime signal is judged against SPY and excluded from the stock candidate; agent actions on the raw move; forecast Brier and intervals stay raw. |
 | 9 | Technical-setup utility `mean − 0.5·std` needs per-trade Sharpe > 0.5, so it nearly always abstains. | Annual Sharpe 1.0: utility −1.97% (5d), −2.35% (20d). | Penalize standard error (`k·std/√n`) or rank by Sharpe with a cost floor. | OPEN |
 | 10 | Headline classifier false positives trip `HIGH_MATERIALITY_NEGATIVE_HEADLINE_CONTEXT`. | "issued" → LITIGATION, "regulatory approval" → REGULATORY_ACTION, "no warning signs" → GUIDANCE_CUT. | Word-boundary regexes, a negation guard, approvals excluded from regulatory action. | IN PR #99 (CI green) |
 
@@ -38,10 +38,12 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
 | 16 | Shadow scores from the origin close, while paper trades fill at the next close. | OPEN |
 | 17 | With no edge anywhere, Thompson sampling keeps trading about half the time (the posterior mean sits near 0), so churn and costs continue while it learns. In simulation this is about 675 trades/yr vs 509 before, at zero expected reward. | OPEN: consider a small required margin over 0, or a cost-aware baseline, once real outcomes exist. |
 | 18 | A matured decision whose price path stays incomplete is retried on every pass; enough of them could fill the bounded 100-record scan. The shadow scorer rotates these with per-session CHECK records; the paper learner does not. | OPEN |
-| 19 | Overlap weighting handles one stock's correlated daily labels; same-day labels across stocks share market moves and are still treated as independent. Related to item 8. | OPEN |
+| 19 | Overlap weighting handles one stock's correlated daily labels; same-day labels across stocks share market moves and are still treated as independent. Related to item 8. | PARTIAL: shadow targets now remove the market move (item 8); the bandit's counterfactual labels are still raw returns and same-day labels are still treated as independent. |
 | 20 | No automatic reconciliation between each executed position's realized ledger return and its counterfactual label for the same window (they should match apart from late exits). | OPEN |
 | 21 | No power analysis for the direction test: 12 blocks may be too few to detect a realistic improvement, and too many decisions per block are correlated to know in advance. | OPEN: simulate block-level noise once real counterfactual records exist, before relying on a NOT_SUPERIOR result. |
-| 22 | The candidate shadow weights (item 7) still have no promotion protocol; item 6 covers direction only. | OPEN (depends on item 7's metric fix) |
+| 22 | The candidate shadow weights (item 7) still have no promotion protocol; item 6 covers direction only. | OPEN, unblocked: item 7's metric is in place, so a pre-registered promotion test for candidate weights can now be written. |
+| 23 | The residual is relative to SPY only; there's no sector-relative target, and a 63-day beta is a noisy hedge ratio. | OPEN |
+| 24 | Shadow snapshots captured before this change are scored under the v2 target with default beta/volatility when missing; their frozen candidate scores used v1 weights, so the first weeks mix weight versions in the weekly view. | OPEN: transitional only; filter by `weight_version` era if it matters. |
 
 ## Change log
 
@@ -112,3 +114,15 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
     an automatic promotion.
   - Shown in the learning-stage receipt and an admin card, read-only. No migration, no
     trading change.
+
+- **2026-10-10 — shadow skill metric + stock-specific targets** (branch
+  `fix/shadow-skill-metric-excess-returns`, stacked on #102):
+  - `agent-shadow.v2` with target `spy-beta-residual.v1`. Snapshots freeze beta and ex-ante
+    volatility; outcomes record raw, SPY, residual and volatility-scaled residual returns
+    plus the frozen component values. The price-vintage hash covers SPY.
+  - Candidate weights are now `family-budget-shrunk-information-coefficient.v2`: a
+    direction-sensitive, scale-free IC, shrunk toward pooled history (prior 32), negative
+    skill clipped to 0, a family budget for forecast models, and `NO_POSITIVE_SKILL` instead
+    of forced weights.
+  - Training history and the weekly view use only v2-target outcomes.
+  - No migration or trading change.
