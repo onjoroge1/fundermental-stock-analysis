@@ -184,9 +184,10 @@ def test_concurrent_realized_learning_updates_are_serialized_and_replays_do_not_
         results=list(pool.map(lambda key:record_outcome('VZ',key,outcome),['learn-one','learn-two']))
     assert not any(r['replayed'] for r in results)
     with pg() as conn:
-        state=research_store.latest(conn,'AGENT_BANDIT_STATE_V2','VZ')['payload']
-        assert state['arms']['LONG_STOCK']['observations']==2
+        from stock_machine.agent_intelligence.learning import pooled_state
+        state=pooled_state(conn)
+        assert state['arms']['LONG_STOCK']['observations']==2 and state['sequence']==2
         assert research_store.get(conn,'AGENT_REWARD_V3','learn-one')
     assert record_outcome('VZ','learn-one',outcome)['replayed']
     with pg() as conn:
-        assert research_store.latest(conn,'AGENT_BANDIT_STATE_V2','VZ')['payload']['arms']['LONG_STOCK']['observations']==2
+        assert pooled_state(conn)['arms']['LONG_STOCK']['observations']==2

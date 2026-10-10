@@ -151,15 +151,15 @@ def test_reward_rejects_invalid_operating_inputs(field, value):
         reward.compute(**args)
 
 
-def test_cold_start_rotates_untried_arms_while_outcomes_are_pending():
+def test_cold_start_explores_both_actions_while_outcomes_are_pending():
+    # Lexical ties once selected the same arm forever; sampling seeded by the
+    # decision key must explore both before any outcome matures.
     state = {"bias_score": 0.5, "signal_components": {"technical": 0.4}}
-    first = bandit.select(state, ["LONG_STOCK", "NO_TRADE"], decision_key="one")
-    chosen = first["selected"]["action"]
-    second = bandit.select(
-        state, ["LONG_STOCK", "NO_TRADE"], decision_key="two", trial_counts={chosen: 1}
-    )
-    assert second["selected"]["action"] != chosen
-    assert second["selected"]["observations"] == 0
+    picks = [
+        bandit.select(state, ["LONG_STOCK", "NO_TRADE"], decision_key=str(i))["selected"]["action"]
+        for i in range(200)
+    ]
+    assert 0.25 < picks.count("LONG_STOCK") / len(picks) < 0.75
 
 
 def paper_position(**overrides):

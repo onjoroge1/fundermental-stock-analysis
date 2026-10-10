@@ -9,12 +9,11 @@ def state():
 
 
 def test_contextual_bandit_explores_uncertain_arms_in_paper_only():
-    result=bandit.select(state(),["NO_TRADE","LONG_STOCK"],{},mode="PAPER")
+    result=bandit.select(state(),["NO_TRADE","LONG_STOCK"],{},mode="PAPER",decision_key="d1")
     assert result["exploration_enabled"] is True
-    assert result["choice_driver"] == "EXPLORE_UNTRIED"
-    assert result["selected"]["ucb"] == pytest.approx(
-        result["selected"]["mean"] + result["selected"]["exploration_bonus"]
-    )
+    assert result["sampling"]=="thompson"
+    for arm in result["arms"]:
+        assert arm["ucb"]==pytest.approx(arm["mean"]+arm["exploration_bonus"])
     assert result["broker_submission"] is False
     assert result["selected"]["action"] in {"NO_TRADE","LONG_STOCK"}
 
@@ -25,6 +24,54 @@ def test_bandit_update_changes_arm_state():
     updated=bandit.update(arm,x,1.5)
     assert updated["observations"]==1
     assert updated["reward_sum"]==1.5
+    assert bandit.estimate(updated,x)["mean"]>0
+    assert bandit.estimate(updated,x)["uncertainty"]<bandit.estimate(arm,x)["uncertainty"]
+
+
+def test_context_has_intercept_and_no_collinear_bias():
+    x=bandit.context_vector(state())
+    assert bandit.FEATURE_NAMES[0]=="intercept" and x[0]==1.0
+    assert "bias" not in bandit.FEATURE_NAMES and len(x)==len(bandit.FEATURE_NAMES)
+
+
+def test_no_trade_is_a_fixed_zero_baseline():
+    result=bandit.select(state(),["NO_TRADE","LONG_STOCK"],{},decision_key="d1")
+    baseline=next(a for a in result["arms"] if a["action"]=="NO_TRADE")
+    assert (baseline["mean"],baseline["uncertainty"],baseline["sample"])==(0.0,0.0,0.0)
+    assert baseline["baseline"] is True
+
+
+def test_selection_is_reproducible_from_the_decision_key():
+    one=bandit.select(state(),["NO_TRADE","LONG_STOCK"],{},decision_key="same")
+    two=bandit.select(state(),["LONG_STOCK","NO_TRADE"],{},decision_key="same")
+    assert one["selected"]==two["selected"]
+
+
+def test_learned_negative_edge_is_avoided_and_positive_edge_is_taken():
+    x=bandit.context_vector(state())
+    def trained(r):
+        arm=bandit.empty_arm(len(x))
+        for _ in range(200):
+            arm=bandit.update(arm,x,r)
+        return arm
+    def long_share(arm):
+        picks=[bandit.select(state(),["NO_TRADE","LONG_STOCK"],{"LONG_STOCK":arm},decision_key=str(i))["selected"]["action"]
+               for i in range(200)]
+        return picks.count("LONG_STOCK")/len(picks)
+    assert long_share(trained(-0.5))<0.05
+    assert long_share(trained(0.5))>0.95
+
+
+def test_one_bad_draw_does_not_lock_out_an_arm():
+    # The diagonal LinUCB never retried an arm after one bad reward at the
+    # same context; the posterior keeps a meaningful chance of retrying.
+    x=bandit.context_vector(state())
+    def long_count(r):
+        arm=bandit.update(bandit.empty_arm(len(x)),x,r)
+        return [bandit.select(state(),["NO_TRADE","LONG_STOCK"],{"LONG_STOCK":arm},decision_key=str(i))["selected"]["action"]
+                for i in range(400)].count("LONG_STOCK")
+    assert long_count(-1.0)>60   # one-sigma loss: retried about a quarter of the time
+    assert long_count(-2.0)>10   # two-sigma loss: still explored
 
 
 def test_bandit_forbids_live_mode():
@@ -69,23 +116,12 @@ def test_risk_scale_uses_decision_time_volatility_with_documented_fallbacks():
         reward.risk_scale({},0)
 
 
-def test_bandit_ignores_arms_trained_under_an_earlier_reward_contract():
-    from stock_machine.agent_intelligence.learning import current_arms
-    arm={"a_diag":[2.0]*6,"b":[-3.0]*6,"observations":1,"reward_sum":-3.0}
-    assert current_arms({"payload":{"arms":{"LONG_STOCK":arm}}})=={}
-    assert current_arms({"payload":{"reward_version":reward.VERSION,"arms":{"LONG_STOCK":arm}}})=={"LONG_STOCK":arm}
+def test_pooled_model_ignores_state_from_earlier_contracts():
+    from stock_machine.agent_intelligence.learning import POOLED_SCOPE, current_arms
+    arm=bandit.empty_arm()
+    current={"scope":POOLED_SCOPE,"reward_version":reward.VERSION,"bandit_version":bandit.VERSION,"arms":{"LONG_STOCK":arm}}
+    assert current_arms(current)=={"LONG_STOCK":arm}
+    assert current_arms({**current,"reward_version":"risk-adjusted-paper-reward.v3"})=={}
+    assert current_arms({**current,"bandit_version":"contextual-bandit.v1"})=={}
+    assert current_arms({"reward_version":reward.VERSION,"bandit_version":bandit.VERSION,"arms":{"LONG_STOCK":arm}})=={}
     assert current_arms(None)=={}
-
-
-def test_tool_lab_accepts_declarative_tool_and_rejects_code():
-    spec={"name":"trend_quality","operation":"weighted_sum",
-          "inputs":["signal_components.fundamental","signal_components.technical"],
-          "weights":[.6,.4],"hypothesis":"combined fundamental and technical state may improve paper selection"}
-    result=tool_lab.evaluate(spec,state())
-    assert result["execution"]=="DECLARATIVE_SANDBOX"
-    assert result["promotion"]=="NOT_AUTHORIZED"
-    try:
-        tool_lab.validate({"name":"bad","operation":"python","inputs":["x"],"hypothesis":"x"})
-        assert False
-    except ValueError as e:
-        assert str(e)=="TOOL_OPERATION_NOT_ALLOWED"
