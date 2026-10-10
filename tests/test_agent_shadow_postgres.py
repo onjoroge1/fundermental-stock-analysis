@@ -83,6 +83,11 @@ def test_capture_maturity_replay_and_weekly_projection_are_isolated(pg, monkeypa
                 "INSERT INTO prices_daily(ticker,date,close,adj_close) VALUES ('VZ',%s,110,%s)",
                 (day, 100 if day == "2026-09-01" else 110),
             )
+            # Flat market: the whole stock move is stock-specific.
+            conn.execute(
+                "INSERT INTO prices_daily(ticker,date,close,adj_close) VALUES ('SPY',%s,100,100)",
+                (day,),
+            )
     monkeypatch.setattr(shadow, "latest_completed_session", lambda *a: due)
     assert shadow.score_matured()["scored"] == 3
     assert shadow.score_matured()["scored"] == 0
@@ -110,28 +115,29 @@ def test_missing_path_is_retryable_and_does_not_starve_newer_snapshots(pg, monke
     assert shadow.score_matured(limit=1)["results"] == []
     with pg() as conn:
         for day in session_dates("2026-09-01", due):
-            conn.execute(
-                "INSERT INTO prices_daily(ticker,date,close,adj_close) VALUES ('VZ',%s,100,100)",
-                (day,),
-            )
+            for ticker in ("VZ", "SPY"):
+                conn.execute(
+                    "INSERT INTO prices_daily(ticker,date,close,adj_close) VALUES (%s,%s,100,100)",
+                    (ticker, day),
+                )
     clock[0] = session_offset(due, 1)
     assert shadow.score_matured()["scored"] == 3
 
 
 def test_training_cutoff_excludes_future_recording_and_target_sessions(pg):
     now = datetime.now(timezone.utc)
+    past = {"due_session": "2026-09-01", "target": shadow.TARGET}
     with pg() as conn:
+        research_store.save(conn, shadow.OUTCOME, "past", past, "VZ")
         research_store.save(
-            conn, shadow.OUTCOME, "past", {"due_session": "2026-09-01"}, "VZ"
+            conn, shadow.OUTCOME, "future-target",
+            {"due_session": "2099-01-01", "target": shadow.TARGET}, "VZ",
         )
-        research_store.save(
-            conn, shadow.OUTCOME, "future-target", {"due_session": "2099-01-01"}, "VZ"
-        )
+        # v1 outcomes were scored on raw direction and never train v2 weights.
+        research_store.save(conn, shadow.OUTCOME, "v1-raw-target", {"due_session": "2026-09-01"}, "VZ")
     with pg() as conn:
         assert shadow.training_history(conn, now) == []
-        assert shadow.training_history(conn, now + timedelta(seconds=30)) == [
-            {"due_session": "2026-09-01"}
-        ]
+        assert shadow.training_history(conn, now + timedelta(seconds=30)) == [past]
 
 
 def test_forecast_staleness_and_bad_financials_do_not_hide_valid_technical_observation(
