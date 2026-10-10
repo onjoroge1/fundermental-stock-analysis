@@ -198,3 +198,25 @@ def test_concurrent_counterfactual_learning_is_serialized_and_replays_do_not_dou
     shifted={a:{**v,'entry_date':'2026-09-02'} for a,v in arm_outcomes.items()}
     with pytest.raises(ValueError,match='COUNTERFACTUAL_WINDOW_MISMATCH'):
         record_counterfactual('VZ','learn-three',shifted)
+
+
+def test_direction_evidence_counts_only_matured_decisions_under_the_current_protocol(pg):
+    from stock_machine.agent_intelligence import direction
+    def intelligence(key, protocol):
+        return {'ticker':'VZ','decision_id':key,'learning':{'execution_session':'2026-10-02'},
+                'direction_challenger':{'protocol_sha256':protocol,'incumbent':'LONG','challenger':'SHORT'}}
+    reward={'learning_basis':'PROSPECTIVE_COUNTERFACTUAL_V1',
+            'arms':{'LONG_STOCK':{'reward':{'reward':-.2}},'SHORT_STOCK':{'reward':{'reward':.2}}}}
+    with pg() as conn:
+        research_store.save(conn,'AGENT_INTELLIGENCE_V2','counted',intelligence('counted',direction.PROTOCOL_SHA256),'VZ')
+        research_store.save(conn,'AGENT_REWARD_V3','counted',reward,'VZ')
+        research_store.save(conn,'AGENT_INTELLIGENCE_V2','old-protocol',intelligence('old-protocol','0'*64),'VZ')
+        research_store.save(conn,'AGENT_REWARD_V3','old-protocol',reward,'VZ')
+        research_store.save(conn,'AGENT_INTELLIGENCE_V2','immature',intelligence('immature',direction.PROTOCOL_SHA256),'VZ')
+    with pg() as conn:
+        rows=direction.matured_rows(conn)
+        value=direction.summary(conn)
+    assert rows==[{'execution_session':'2026-10-02','incumbent':'LONG','challenger':'SHORT',
+                   'rewards':{'LONG':-.2,'SHORT':.2}}]
+    assert value['status']=='PENDING_EVIDENCE' and value['decisions']==1
+    assert value['mean_paired_difference']==pytest.approx(.4)
