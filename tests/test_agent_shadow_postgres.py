@@ -99,6 +99,11 @@ def test_capture_maturity_replay_and_weekly_projection_are_isolated(pg, monkeypa
     row = next(r for r in report["rows"] if r["horizon_sessions"] == 20)
     assert row["candidate_error"] < row["baseline_error"]
     assert row["forecast_metrics"]["forecast:lstm:v1"]["brier"] == pytest.approx(0.09)
+    pooled = report["pooled"]
+    assert pooled["week"]["20"]["observations"] == 1
+    assert pooled["cumulative"]["20"]["observations"] == 1
+    assert pooled["cumulative"]["20"]["point"]["candidate_ic"] > 0
+    assert pooled["cumulative"]["20"]["interval_95"] == {}
 
 
 def test_missing_path_is_retryable_and_does_not_starve_newer_snapshots(pg, monkeypatch):
@@ -128,7 +133,13 @@ def test_training_cutoff_excludes_future_recording_and_target_sessions(pg):
     now = datetime.now(timezone.utc)
     past = {"due_session": "2026-09-01", "target": shadow.TARGET}
     with pg() as conn:
-        research_store.save(conn, shadow.OUTCOME, "past", past, "VZ")
+        # Extra outcome fields are not read for training.
+        research_store.save(conn, shadow.OUTCOME, "past", {**past, "forecast_scores": {"m": {}}}, "VZ")
+        # Older than the 252-session window.
+        research_store.save(
+            conn, shadow.OUTCOME, "outside-window",
+            {"due_session": session_offset(latest_completed_session(now), -253), "target": shadow.TARGET}, "VZ",
+        )
         research_store.save(
             conn, shadow.OUTCOME, "future-target",
             {"due_session": "2099-01-01", "target": shadow.TARGET}, "VZ",

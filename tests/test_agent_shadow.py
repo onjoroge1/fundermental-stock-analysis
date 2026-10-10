@@ -243,3 +243,54 @@ def test_capture_freezes_exchange_timestamp_and_requires_forecast_version(
     assert len(snap["forecasts"]) == forecast_count
     assert (snap["target"], snap["beta"], snap["ex_ante_vol"]) == (shadow.TARGET, 1.3, 0.25)
     assert saved[(shadow.WEIGHTS, "d:5")]["training_history_hash"]
+
+
+def pooled_row(origin, horizon, z, candidate, baseline, ret=1.0, prob=None):
+    row = {"origin_session": origin, "horizon_sessions": horizon, "residual_z": z,
+           "candidate_score": candidate, "baseline_score": baseline,
+           "candidate_hit": None if candidate == 0 else (candidate > 0) == (z > 0),
+           "baseline_hit": None if baseline == 0 else (baseline > 0) == (z > 0),
+           "realized_return_pct": ret, "forecast_scores": {}}
+    if prob is not None:
+        row["forecast_scores"] = {"m": {"brier": (prob - (ret > 0)) ** 2}}
+    return row
+
+
+def test_pooled_statistics_resample_blocks_and_report_skill_with_intervals():
+    import random
+
+    rng = random.Random(3)
+    origins = session_dates("2026-10-01", "2027-03-31")
+    rows = []
+    for origin in origins:
+        for _ in range(10):
+            z = rng.gauss(0, 1)
+            rows.append(pooled_row(origin, 5, z, 0.5 if z > 0 else -0.5, rng.choice([-0.5, 0.5])))
+    value = shadow.pooled_statistics(rows)["5"]
+    assert value["observations"] == len(rows) and value["blocks"] == -(-len(origins) // 5)
+    assert value["point"]["candidate_ic"] > 0.7
+    assert abs(value["point"]["baseline_ic"]) < 0.1
+    low, high = value["interval_95"]["ic_difference"]
+    assert 0 < low < value["point"]["ic_difference"] < high
+    assert value["point"]["candidate_hit_rate"] == 1.0
+
+
+def test_one_block_has_no_interval_however_many_stocks():
+    rows = [pooled_row("2026-10-01", 20, z, z, z) for z in (1.0, -1.0) * 200]
+    value = shadow.pooled_statistics(rows)["20"]
+    assert value["blocks"] == 1 and value["interval_95"] == {}
+    assert value["interval_basis"].startswith("fewer than two blocks")
+
+
+def test_brier_skill_is_relative_to_the_base_rate():
+    origins = session_dates("2026-10-01", "2026-12-31")
+    flat = [pooled_row(o, 5, 1.0, 0, 0, ret=r, prob=0.5) for o in origins for r in (1.0, -1.0)]
+    sharp = [pooled_row(o, 5, 1.0, 0, 0, ret=r, prob=0.9 if r > 0 else 0.1) for o in origins for r in (1.0, -1.0)]
+    assert shadow.pooled_statistics(flat)["5"]["point"]["brier_skill:m"] == pytest.approx(0.0)
+    assert shadow.pooled_statistics(sharp)["5"]["point"]["brier_skill:m"] == pytest.approx(1 - 0.01 / 0.25)
+
+
+def test_outcome_records_frozen_scores_for_pooled_ic():
+    s = snapshot()
+    result = score(s)
+    assert (result["candidate_score"], result["baseline_score"]) == (0.5, -0.5)

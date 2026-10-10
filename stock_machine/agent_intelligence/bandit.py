@@ -13,28 +13,56 @@ from __future__ import annotations
 
 import hashlib
 import random
-from math import sqrt
+from math import isfinite, sqrt
 
-VERSION = "pooled-linear-thompson.v1"
-FEATURE_NAMES = ("intercept", "fundamental", "technical", "news", "regime", "volatility")
+VERSION = "pooled-linear-thompson.v2"
+SIGNALS = ("fundamental", "technical", "news", "regime")
+FEATURE_NAMES = (
+    "intercept",
+    *SIGNALS,
+    "volatility_z",
+    *(name + "_missing" for name in (*SIGNALS, "volatility")),
+)
 BASELINE_ACTION = "NO_TRADE"
 PRIOR_PRECISION = 1.0
 NOISE_VARIANCE = 1.0
+# Standardization for annualized 20-session volatility; typical covered
+# stocks sit near 35%. Clipped so one extreme name cannot dominate.
+VOL_CENTER, VOL_SCALE, VOL_CLIP = 0.35, 0.25, (-2.0, 3.0)
+
+
+def _present(value) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and isfinite(value)
+    )
 
 
 def context_vector(state: dict) -> list[float]:
-    # The composite bias is a weighted sum of the four components; including
-    # it made the design matrix collinear, so it is not a feature.
+    """Signals plus explicit missing flags.
+
+    v1 coerced a missing signal to 0, indistinguishable from a genuinely
+    neutral reading, and fed raw volatility clipped to [0, 1], which acted
+    as a second intercept. The composite bias is a weighted sum of the
+    signals, so it is not a feature.
+    """
     parts = state.get("signal_components") or {}
     tech = (state.get("technical") or {}).get("features") or {}
+    values = [parts.get(name) for name in SIGNALS]
     vol = tech.get("realized_vol_20")
+    vol_ok = _present(vol) and vol > 0
+    vol_z = (
+        min(VOL_CLIP[1], max(VOL_CLIP[0], (float(vol) - VOL_CENTER) / VOL_SCALE))
+        if vol_ok
+        else 0.0
+    )
     return [
         1.0,
-        float(parts.get("fundamental") or 0.0),
-        float(parts.get("technical") or 0.0),
-        float(parts.get("news") or 0.0),
-        float(parts.get("regime") or 0.0),
-        min(1.0, max(0.0, float(vol or 0.0))),
+        *(float(v) if _present(v) else 0.0 for v in values),
+        vol_z,
+        *(0.0 if _present(v) else 1.0 for v in values),
+        0.0 if vol_ok else 1.0,
     ]
 
 

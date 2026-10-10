@@ -23,6 +23,10 @@ OUTCOME = "AGENT_SHADOW_OUTCOME_V1"
 WEIGHTS = "AGENT_SHADOW_WEIGHTS_V1"
 CHECK = "AGENT_SHADOW_CHECK_V1"
 PRIOR_STRENGTH = 32.0
+TRAINING_WINDOW_SESSIONS = 252
+# About 162 outcomes a session at full coverage fill the window with ~41,000;
+# reaching the cap means the window was cut short, which is recorded.
+TRAINING_ROW_CAP = 60000
 # The regime signal is a market-timing call: scored against SPY and kept out
 # of the stock-specific candidate score.
 MARKET_COMPONENTS = frozenset({"regime"})
@@ -127,14 +131,26 @@ def candidate_weights(history, components, ticker, horizon):
 
 
 def training_history(conn, now):
-    # Only outcomes recorded before this snapshot are usable. SQL filtering
-    # precedes LIMIT, avoiding oldest-history truncation and future leakage.
+    """Outcomes whose targets completed within the last TRAINING_WINDOW_SESSIONS.
+
+    Only outcomes recorded before this snapshot are usable; SQL filtering
+    precedes LIMIT, avoiding truncation of old history and future leakage.
+    The window is explicit in sessions. The latest 5,000 outcomes it replaced
+    covered only about 31 sessions at full coverage. Only the fields training
+    needs are read.
+    """
+    completed = latest_completed_session(now)
+    start = session_offset(completed, -TRAINING_WINDOW_SESSIONS)
     rows = conn.execute(
-        """SELECT payload FROM research_evidence_records
+        """SELECT jsonb_strip_nulls(jsonb_build_object(
+                'ticker',payload->'ticker','horizon_sessions',payload->'horizon_sessions',
+                'target',payload->'target','due_session',payload->'due_session',
+                'component_values',payload->'component_values','residual_z',payload->'residual_z'))
+        FROM research_evidence_records
         WHERE kind=%s AND recorded_at<%s AND payload->>'due_session'<=%s
-          AND payload->>'target'=%s
-        ORDER BY recorded_at DESC,record_id DESC LIMIT 5000""",
-        (OUTCOME, now, latest_completed_session(now), TARGET),
+          AND payload->>'due_session'>%s AND payload->>'target'=%s
+        ORDER BY recorded_at DESC,record_id DESC LIMIT %s""",
+        (OUTCOME, now, completed, start, TARGET, TRAINING_ROW_CAP),
     ).fetchall()
     return [r[0] for r in rows]
 
@@ -225,7 +241,9 @@ def capture(conn, decision, packet, intelligence, *, now=None):
             "training_cutoff": now.isoformat(),
             "source_outcomes": len(history),
             "training_history_hash": history_hash,
-            "training_window_limit": 5000,
+            "training_window_sessions": TRAINING_WINDOW_SESSIONS,
+            "training_row_cap": TRAINING_ROW_CAP,
+            "training_window_truncated": len(history) >= TRAINING_ROW_CAP,
             "feature_contract": VERSION,
             "sector": company.get("sector"),
         }
@@ -355,6 +373,8 @@ def evaluate(snapshot, prices, *, completed, market_prices):
         "residual_return_pct": residual * 100,
         "residual_z": residual_z,
         "component_values": dict(snapshot["components"]),
+        "candidate_score": snapshot["candidate_score"],
+        "baseline_score": snapshot["baseline_score"],
         # Errors and hits judge the stock-specific move; the agent's action
         # is a raw stock position and is judged on the raw move.
         "candidate_error": (snapshot["candidate_score"] - residual_target) ** 2,
@@ -432,6 +452,147 @@ def score_matured(*, limit=100):
         "broker_submission": False,
         "promotion": "NOT_AUTHORIZED",
     }
+
+
+STATS_EPOCH = "2026-10-01"
+BOOTSTRAP_SAMPLES = 2000
+BOOTSTRAP_SEED = 20261011
+
+
+def _block_of(origin, horizon, index):
+    # Blocks of `horizon` origin sessions: outcomes in one block share market
+    # moves and overlapping windows, so blocks are the resampling units.
+    return index.get(origin, 0) // max(1, int(horizon))
+
+
+def pooled_statistics(rows):
+    """Pooled shadow evidence per horizon with date-block bootstrap ranges.
+
+    Per-stock cells hold a handful of correlated outcomes each; pooling with
+    block resampling gives one honest interval per horizon. Reports the
+    candidate and current scores' information coefficients against the
+    stock-specific move, their direction hit rates, and each forecast model's
+    Brier skill against the base rate of the same observations (in-sample
+    climatology, slightly favourable to the reference).
+    """
+    import random
+
+    from ..market_calendar import session_dates
+
+    origins = sorted({r["origin_session"] for r in rows if r.get("origin_session")})
+    epoch = min([STATS_EPOCH] + origins) if origins else STATS_EPOCH
+    index = {}
+    if origins:
+        sessions = session_dates(epoch, origins[-1])
+        position = {d: i for i, d in enumerate(sessions)}
+        index = {o: position.get(o, 0) for o in origins}
+    by_horizon = defaultdict(list)
+    for row in rows:
+        by_horizon[row["horizon_sessions"]].append(row)
+    result = {}
+    for horizon, values in sorted(by_horizon.items()):
+        blocks = defaultdict(lambda: defaultdict(float))
+        models = set()
+        for r in values:
+            b = blocks[_block_of(r["origin_session"], horizon, index)]
+            b["n"] += 1
+            z = r.get("residual_z")
+            for name in ("candidate", "baseline"):
+                score = r.get(name + "_score")
+                if number(score) and number(z):
+                    b[name + "_sz"] += score * z
+                    b[name + "_ss"] += score * score
+                    b[name + "_zz"] += z * z
+                hit = r.get(name + "_hit")
+                if hit is not None:
+                    b[name + "_hits"] += 1.0 if hit else 0.0
+                    b[name + "_calls"] += 1
+            ret = r.get("realized_return_pct")
+            for model, metrics in (r.get("forecast_scores") or {}).items():
+                brier = (metrics or {}).get("brier")
+                if number(brier) and number(ret) and ret != 0:
+                    models.add(model)
+                    b["brier_sum:" + model] += brier
+                    b["up:" + model] += 1.0 if ret > 0 else 0.0
+                    b["count:" + model] += 1
+
+        def measures(sums):
+            out = {}
+            for name in ("candidate", "baseline"):
+                ss, zz = sums.get(name + "_ss", 0.0), sums.get(name + "_zz", 0.0)
+                out[name + "_ic"] = sums.get(name + "_sz", 0.0) / sqrt(ss * zz) if ss > 0 and zz > 0 else None
+                calls = sums.get(name + "_calls", 0)
+                out[name + "_hit_rate"] = sums.get(name + "_hits", 0.0) / calls if calls else None
+            out["ic_difference"] = (
+                out["candidate_ic"] - out["baseline_ic"]
+                if out["candidate_ic"] is not None and out["baseline_ic"] is not None
+                else None
+            )
+            for model in models:
+                n = sums.get("count:" + model, 0)
+                if not n:
+                    out["brier_skill:" + model] = None
+                    continue
+                base = sums["up:" + model] / n
+                reference = base * (1 - base)
+                out["brier_skill:" + model] = (
+                    1 - (sums["brier_sum:" + model] / n) / reference if reference > 0 else None
+                )
+            return out
+
+        def total(items):
+            sums = defaultdict(float)
+            for item in items:
+                for k, v in item.items():
+                    sums[k] += v
+            return sums
+
+        keys = sorted(blocks)
+        point = measures(total(blocks[k] for k in keys))
+        intervals = {}
+        if len(keys) >= 2:
+            rng = random.Random(BOOTSTRAP_SEED + int(horizon))
+            draws = defaultdict(list)
+            for _ in range(BOOTSTRAP_SAMPLES):
+                sample = measures(total(blocks[rng.choice(keys)] for _ in keys))
+                for k, v in sample.items():
+                    if v is not None:
+                        draws[k].append(v)
+            for k, values_k in draws.items():
+                values_k.sort()
+                if len(values_k) >= BOOTSTRAP_SAMPLES // 2:
+                    intervals[k] = [
+                        values_k[int(0.025 * len(values_k))],
+                        values_k[int(0.975 * len(values_k)) - 1],
+                    ]
+        result[str(horizon)] = {
+            "observations": len(values),
+            "blocks": len(keys),
+            "candidate_direction_calls": int(total(blocks.values()).get("candidate_calls", 0)),
+            "baseline_direction_calls": int(total(blocks.values()).get("baseline_calls", 0)),
+            "point": point,
+            "interval_95": intervals,
+            "interval_basis": (
+                "bootstrap over blocks of horizon-length origin sessions"
+                if intervals else "fewer than two blocks; no interval"
+            ),
+        }
+    return result
+
+
+def cumulative_rows(conn):
+    """Every scored v2 outcome, reduced to the fields pooled statistics read."""
+    rows = conn.execute(
+        """SELECT jsonb_build_object(
+                'horizon_sessions',payload->'horizon_sessions','origin_session',payload->'origin_session',
+                'residual_z',payload->'residual_z','candidate_score',payload->'candidate_score',
+                'baseline_score',payload->'baseline_score','candidate_hit',payload->'candidate_hit',
+                'baseline_hit',payload->'baseline_hit','realized_return_pct',payload->'realized_return_pct',
+                'forecast_scores',payload->'forecast_scores')
+        FROM research_evidence_records WHERE kind=%s AND payload->>'target'=%s""",
+        (OUTCOME, TARGET),
+    ).fetchall()
+    return [r[0] for r in rows]
 
 
 def metric_mean(metrics, field):
@@ -523,7 +684,12 @@ def weekly_summary(conn, *, end=None):
         AND NOT EXISTS (SELECT 1 FROM research_evidence_records o WHERE o.kind=%s AND o.request_key=r.request_key)""",
         (end, SNAPSHOT, OUTCOME),
     ).fetchone()
+    pooled = {
+        "week": pooled_statistics([row for (row,) in rows]),
+        "cumulative": pooled_statistics(cumulative_rows(conn)),
+    }
     return {
+        "pooled": pooled,
         "status": "ATTENTION" if overdue else ("OK" if rows else "AWAITING_MATURITY"),
         "period_start": start,
         "period_end": end,
@@ -537,7 +703,7 @@ def weekly_summary(conn, *, end=None):
         "limitations": [
             "Directional comparison, not portfolio P&L or calibrated signal probabilities.",
             "Candidate and current scores are judged on the beta-adjusted move relative to SPY; agent actions on the raw move; forecast Brier and intervals on raw prices.",
-            "Overlapping horizons and correlated stocks are not independent observations.",
+            "Overlapping horizons and correlated stocks are not independent observations; pooled intervals resample date blocks, and per-stock rows carry no interval.",
             "Candidate weights are evaluated prospectively; no automatic promotion.",
         ],
     }

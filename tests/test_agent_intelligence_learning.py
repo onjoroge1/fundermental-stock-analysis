@@ -141,3 +141,36 @@ def test_overlap_weight_scales_information_not_estimate():
     assert bandit.estimate(twenty,x)["mean"]==pytest.approx(bandit.estimate(full,x)["mean"])
     with pytest.raises(ValueError,match="BANDIT_WEIGHT_INVALID"):
         bandit.update(full,x,1.0,weight=0)
+
+
+def test_missing_signals_are_flagged_not_treated_as_neutral():
+    neutral={"signal_components":{"fundamental":0.0,"technical":0.0,"news":0.0,"regime":0.0},
+             "technical":{"features":{"realized_vol_20":.35}}}
+    missing={"signal_components":{"fundamental":None,"technical":0.0,"news":None,"regime":0.0},
+             "technical":{"features":{}}}
+    names=bandit.FEATURE_NAMES
+    a,b=dict(zip(names,bandit.context_vector(neutral))),dict(zip(names,bandit.context_vector(missing)))
+    assert a!=b
+    assert (b["fundamental_missing"],b["news_missing"],b["volatility_missing"])==(1.0,1.0,1.0)
+    assert (b["technical_missing"],b["regime_missing"])==(0.0,0.0)
+    assert not any(v for k,v in a.items() if k.endswith("_missing"))
+    for bad in (float("nan"),True,"0.4"):
+        x=dict(zip(names,bandit.context_vector({"signal_components":{"fundamental":bad}})))
+        assert x["fundamental"]==0.0 and x["fundamental_missing"]==1.0
+
+
+def test_volatility_is_standardized_and_clipped_not_a_second_intercept():
+    def vol(v):
+        return dict(zip(bandit.FEATURE_NAMES,bandit.context_vector({"technical":{"features":{"realized_vol_20":v}}})))
+    assert vol(.35)["volatility_z"]==0.0
+    assert vol(.60)["volatility_z"]==pytest.approx(1.0)
+    assert vol(5.0)["volatility_z"]==3.0 and vol(.01)["volatility_z"]==pytest.approx(-1.36)
+    assert vol(0)["volatility_missing"]==1.0 and vol(0)["volatility_z"]==0.0
+
+
+def test_context_change_cold_starts_the_pooled_model():
+    from stock_machine.agent_intelligence.learning import LEARNING_BASIS, POOLED_SCOPE, current_arms
+    assert bandit.VERSION=="pooled-linear-thompson.v2"
+    old={"scope":POOLED_SCOPE,"reward_version":reward.VERSION,"bandit_version":"pooled-linear-thompson.v1",
+         "learning_basis":LEARNING_BASIS,"arms":{"LONG_STOCK":{"precision":[[1.0]*6]*6}}}
+    assert current_arms(old)=={}
