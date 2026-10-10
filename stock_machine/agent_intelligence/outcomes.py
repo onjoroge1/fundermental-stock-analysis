@@ -1,22 +1,64 @@
-"""Execution-backed learning, isolated from the legacy hypothetical v2 rewards.
+"""Prospective counterfactual learning for the pooled stock bandit.
 
-New stock arms learn only from decision-linked realized paper positions. Valid
-flat decisions have a separately labelled 20-session abstention observation.
-Blocked inputs, rejected orders, holds and legacy retrospective simulations do
-not become successful zero-return training samples.
+A stock's forward return is observable whether or not the agent traded, so
+every eligible decision yields a fixed-window outcome for both stock
+directions: entry at the first exchange close after the decision was
+recorded (the same session a paper fill would use), exit 20 sessions later,
+fixed paper costs. Nothing starts before the decision is recorded and no
+outcome is rewritten. Daily decisions on one stock share most of a window,
+so each carries 1/20 of an independent observation's weight. Realized paper
+P&L stays in the paper ledger and weekly audit as execution evidence.
+Blocked inputs and legacy contracts never become training samples.
 """
 
 from __future__ import annotations
 
 from math import isfinite
-from .learning import record_outcome
+from .learning import record_counterfactual
 from .. import db
-from ..market_calendar import latest_completed_session, session_offset, session_dates
+from ..market_calendar import (
+    latest_completed_session,
+    next_close_after,
+    session_offset,
+    session_dates,
+)
 
+CONTRACT = "prospective-counterfactual.v1"
 HORIZON_SESSIONS = 20
-ROUND_TRIP_COST_PCT = 0.20  # legacy helper default; realized learning uses saved fills
-CAPITAL_USED_PCT = 10.0
-TURNOVER_PCT = 20.0
+LEARNED_ARMS = ("LONG_STOCK", "SHORT_STOCK")
+OVERLAP_WEIGHT = 1.0 / HORIZON_SESSIONS
+FILL_COST_BPS_PER_SIDE = 10.0
+
+
+def learning_window(conn, decision_id: str, observed_iso: str) -> dict:
+    """Frozen at decision time: the session a paper fill would use and its target.
+
+    Uses the journal recording time, exactly as the paper ledger does, so a
+    counterfactual and an executed trade share one entry close.
+    """
+    from uuid import UUID
+
+    try:
+        UUID(str(decision_id))
+    except ValueError:
+        # Journal ids are UUIDs; a malformed id must not abort the transaction.
+        row = None
+    else:
+        row = conn.execute(
+            "SELECT recorded_at::text FROM agent_lab_decisions WHERE decision_id=%s",
+            (str(decision_id),),
+        ).fetchone()
+    recorded = row[0] if row and isinstance(row[0], str) else None
+    entry = next_close_after(recorded or observed_iso)
+    return {
+        "contract": CONTRACT,
+        "execution_session": entry,
+        "due_session": session_offset(entry, HORIZON_SESSIONS),
+        "horizon_sessions": HORIZON_SESSIONS,
+        "learned_arms": list(LEARNED_ARMS),
+        "overlap_weight": OVERLAP_WEIGHT,
+        "entry_basis": "journal_recorded_at" if recorded else "observed_at",
+    }
 
 
 def _drawdown(values: list[float]) -> float:
@@ -31,17 +73,8 @@ def _drawdown(values: list[float]) -> float:
 
 
 def _stock_outcome(conn, ticker: str, action: str, entry: str, exit_day: str) -> dict:
-    if action == "NO_TRADE":
-        return {
-            "status": "MATURED",
-            "gross_return_pct": 0.0,
-            "max_drawdown_pct": 0.0,
-            "capital_used_pct": 0.0,
-            "turnover_pct": 0.0,
-            "costs_pct": 0.0,
-            "entry_date": entry,
-            "exit_date": exit_day,
-        }
+    if action not in LEARNED_ARMS:
+        raise ValueError("OUTCOME_ACTION_NOT_LEARNED")
     rows = db.fetch_prices(conn, ticker, exit_day)
     by_date = {r["date"]: r for r in rows if entry <= r["date"] <= exit_day}
     required = session_dates(entry, exit_day)
@@ -63,9 +96,6 @@ def _stock_outcome(conn, ticker: str, action: str, entry: str, exit_day: str) ->
         "status": "MATURED",
         "gross_return_pct": round(sign * (p1 / p0 - 1) * 100, 6),
         "max_drawdown_pct": round(_drawdown(values), 6),
-        "capital_used_pct": CAPITAL_USED_PCT,
-        "turnover_pct": TURNOVER_PCT,
-        "costs_pct": ROUND_TRIP_COST_PCT,
         "entry_date": entry,
         "exit_date": exit_day,
         "entry_adjusted_close": p0,
@@ -75,63 +105,37 @@ def _stock_outcome(conn, ticker: str, action: str, entry: str, exit_day: str) ->
     }
 
 
-def execution(conn, decision_id: str) -> dict | None:
-    """Read the actual ledger; optional storage is absent in research-only mode."""
-    if conn.execute("SELECT to_regclass('agent_trade_intents')").fetchone()[0] is None:
-        return None
-    from psycopg.rows import dict_row
-
-    with conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(
-            """SELECT i.status AS intent_status,i.action AS intent_action,
-            i.risk_snapshot,p.position_id::text,p.side,p.status AS position_status,
-            p.entry_market_date::text,p.exit_market_date::text,p.entry_notional_usd,
-            p.entry_cost_usd,p.exit_cost_usd,p.realized_pnl_usd
-            FROM agent_trade_intents i LEFT JOIN agent_paper_positions p
-                ON p.source_intent_id=i.intent_id
-            WHERE i.decision_id=%s""",
-            (decision_id,),
-        )
-        return cur.fetchone()
-
-
-def learning_status(
-    run: dict, ledger: dict | None, completed: str
-) -> tuple[str, str | None]:
-    """Shared status for scanner and owner UI; no guessed horizon from state date."""
-    action = ((run.get("bandit") or {}).get("selected") or {}).get("action")
-    if run.get("learning_contract") != "executed-paper.v3":
+def learning_status(run: dict, completed: str) -> tuple[str, str | None]:
+    """Shared status for scanner and owner UI; the window was frozen at decision time."""
+    if run.get("learning_contract") != CONTRACT:
+        if run.get("learning_contract") == "executed-paper.v3":
+            return "EXCLUDED_PRIOR_LEARNING_CONTRACT", None
         return "EXCLUDED_LEGACY_HYPOTHETICAL", None
-    if run.get("mode") != "PAPER":
-        return "EXCLUDED_SHADOW", None
     if not (run.get("state") or {}).get("paper_eligible"):
         return "EXCLUDED_BLOCKED_STATE", None
-    if not ledger or ledger["intent_status"] == "PENDING":
-        return "PENDING_EXECUTION", None
-    if ledger["intent_status"] == "BLOCKED":
-        return "EXCLUDED_REJECTED_INTENT", None
-    risk = ledger.get("risk_snapshot") or {}
-    if risk.get("execution_contract") != "prospective-next-close.v2":
-        return "EXCLUDED_LEGACY_FILL", None
-    if (
-        action == "NO_TRADE"
-        and ledger["intent_action"] == "NO_TRADE"
-        and ledger["intent_status"] == "NO_ACTION"
-    ):
-        day = risk.get("execution_session")
-        if not day:
-            return "EXCLUDED_INVALID_ABSTENTION", None
-        due = session_offset(day, HORIZON_SESSIONS)
-        return ("READY_ABSTENTION" if completed >= due else "PENDING_MATURITY"), due
-    wanted = {"LONG_STOCK": "OPEN_LONG", "SHORT_STOCK": "OPEN_SHORT"}.get(action)
-    if not wanted or ledger["intent_action"] != wanted or not ledger.get("position_id"):
-        return "EXCLUDED_NO_NEW_POSITION", None
-    if ledger["intent_status"] != "SIMULATED":
-        return "EXCLUDED_UNFILLED_INTENT", None
-    due = session_offset(ledger["entry_market_date"], HORIZON_SESSIONS)
-    if ledger["position_status"] == "CLOSED":
-        return "READY_REALIZED", ledger["exit_market_date"]
-    return "PENDING_EXIT" if completed >= due else "PENDING_MATURITY", due
+    window = run.get("learning") or {}
+    due, entry = window.get("due_session"), window.get("execution_session")
+    if window.get("contract") != CONTRACT or not due or not entry or entry > due:
+        return "EXCLUDED_INVALID_LEARNING_WINDOW", None
+    return ("READY_COUNTERFACTUAL" if completed >= due else "PENDING_MATURITY"), due
+
+
+def counterfactual_outcomes(conn, ticker: str, entry: str, due: str) -> dict:
+    cost_pct = 2 * FILL_COST_BPS_PER_SIDE / 100
+    from ..agent_trading import TARGET_POSITION_PCT
+
+    size_pct = TARGET_POSITION_PCT * 100
+    result = {}
+    for action in LEARNED_ARMS:
+        outcome = _stock_outcome(conn, ticker, action, entry, due)
+        outcome.update(
+            costs_pct=cost_pct,
+            capital_used_pct=size_pct,
+            turnover_pct=2 * size_pct,
+            learning_basis="PROSPECTIVE_COUNTERFACTUAL_V1",
+        )
+        result[action] = outcome
+    return result
 
 
 def score_matured(*, limit: int = 100) -> dict:
@@ -141,7 +145,9 @@ def score_matured(*, limit: int = 100) -> dict:
         raise ValueError("OUTCOME_LIMIT_INVALID")
     completed = latest_completed_session()
     with db.connect() as conn:
-        records = research_store.outcome_candidates(conn, limit=limit)
+        records = research_store.outcome_candidates(
+            conn, limit=limit, completed=completed, contract=CONTRACT
+        )
     results = []
     for record in records:
         run = record.get("payload") or {}
@@ -176,13 +182,7 @@ def score_matured(*, limit: int = 100) -> dict:
             with db.connect() as conn:
                 if research_store.get(conn, "AGENT_REWARD_V3", key):
                     continue
-                # Legacy records are retained but do not train the new model.
-                ledger = (
-                    execution(conn, key)
-                    if run.get("learning_contract") == "executed-paper.v3"
-                    else None
-                )
-                status, due = learning_status(run, ledger, completed)
+                status, due = learning_status(run, completed)
                 row = {
                     "ticker": ticker,
                     "decision_id": key,
@@ -195,47 +195,22 @@ def score_matured(*, limit: int = 100) -> dict:
                     )
                     results.append(row)
                     continue
-                if status not in {"READY_ABSTENTION", "READY_REALIZED"}:
+                if status != "READY_COUNTERFACTUAL":
                     results.append(row)
                     continue
-                if status == "READY_ABSTENTION":
-                    entry = ledger["risk_snapshot"]["execution_session"]
-                    outcome = _stock_outcome(conn, ticker, "NO_TRADE", entry, due)
-                    outcome["learning_basis"] = "PAPER_ABSTENTION_V1"
-                else:
-                    outcome = _stock_outcome(
-                        conn,
-                        ticker,
-                        action,
-                        ledger["entry_market_date"],
-                        ledger["exit_market_date"],
-                    )
-                    notional = float(ledger["entry_notional_usd"])
-                    costs = float(ledger["entry_cost_usd"]) + float(
-                        ledger["exit_cost_usd"]
-                    )
-                    equity = float(ledger["risk_snapshot"]["equity_before_usd"])
-                    # Saved realized cash P&L is authoritative; current price
-                    # history supplies only the path drawdown, never a new fill.
-                    outcome.update(
-                        gross_return_pct=(float(ledger["realized_pnl_usd"]) + costs)
-                        / notional
-                        * 100,
-                        costs_pct=costs / notional * 100,
-                        capital_used_pct=notional / equity * 100,
-                        turnover_pct=2 * notional / equity * 100,
-                        position_id=ledger["position_id"],
-                        learning_basis="REALIZED_PAPER_FILL_V1",
-                        realized_pnl_usd=ledger["realized_pnl_usd"],
-                    )
-            learned = record_outcome(ticker, key, outcome)
+                arm_outcomes = counterfactual_outcomes(
+                    conn, ticker, run["learning"]["execution_session"], due
+                )
+            learned = record_counterfactual(ticker, key, arm_outcomes)
             results.append(
                 {
                     **row,
                     "status": "SCORED",
-                    "action": action,
-                    "outcome": outcome,
-                    "reward": learned["reward_record"]["reward"],
+                    "selected_action": action,
+                    "rewards": {
+                        a: v["reward"]["reward"]
+                        for a, v in learned["reward_record"]["arms"].items()
+                    },
                 }
             )
         except (ValueError, TypeError, KeyError, ZeroDivisionError) as exc:
@@ -249,9 +224,10 @@ def score_matured(*, limit: int = 100) -> dict:
                     ),
                 }
             )
-    blocked = sum(r["status"] in {"BLOCKED_INPUTS", "PENDING_EXIT"} for r in results)
+    blocked = sum(r["status"] == "BLOCKED_INPUTS" for r in results)
     return {
-        "schema_version": "agent-intelligence-outcomes.v2",
+        "schema_version": "agent-intelligence-outcomes.v3",
+        "learning_contract": CONTRACT,
         "status": "ATTENTION" if blocked else "OK",
         "latest_completed_session": completed,
         "horizon_sessions": HORIZON_SESSIONS,

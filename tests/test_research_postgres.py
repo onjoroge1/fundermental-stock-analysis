@@ -169,25 +169,32 @@ def test_public_coverage_uses_read_only_index_and_keeps_pending_names(pg, monkey
         assert conn.execute("SHOW transaction_read_only").fetchone()[0] == "on"
 
 
-def test_concurrent_realized_learning_updates_are_serialized_and_replays_do_not_double_count(pg):
+def test_concurrent_counterfactual_learning_is_serialized_and_replays_do_not_double_count(pg):
     from concurrent.futures import ThreadPoolExecutor
-    from stock_machine.agent_intelligence.learning import record_outcome
-    outcome={'learning_basis':'REALIZED_PAPER_FILL_V1','gross_return_pct':3.,
-             'max_drawdown_pct':-1.,'capital_used_pct':.93,'turnover_pct':1.86,'costs_pct':.2,
-             'entry_date':'2026-09-01','exit_date':'2026-09-29'}
+    from stock_machine.agent_intelligence import outcomes
+    from stock_machine.agent_intelligence.learning import pooled_state, record_counterfactual
+    window={'contract':outcomes.CONTRACT,'execution_session':'2026-09-01','due_session':'2026-09-29'}
+    arm_outcomes={a:{'learning_basis':'PROSPECTIVE_COUNTERFACTUAL_V1','gross_return_pct':3. if a=='LONG_STOCK' else -3.,
+                     'max_drawdown_pct':-1.,'capital_used_pct':.93,'turnover_pct':1.86,'costs_pct':.2,
+                     'entry_date':'2026-09-01','exit_date':'2026-09-29'} for a in outcomes.LEARNED_ARMS}
+    def run(key):
+        return {'ticker':'VZ','decision_id':key,'learning_contract':outcomes.CONTRACT,'learning':window,
+                'state':{'paper_eligible':True,'signal_components':{'fundamental':.5}},
+                'bandit':{'selected':{'action':'NO_TRADE'}}}
     with pg() as conn:
-        for key in ['learn-one','learn-two']:
-            research_store.save(conn,'AGENT_INTELLIGENCE_V2',key,{
-                'ticker':'VZ','decision_id':key,'learning_contract':'executed-paper.v3',
-                'state':{'bias_score':.5},'bandit':{'selected':{'action':'LONG_STOCK'}}},'VZ')
+        for key in ['learn-one','learn-two','learn-three']:
+            research_store.save(conn,'AGENT_INTELLIGENCE_V2',key,run(key),'VZ')
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results=list(pool.map(lambda key:record_outcome('VZ',key,outcome),['learn-one','learn-two']))
+        results=list(pool.map(lambda key:record_counterfactual('VZ',key,arm_outcomes),['learn-one','learn-two']))
     assert not any(r['replayed'] for r in results)
     with pg() as conn:
-        from stock_machine.agent_intelligence.learning import pooled_state
         state=pooled_state(conn)
-        assert state['arms']['LONG_STOCK']['observations']==2 and state['sequence']==2
+        assert state['sequence']==2
+        assert all(state['arms'][a]['observations']==2 for a in outcomes.LEARNED_ARMS)
         assert research_store.get(conn,'AGENT_REWARD_V3','learn-one')
-    assert record_outcome('VZ','learn-one',outcome)['replayed']
+    assert record_counterfactual('VZ','learn-one',arm_outcomes)['replayed']
     with pg() as conn:
         assert pooled_state(conn)['arms']['LONG_STOCK']['observations']==2
+    shifted={a:{**v,'entry_date':'2026-09-02'} for a,v in arm_outcomes.items()}
+    with pytest.raises(ValueError,match='COUNTERFACTUAL_WINDOW_MISMATCH'):
+        record_counterfactual('VZ','learn-three',shifted)

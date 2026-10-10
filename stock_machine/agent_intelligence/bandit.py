@@ -167,14 +167,23 @@ def select(
     }
 
 
-def update(arm: dict, x: list[float], reward: float) -> dict:
+def update(arm: dict, x: list[float], reward: float, weight: float = 1.0) -> dict:
+    """Weighted Bayesian linear update.
+
+    weight < 1 discounts observations that overlap others: daily decisions on
+    one stock share most of a 20-session outcome window, so each carries
+    about 1/20 of an independent observation's information.
+    """
+    if isinstance(weight, bool) or not isinstance(weight, (int, float)) or not 0 < weight <= 1:
+        raise ValueError("BANDIT_WEIGHT_INVALID")
     a, b = _checked(arm, len(x))
-    out = {
+    w = float(weight)
+    return {
         "precision": [
-            [a[i][j] + x[i] * x[j] for j in range(len(x))] for i in range(len(x))
+            [a[i][j] + w * x[i] * x[j] for j in range(len(x))] for i in range(len(x))
         ],
-        "b": [b[i] + reward * x[i] for i in range(len(x))],
+        "b": [b[i] + w * reward * x[i] for i in range(len(x))],
         "observations": int(arm.get("observations") or 0) + 1,
+        "effective_observations": float(arm.get("effective_observations") or 0.0) + w,
         "reward_sum": float(arm.get("reward_sum") or 0.0) + float(reward),
     }
-    return out

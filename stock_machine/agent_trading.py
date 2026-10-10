@@ -29,6 +29,7 @@ MAX_OPEN_POSITIONS = len(AGENT_UNIVERSE)
 TARGET_POSITION_PCT = MAX_GROSS_PCT / MAX_OPEN_POSITIONS
 MIN_TRADE_NOTIONAL_USD = 500.0
 FILL_COST_BPS = 10.0
+HOLDING_SESSIONS = 20
 
 PAPER_SELECTOR_VERSION = "fundamental-score-paper-v1"
 PAPER_LONG_MIN_SCORE = 70.0
@@ -271,6 +272,27 @@ def _open_position(conn, ticker: str) -> dict | None:
         "entry_cost_usd",
     )
     return dict(zip(cols, row))
+
+
+def _commitment(conn, position: dict) -> dict | None:
+    """Fixed-horizon commitment for positions opened under the prospective contract.
+
+    Legacy positions keep their original signal-driven exits.
+    """
+    from .market_calendar import session_offset
+
+    row = conn.execute(
+        "SELECT risk_snapshot->>'execution_contract' FROM agent_trade_intents WHERE intent_id=%s",
+        (position["source_intent_id"],),
+    ).fetchone()
+    if not row or row[0] != "prospective-next-close.v2":
+        return None
+    return {
+        "contract": "fixed-horizon-hold.v1",
+        "holding_sessions": HOLDING_SESSIONS,
+        "entry_session": position["entry_market_date"],
+        "due_session": session_offset(position["entry_market_date"], HOLDING_SESSIONS),
+    }
 
 
 def _report_classification(conn, decision: dict) -> tuple[str | None, list[str]]:
@@ -719,6 +741,16 @@ def process_decision(decision: dict, paper_instruction: dict | None = None) -> d
 
         current = _open_position(conn, ticker)
         action = deterministic_action(desired, current["side"] if current else None)
+        commitment = _commitment(conn, current) if current else None
+        if (
+            action == "CLOSE"
+            and commitment
+            and (execution_session or completed) < commitment["due_session"]
+        ):
+            # Entries are fixed-horizon commitments: a later signal change
+            # cannot cut the hold short, so each entry's outcome belongs to
+            # the decision that opened it. The holding limit closes it.
+            action = "HOLD"
         state = _portfolio_state(conn, require_complete_prices=False)
         target = 0.0
         if action in {"OPEN_LONG", "OPEN_SHORT"} and state["missing_prices"]:
@@ -745,6 +777,13 @@ def process_decision(decision: dict, paper_instruction: dict | None = None) -> d
             desired = "FLAT" if classification is None else desired
             status = "BLOCKED"
             rationale = "Paper intent withheld because deterministic prerequisites or portfolio limits failed."
+        elif action == "HOLD" and commitment and desired != current["side"]:
+            status = "NO_ACTION"
+            rationale = (
+                "Committed 20-session paper hold until "
+                + commitment["due_session"]
+                + "; signal changes do not close it early."
+            )
         elif action == "HOLD":
             status = "NO_ACTION"
             rationale = "Existing paper position already matches the deterministic paper selector."
@@ -778,6 +817,7 @@ def process_decision(decision: dict, paper_instruction: dict | None = None) -> d
             "execution_session": execution_session,
             "decision_recorded_at": saved[0] if saved else None,
             "execution_contract": "prospective-next-close.v2",
+            "holding_commitment": commitment,
         }
         if prior:
             conn.execute(
@@ -985,7 +1025,7 @@ def settle_holding_limits(*, limit: int = 6) -> dict:
             ORDER BY p.entry_market_date,p.ticker""").fetchall()
         for (ticker,) in rows:
             pos = _open_position(conn, ticker)
-            due = session_offset(pos["entry_market_date"], 20)
+            due = session_offset(pos["entry_market_date"], HOLDING_SESSIONS)
             if completed < due:
                 continue
             if len(closed) + len(blocked) >= limit:

@@ -8,6 +8,7 @@ from .state import assemble
 from .strategy_router import route, eligible_actions
 from . import bandit
 from .learning import current_arms, pooled_state
+from .outcomes import CONTRACT as LEARNING_CONTRACT, learning_window
 
 
 def _regime(conn, ticker: str, as_of: str):
@@ -171,7 +172,8 @@ def evaluate_decision(
             "input_sha256": input_sha,
             "observed_at": observed.isoformat(),
             "decided_at": decision.get("decided_at"),
-            "learning_contract": "executed-paper.v3",
+            "learning_contract": LEARNING_CONTRACT,
+            "learning": learning_window(conn, decision_id, observed.isoformat()),
             "state": state,
             "router": routed,
             "bandit": selection,
