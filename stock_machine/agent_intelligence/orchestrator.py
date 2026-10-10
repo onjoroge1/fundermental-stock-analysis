@@ -9,6 +9,7 @@ from .strategy_router import route, eligible_actions
 from . import bandit
 from .learning import current_arms, pooled_state
 from .outcomes import CONTRACT as LEARNING_CONTRACT, learning_window
+from .direction import challenger as direction_challenger
 
 
 def _regime(conn, ticker: str, as_of: str):
@@ -87,7 +88,8 @@ def evaluate_decision(
         technical = build_for_ticker(conn, ticker, as_of=as_of)
         regime = _regime(conn, ticker, as_of)
         surface = latest_as_of(conn, ticker, observed.isoformat(), max_age_days=10)
-        arms = current_arms(pooled_state(conn))
+        pooled = pooled_state(conn)
+        arms = current_arms(pooled)
         news = build_news(
             (packet.get("analysis") or {}).get("news_context") or {}, now=observed
         )
@@ -174,6 +176,9 @@ def evaluate_decision(
             "decided_at": decision.get("decided_at"),
             "learning_contract": LEARNING_CONTRACT,
             "learning": learning_window(conn, decision_id, observed.isoformat()),
+            "direction_challenger": direction_challenger(
+                state, arms, model_sequence=(pooled or {}).get("sequence") if arms else None
+            ),
             "state": state,
             "router": routed,
             "bandit": selection,

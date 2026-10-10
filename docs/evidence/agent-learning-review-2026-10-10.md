@@ -20,7 +20,7 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
 
 | # | Gap | Evidence | Fix direction | Status |
 |---|---|---|---|---|
-| 6 | Direction is never learned (hand-set weights 0.50/0.25/0.15/0.10, ±0.25 threshold); no promotion rule for shadow weights. | `state.assemble` | Pre-registered promotion test reusing the `prospective_experiment.py` bootstrap. | OPEN |
+| 6 | Direction is never learned (hand-set weights 0.50/0.25/0.15/0.10, ±0.25 threshold); no promotion rule for shadow weights. | `state.assemble` | Each decision freezes the heuristic direction and the pooled model's learned direction (`direction_challenger`). Both are scored on the same matured counterfactual rewards, with FLAT = 0. A paired test is fixed in code (`learned-direction-vs-heuristic.v1`, hashed into every snapshot): resample 20-session blocks, ≥12 blocks, pass if the mean and the bootstrap lower 2.5% bound of (learned − heuristic) are > 0 and the learned mean reward is > 0. | PARTIAL, IN PR (`feat/learned-direction-challenger`, stacked on #101): the direction is learned and measured; acting on it needs a pass plus a separate reviewed change. The earliest possible pass is about 12 blocks (~240 sessions) after release. |
 | 7 | Shadow weight metric (squared error vs ±1) penalizes conviction. | A 56%-hit, magnitude-0.6 signal got 0.459 weight vs 0.541 for zero-skill ±0.1 noise. | Rank IC or calibrated log-loss, or a stacked ridge/logistic model. | OPEN |
 | 8 | Shadow targets use raw returns, which mostly measure market beta over 5 sessions. | `shadow.evaluate` | Score stock-specific components against SPY/sector-excess returns. | OPEN |
 | 9 | Technical-setup utility `mean − 0.5·std` needs per-trade Sharpe > 0.5, so it nearly always abstains. | Annual Sharpe 1.0: utility −1.97% (5d), −2.35% (20d). | Penalize standard error (`k·std/√n`) or rank by Sharpe with a cost floor. | OPEN |
@@ -40,6 +40,8 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
 | 18 | A matured decision whose price path stays incomplete is retried on every pass; enough of them could fill the bounded 100-record scan. The shadow scorer rotates these with per-session CHECK records; the paper learner does not. | OPEN |
 | 19 | Overlap weighting handles one stock's correlated daily labels; same-day labels across stocks share market moves and are still treated as independent. Related to item 8. | OPEN |
 | 20 | No automatic reconciliation between each executed position's realized ledger return and its counterfactual label for the same window (they should match apart from late exits). | OPEN |
+| 21 | No power analysis for the direction test: 12 blocks may be too few to detect a realistic improvement, and too many decisions per block are correlated to know in advance. | OPEN: simulate block-level noise once real counterfactual records exist, before relying on a NOT_SUPERIOR result. |
+| 22 | The candidate shadow weights (item 7) still have no promotion protocol; item 6 covers direction only. | OPEN (depends on item 7's metric fix) |
 
 ## Change log
 
@@ -96,3 +98,17 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
     earlier signal changes become HOLD, with the commitment recorded in the intent's risk
     snapshot.
   - No migration or trading-mode change.
+
+- **2026-10-10 — learned-direction challenger** (branch `feat/learned-direction-challenger`,
+  stacked on #101):
+  - Each decision records `direction_challenger`: the heuristic direction, the pooled
+    model's posterior-mean direction (LONG/SHORT/FLAT, using only the state known at
+    decision time), both posterior estimates, the pooled-state sequence, and
+    `acts_on_paper: false`.
+  - `direction.evaluate` pairs both directions on the matured counterfactual rewards and
+    resamples 20-session blocks under a protocol fixed in code. The protocol hash is stored
+    in every snapshot, so a changed protocol starts fresh evidence.
+  - Results: `PENDING_EVIDENCE`, `NOT_SUPERIOR` or `PASS_REQUIRES_INDEPENDENT_REVIEW`; never
+    an automatic promotion.
+  - Shown in the learning-stage receipt and an admin card, read-only. No migration, no
+    trading change.

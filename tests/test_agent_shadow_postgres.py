@@ -235,6 +235,14 @@ def test_shadow_failure_preserves_existing_paper_instruction(pg, monkeypatch):
         result["paper_instruction"]["selected_action"]
         == result["bandit"]["selected"]["action"]
     )
+    from stock_machine.agent_intelligence import direction
+
+    frozen = result["direction_challenger"]
+    assert frozen["protocol_sha256"] == direction.PROTOCOL_SHA256
+    assert frozen["incumbent"] == direction.incumbent(result["state"])
+    # Cold start: no pooled model yet, so the challenger abstains and never acts.
+    assert frozen["challenger"] == "FLAT" and frozen["model_sequence"] is None
+    assert frozen["acts_on_paper"] is False
     with pg() as conn:
         assert research_store.get(conn, shadow.WEIGHTS, "must-rollback") is None
         assert (
