@@ -22,7 +22,16 @@ qualified trading guidance.
 
 ## Outcomes
 
-The prediction target is origin adjusted close to the close h exchange sessions later.
+*Updated 2026-10-11 (target `spy-beta-residual-entry.v1`):* there are two windows.
+
+- **Forecast models:** origin adjusted close to h sessions later, the window they
+  predict.
+- **Candidate score, current score and agent action:** the paper entry close (the
+  decision's frozen execution session) to h sessions after it, the window a paper position
+  actually holds.
+
+A snapshot is scorable once both windows mature. Snapshots captured before this change
+derive their entry from the frozen first future session.
 This is forecast evaluation, not a simulated fill. A complete positive finite
 adjusted-price path is mandatory. Score direction, component squared directional
 error, forecast Brier score (ties excluded), median absolute return error and

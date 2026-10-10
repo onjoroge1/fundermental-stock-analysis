@@ -139,6 +139,8 @@ def test_intelligence_summary_is_read_only_owner_projection(monkeypatch):
     monkeypatch.setattr(shadow, "weekly_summary", lambda *a, **k: {"status": "AWAITING_MATURITY"})
     from stock_machine.agent_intelligence import direction
     monkeypatch.setattr(direction, "summary", lambda conn: {"status": "AWAITING_MATURED_DECISIONS"})
+    from stock_machine.agent_intelligence import reconcile
+    monkeypatch.setattr(reconcile, "summary", lambda conn: {"status": "AWAITING_CLOSED_POSITIONS"})
     from stock_machine import research_store
 
     class Conn:
@@ -191,6 +193,8 @@ def test_intelligence_summary_surfaces_latest_v2_failure(monkeypatch):
     monkeypatch.setattr(shadow, "weekly_summary", lambda *a, **k: {"status": "AWAITING_MATURITY"})
     from stock_machine.agent_intelligence import direction
     monkeypatch.setattr(direction, "summary", lambda conn: {"status": "AWAITING_MATURED_DECISIONS"})
+    from stock_machine.agent_intelligence import reconcile
+    monkeypatch.setattr(reconcile, "summary", lambda conn: {"status": "AWAITING_CLOSED_POSITIONS"})
     from stock_machine import research_store
 
     class Conn:
@@ -258,6 +262,8 @@ def test_intelligence_summary_recovers_completed_pilot_result(
     monkeypatch.setattr(shadow, "weekly_summary", lambda *a, **k: {"status": "AWAITING_MATURITY"})
     from stock_machine.agent_intelligence import direction
     monkeypatch.setattr(direction, "summary", lambda conn: {"status": "AWAITING_MATURED_DECISIONS"})
+    from stock_machine.agent_intelligence import reconcile
+    monkeypatch.setattr(reconcile, "summary", lambda conn: {"status": "AWAITING_CLOSED_POSITIONS"})
     from stock_machine import research_store
 
     class Result:

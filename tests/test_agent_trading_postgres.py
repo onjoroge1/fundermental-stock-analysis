@@ -522,3 +522,9 @@ def test_complete_pending_fill_exit_counterfactual_learning_and_replay_flow(pg, 
             assert state["arms"][arm]["observations"] == 1
             assert state["arms"][arm]["effective_observations"] == pytest.approx(1 / 20)
     assert outcomes.score_matured()["scored"] == 0
+    from stock_machine.agent_intelligence import reconcile
+
+    with pg() as c:
+        audit = reconcile.summary(c)
+    # The executed position and its learning label describe the same window.
+    assert audit["status"] == "OK" and audit["counts"] == {"MATCHED": 1}
