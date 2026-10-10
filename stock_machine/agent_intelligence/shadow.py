@@ -36,6 +36,31 @@ DEFAULT_ANNUAL_VOL = 0.40
 MIN_ANNUAL_VOL = 0.05
 
 
+WEIGHTS_PROTOCOL = {
+    "protocol_id": "shadow-candidate-weights-vs-heuristic.v1",
+    "incumbent": "state.assemble bias score (fixed 0.50/0.25/0.15/0.10 weights)",
+    "challenger": "candidate score from shadow weights frozen at capture",
+    "weights_method": "family-budget-shrunk-information-coefficient.v2",
+    "training_window_sessions": 252,
+    "target": "spy-beta-residual.v1",
+    "statistic": "candidate IC minus incumbent IC against the volatility-scaled residual",
+    "primary_horizon_sessions": 20,
+    "secondary_horizons": "5 and 10 sessions: reported, never used for promotion",
+    "clustering": "blocks of horizon-length origin sessions",
+    "minimum_blocks": 12,
+    "bootstrap_samples": 5000,
+    "bootstrap_seed": 20261012,
+    "pass_criteria": [
+        "IC difference > 0",
+        "bootstrap lower 2.5% bound of the IC difference > 0",
+        "candidate IC > 0",
+    ],
+    "exclusions": "none; every outcome whose snapshot carries this protocol hash counts",
+    "qualification": "PASS_REQUIRES_INDEPENDENT_REVIEW; no automatic promotion",
+}
+WEIGHTS_PROTOCOL_SHA256 = digest(WEIGHTS_PROTOCOL)
+
+
 def number(value, lo=None, hi=None):
     return (
         not isinstance(value, bool)
@@ -274,6 +299,7 @@ def capture(conn, decision, packet, intelligence, *, now=None):
             "baseline_direction": state.get("direction", "NEUTRAL"),
             "agent_action": selected,
             "weight_version": weight_payload["weight_version"],
+            "weights_protocol_sha256": WEIGHTS_PROTOCOL_SHA256,
             "training_cutoff": now.isoformat(),
             "broker_submission": False,
             "evaluation_basis": "direction-from-known-close; no simulated fill or P&L",
@@ -392,6 +418,7 @@ def evaluate(snapshot, prices, *, completed, market_prices):
         },
         "forecast_scores": forecast_scores,
         "weight_version": snapshot["weight_version"],
+        "weights_protocol_sha256": snapshot.get("weights_protocol_sha256"),
         "price_vintage_hash": digest(
             {
                 "stock": {d: by_date[d] for d in session_dates(origin, due)},
@@ -465,7 +492,7 @@ def _block_of(origin, horizon, index):
     return index.get(origin, 0) // max(1, int(horizon))
 
 
-def pooled_statistics(rows):
+def pooled_statistics(rows, *, samples=None, seed=None):
     """Pooled shadow evidence per horizon with date-block bootstrap ranges.
 
     Per-stock cells hold a handful of correlated outcomes each; pooling with
@@ -551,16 +578,17 @@ def pooled_statistics(rows):
         point = measures(total(blocks[k] for k in keys))
         intervals = {}
         if len(keys) >= 2:
-            rng = random.Random(BOOTSTRAP_SEED + int(horizon))
+            draws_n = samples or BOOTSTRAP_SAMPLES
+            rng = random.Random((BOOTSTRAP_SEED if seed is None else seed) + int(horizon))
             draws = defaultdict(list)
-            for _ in range(BOOTSTRAP_SAMPLES):
+            for _ in range(draws_n):
                 sample = measures(total(blocks[rng.choice(keys)] for _ in keys))
                 for k, v in sample.items():
                     if v is not None:
                         draws[k].append(v)
             for k, values_k in draws.items():
                 values_k.sort()
-                if len(values_k) >= BOOTSTRAP_SAMPLES // 2:
+                if len(values_k) >= draws_n // 2:
                     intervals[k] = [
                         values_k[int(0.025 * len(values_k))],
                         values_k[int(0.975 * len(values_k)) - 1],
@@ -580,6 +608,49 @@ def pooled_statistics(rows):
     return result
 
 
+def weights_promotion_test(rows, protocol=WEIGHTS_PROTOCOL):
+    """Pre-registered test: do frozen candidate weights beat the heuristic bias?
+
+    Only outcomes whose snapshots carry this protocol's hash count, so
+    changing the protocol (or the weighting it names) starts fresh evidence.
+    """
+    sha = digest(protocol)
+    eligible = [r for r in rows if r.get("weights_protocol_sha256") == sha]
+    stats = pooled_statistics(
+        eligible, samples=protocol["bootstrap_samples"], seed=protocol["bootstrap_seed"]
+    )
+    primary = stats.get(str(protocol["primary_horizon_sessions"]))
+    base = {
+        "protocol_id": protocol["protocol_id"],
+        "protocol_sha256": sha,
+        "primary_horizon_sessions": protocol["primary_horizon_sessions"],
+        "required_blocks": protocol["minimum_blocks"],
+        "secondary": {h: v for h, v in stats.items() if h != str(protocol["primary_horizon_sessions"])},
+        "promotion": "NOT_AUTHORIZED",
+        "trade_qualification": False,
+    }
+    if not primary:
+        return {**base, "status": "AWAITING_MATURED_OUTCOMES", "blocks": 0}
+    point, interval = primary["point"], primary["interval_95"].get("ic_difference")
+    summary = {
+        **base,
+        "blocks": primary["blocks"],
+        "observations": primary["observations"],
+        "candidate_ic": point.get("candidate_ic"),
+        "incumbent_ic": point.get("baseline_ic"),
+        "ic_difference": point.get("ic_difference"),
+        "ic_difference_interval_95": interval,
+    }
+    if primary["blocks"] < protocol["minimum_blocks"] or interval is None:
+        return {**summary, "status": "PENDING_EVIDENCE"}
+    diff, candidate = point.get("ic_difference"), point.get("candidate_ic")
+    passed = (
+        diff is not None and diff > 0 and interval[0] > 0
+        and candidate is not None and candidate > 0
+    )
+    return {**summary, "status": "PASS_REQUIRES_INDEPENDENT_REVIEW" if passed else "NOT_SUPERIOR"}
+
+
 def cumulative_rows(conn):
     """Every scored v2 outcome, reduced to the fields pooled statistics read."""
     rows = conn.execute(
@@ -588,7 +659,8 @@ def cumulative_rows(conn):
                 'residual_z',payload->'residual_z','candidate_score',payload->'candidate_score',
                 'baseline_score',payload->'baseline_score','candidate_hit',payload->'candidate_hit',
                 'baseline_hit',payload->'baseline_hit','realized_return_pct',payload->'realized_return_pct',
-                'forecast_scores',payload->'forecast_scores')
+                'forecast_scores',payload->'forecast_scores',
+                'weights_protocol_sha256',payload->'weights_protocol_sha256')
         FROM research_evidence_records WHERE kind=%s AND payload->>'target'=%s""",
         (OUTCOME, TARGET),
     ).fetchall()
@@ -684,12 +756,14 @@ def weekly_summary(conn, *, end=None):
         AND NOT EXISTS (SELECT 1 FROM research_evidence_records o WHERE o.kind=%s AND o.request_key=r.request_key)""",
         (end, SNAPSHOT, OUTCOME),
     ).fetchone()
+    cumulative = cumulative_rows(conn)
     pooled = {
         "week": pooled_statistics([row for (row,) in rows]),
-        "cumulative": pooled_statistics(cumulative_rows(conn)),
+        "cumulative": pooled_statistics(cumulative),
     }
     return {
         "pooled": pooled,
+        "weights_promotion_test": weights_promotion_test(cumulative),
         "status": "ATTENTION" if overdue else ("OK" if rows else "AWAITING_MATURITY"),
         "period_start": start,
         "period_end": end,

@@ -30,24 +30,25 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
 
 | # | Gap | Status |
 |---|---|---|
-| 11 | No pooled statistics or CIs: the weekly shadow view is ~162 ticker×horizon cells of ~5 observations; no Brier skill vs base rate. | IN PR (`feat/shadow-pooled-stats-window-missing-features`): per-horizon pooled statistics for the last 5 sessions and cumulatively: candidate and current information coefficients and their difference, hit rates with call counts, and each forecast model's Brier skill against the base rate, with 95% intervals from a bootstrap over horizon-length origin-session blocks (none with fewer than two blocks). Shown in the admin shadow card. |
-| 12 | The shadow training window (5,000 latest outcomes at ~162/day) covers only ~31 sessions. | IN PR (same branch): window = targets completed in the last 252 sessions, recorded before capture; 60,000-row cap with a recorded truncation flag; only training fields are read. |
-| 13 | Missing context features are coerced to 0 (looks neutral); clipped annual vol acts as a hidden intercept. | IN PR (same branch): bandit `pooled-linear-thompson.v2` adds `_missing` flags for each signal and volatility; volatility is standardized ((v−0.35)/0.25, clipped −2…3); invalid values count as missing. The context shape changes, so the pooled model cold-starts. |
+| 11 | No pooled statistics or CIs: the weekly shadow view is ~162 ticker×horizon cells of ~5 observations; no Brier skill vs base rate. | DONE (#106 on main) |
+| 12 | The shadow training window (5,000 latest outcomes at ~162/day) covers only ~31 sessions. | DONE (#106 on main) |
+| 13 | Missing context features are coerced to 0 (looks neutral); clipped annual vol acts as a hidden intercept. | DONE (#106 on main) |
 | 14 | `settle_holding_limits` exits at the latest close when late (holds can exceed 20 sessions) and caps at 6 exits per pass. | PARTIAL: learning now uses the exact frozen window, so late exits no longer affect training; paper P&L can still drift. |
 | 15 | Per-decision JSONB trial-count scan and one DB connection per scored record grow with history. | PARTIAL: trial-count scan removed with item 2; per-record connections in `score_matured` still OPEN. |
 | 16 | Shadow scores from the origin close, while paper trades fill at the next close. | OPEN |
 | 17 | With no edge anywhere, Thompson sampling keeps trading about half the time (the posterior mean sits near 0), so churn and costs continue while it learns. In simulation this is about 675 trades/yr vs 509 before, at zero expected reward. | OPEN: consider a small required margin over 0, or a cost-aware baseline, once real outcomes exist. |
-| 18 | A matured decision whose price path stays incomplete is retried on every pass; enough of them could fill the bounded 100-record scan. The shadow scorer rotates these with per-session CHECK records; the paper learner does not. | OPEN |
+| 18 | A matured decision whose price path stays incomplete is retried on every pass; enough of them could fill the bounded 100-record scan. The shadow scorer rotates these with per-session CHECK records; the paper learner does not. | IN PR (`feat/outcome-retry-rotation-shadow-weight-protocol`): a blocked decision gets one `AGENT_OUTCOME_CHECK_V1` record per completed session, and the candidate query skips decisions already checked this session, so they retry next session without crowding out ready ones. **Needs migration 0027** (new evidence kind; its release workflow runs on merge; `REQUIRED_SCHEMA_VERSION` → 0027, so ingestion fails closed until it's applied). If the kind isn't allowed yet, scanning falls back to retrying every pass. |
 | 19 | Overlap weighting handles one stock's correlated daily labels; same-day labels across stocks share market moves and are still treated as independent. Related to item 8. | PARTIAL: shadow targets now remove the market move (item 8); the bandit's counterfactual labels are still raw returns and same-day labels are still treated as independent. |
 | 20 | No automatic reconciliation between each executed position's realized ledger return and its counterfactual label for the same window (they should match apart from late exits). | OPEN |
-| 21 | No power analysis for the direction test: 12 blocks may be too few to detect a realistic improvement, and too many decisions per block are correlated to know in advance. | OPEN: simulate block-level noise once real counterfactual records exist, before relying on a NOT_SUPERIOR result. |
-| 22 | The candidate shadow weights (item 7) still have no promotion protocol; item 6 covers direction only. | OPEN, unblocked: item 7's metric is in place, so a pre-registered promotion test for candidate weights can now be written. |
+| 21 | No power analysis for the direction test: 12 blocks may be too few to detect a realistic improvement, and too many decisions per block are correlated to know in advance. | OPEN: covers both pre-registered tests (direction #102 and candidate weights, item 22). Simulate block-level noise on real records before reading NOT_SUPERIOR as evidence against the challenger. |
+| 22 | The candidate shadow weights (item 7) still have no promotion protocol; item 6 covers direction only. | IN PR (same branch): protocol `shadow-candidate-weights-vs-heuristic.v1` is hashed into snapshots and outcomes. Primary horizon 20 sessions; IC difference vs the heuristic bias; ≥12 blocks of 20 sessions; 5,000 draws; pass needs the difference and its lower 2.5% bound > 0 and the candidate IC > 0; 5 and 10 sessions are reported only. Shown in the admin shadow card. |
 | 23 | The residual is relative to SPY only; there's no sector-relative target, and a 63-day beta is a noisy hedge ratio. | OPEN |
 | 24 | Shadow snapshots captured before this change are scored under the v2 target with default beta/volatility when missing; their frozen candidate scores used v1 weights, so the first weeks mix weight versions in the weekly view. | OPEN: transitional only; filter by `weight_version` era if it matters. |
 | 25 | Stacked PRs merge into each other, not main: #100–#103 merged into their base branches and only reached main via #104. | DONE: #104 landed #100–#103 on main. PRs now target main directly. |
 | 26 | The technical evaluator's other per-trade metrics (net win rate, mean per opportunity) are reported without uncertainty, and walk-forward folds don't report how often a no-edge setup would act. | OPEN |
 | 27 | Brier skill uses the evaluated set's own base rate (in-sample climatology), which slightly favours the reference; a prior-period base rate would be stricter. | OPEN |
 | 28 | The cumulative pooled view reads every v2 shadow outcome on each admin load; at ~162 a session that grows ~41,000 rows a year. | OPEN: materialize daily or cap by date once it is slow. |
+| 29 | Release coordination for migration 0027: deployed code requires schema 0027 and ingestion fails closed until the migration workflow succeeds; the daily technical workflow's `alembic upgrade head` would also apply it. | OPEN until the 0027 workflow run is verified after merge. |
 
 ## Change log
 
@@ -154,3 +155,17 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
   - Bandit v2 context: intercept, four signals, standardized volatility, and five missing
     flags. Cold-starts the pooled model.
   - No migration or trading change.
+
+- **2026-10-11 — outcome retry rotation + candidate-weight promotion test** (branch
+  `feat/outcome-retry-rotation-shadow-weight-protocol`):
+  - Migration `0027_agent_outcome_checks` adds evidence kind `AGENT_OUTCOME_CHECK_V1`,
+    with release workflow `agent-outcome-checks-migrate-0027.yml`. It verifies the
+    revision and the constraint, and doesn't touch paper settings. The 0025 workflow's
+    revision allowlist now includes 0027.
+  - `outcomes.record_check` writes one record per blocked decision per completed
+    session, idempotently, inside a savepoint. `outcome_candidates` skips decisions
+    already checked this session.
+  - `shadow.WEIGHTS_PROTOCOL` and `weights_promotion_test` are added, with the protocol
+    hash frozen into snapshots and outcomes. The result is reported in `weekly_summary`
+    and the admin card.
+  - Shadow `pooled_statistics` accepts the protocol's bootstrap draws and seed.

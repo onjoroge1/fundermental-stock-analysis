@@ -50,7 +50,8 @@ def outcome_candidates(conn, *, limit=100, completed=None, contract=None):
 
     Terminal outcomes are excluded before LIMIT so scored history cannot starve
     learning. Windows frozen at decision time let SQL skip immature decisions,
-    so a backlog of pending ones cannot crowd out ready ones. Records without a
+    so a backlog of pending ones cannot crowd out ready ones. Decisions already
+    checked and blocked this session wait for the next one. Records without a
     window (earlier contracts, options) are returned for terminal handling.
     """
     if not 1 <= limit <= 1000:
@@ -63,6 +64,10 @@ def outcome_candidates(conn, *, limit=100, completed=None, contract=None):
                 SELECT 1 FROM research_evidence_records done
                 WHERE done.kind IN ('AGENT_REWARD_V2','AGENT_REWARD_V3','AGENT_OUTCOME_EXCLUSION_V1','AGENT_OPTION_PAPER_OUTCOME_V1')
                   AND done.request_key=r.payload->>'decision_id')
+              AND (%(completed)s::text IS NULL OR NOT EXISTS (
+                SELECT 1 FROM research_evidence_records checked
+                WHERE checked.kind='AGENT_OUTCOME_CHECK_V1'
+                  AND checked.request_key=(r.payload->>'decision_id') || ':' || %(completed)s))
               AND (%(contract)s::text IS NULL
                    OR r.payload->>'learning_contract' IS DISTINCT FROM %(contract)s
                    OR r.payload #>> '{learning,due_session}' <= %(completed)s)
