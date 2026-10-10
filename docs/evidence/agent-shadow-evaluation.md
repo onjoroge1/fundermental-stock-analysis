@@ -38,15 +38,22 @@ cron stages score at most 100 shadow snapshots and 100 paper rewards per call. W
 
 ## Candidate weights
 
-Use the latest 5,000 outcomes recorded strictly before capture with targets already
-completed. Keep horizons and forecast model versions separate. Persist training cutoff,
-history hash, window limit, per-component stock/pooled counts and algorithm version.
-Fit inverse directional error with a predeclared 0.25 error floor and 32-observation
-shrinkage toward pooled history. Forecast models share one family budget; extra
-correlated models do not multiply the forecast family's cold-start allocation.
-Missing components receive no weight; present weights sum to one. Cold start uses
-equal family allocations. These are experimental candidate weights, not calibrated
-signal probabilities, independent sample counts or permission to promote a policy.
+*Updated 2026-10-11:* training uses outcomes whose targets completed within the last
+252 completed sessions and were recorded strictly before capture. A 60,000-row cap guards
+memory, and hitting it is recorded as `training_window_truncated`. The previous window,
+the latest 5,000 outcomes, covered only about 31 sessions at full coverage.
+
+Outcomes are scored against target `spy-beta-residual.v1`: the stock's return minus its
+beta (frozen at capture) times SPY's return, scaled by the ex-ante volatility frozen at
+capture. Weights use a shrunk, direction-sensitive information coefficient against that
+scaled move (method `family-budget-shrunk-information-coefficient.v2`, shrinkage
+toward pooled history with prior strength 32). Components without positive skill get
+no weight. Keep horizons and forecast model versions separate. Persist training cutoff,
+history hash, window sessions, row cap, per-component stock/pooled counts and algorithm
+version. Forecast models share one family budget. Cold start uses equal family
+allocations; if history exists but nothing has positive skill, the candidate abstains.
+These are experimental candidate weights, not calibrated signal probabilities,
+independent sample counts or permission to promote a policy.
 
 No separate sector estimator is trained in this release. Sector metadata is preserved
 for later evaluation. No LSTM training job or additional provider collection is added.
@@ -54,7 +61,15 @@ The existing forecast builder supplies whichever models are actually available.
 
 ## Weekly owner view
 
-The Admin shadow panel shows mature targets in the latest five completed sessions,
+The Admin shadow panel shows pooled statistics per horizon, for the latest five
+sessions and cumulatively:
+- information coefficients for the candidate and current scores, and their difference;
+- direction hit rates with call counts;
+- each forecast model's Brier skill against the base rate.
+
+Intervals (95%) come from a bootstrap that resamples blocks of horizon-length origin
+sessions; with fewer than two blocks, no interval is shown. It also shows mature targets
+in the latest five completed sessions,
 pending/due counts, directional error against current agent bias, directional hit
 rates with abstention denominators, current per-stock/horizon candidate weights and
 forecast Brier scores. Account performance remains in the separate paper audit.
