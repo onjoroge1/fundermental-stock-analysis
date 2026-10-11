@@ -9,6 +9,7 @@ from collections import defaultdict
 from .. import db, research_store
 from ..agents.contracts import digest
 from ..regime import sector_etf
+from . import inference
 from ..market_calendar import (
     latest_completed_session,
     session_offset,
@@ -40,7 +41,7 @@ MIN_ANNUAL_VOL = 0.05
 
 
 WEIGHTS_PROTOCOL = {
-    "protocol_id": "shadow-candidate-weights-vs-heuristic.v1",
+    "protocol_id": "shadow-candidate-weights-vs-heuristic.v2",
     "incumbent": "state.assemble bias score (fixed 0.50/0.25/0.15/0.10 weights)",
     "challenger": "candidate score from shadow weights frozen at capture",
     "weights_method": "family-budget-shrunk-information-coefficient.v2",
@@ -50,14 +51,20 @@ WEIGHTS_PROTOCOL = {
     "primary_horizon_sessions": 20,
     "secondary_horizons": "5 and 10 sessions: reported, never used for promotion",
     "clustering": "blocks of horizon-length origin sessions",
-    "minimum_blocks": 12,
-    "bootstrap_samples": 5000,
-    "bootstrap_seed": 20261012,
+    "minimum_blocks": 24,
+    "interval": (
+        "Newey-West lag-1 standard error of delete-one-block jackknife pseudo-values "
+        "of the IC difference (n-1 scaled), Student t(n-1) 97.5% quantile"
+    ),
     "pass_criteria": [
         "IC difference > 0",
-        "bootstrap lower 2.5% bound of the IC difference > 0",
+        "IC difference - t(n-1) * Newey-West SE > 0",
         "candidate IC > 0",
     ],
+    "supersedes": (
+        "v1 (independent block percentile bootstrap, 12 blocks): passed 5-7% of the "
+        "time with no real improvement in simulation; see promotion-test-power.md"
+    ),
     "exclusions": "none; every outcome whose snapshot carries this protocol hash counts",
     "qualification": "PASS_REQUIRES_INDEPENDENT_REVIEW; no automatic promotion",
 }
@@ -755,16 +762,32 @@ def pooled_statistics(rows, *, samples=None, seed=None, counts=None):
     return result
 
 
-def _weights_detectable(interval, blocks, minimum_blocks):
-    """80%-power detectable IC difference implied by the bootstrap interval."""
-    if not interval:
-        return {"detectable_difference_80pct": None, "detectable_at_minimum_blocks": None}
-    se = (interval[1] - interval[0]) / (2 * 1.959964)
-    mde = (1.959964 + 0.841621) * se
-    return {
-        "detectable_difference_80pct": mde,
-        "detectable_at_minimum_blocks": mde * sqrt(blocks / max(blocks, minimum_blocks)),
-    }
+def _primary_blocks(rows, horizon):
+    """Per-block IC sums for one horizon, in time order (blocks of `horizon` sessions)."""
+    from ..market_calendar import session_dates
+
+    values = [r for r in rows if r.get("horizon_sessions") == horizon and r.get("origin_session")]
+    if not values:
+        return []
+    origins = sorted({r["origin_session"] for r in values})
+    epoch = min(STATS_EPOCH, origins[0])
+    position = {d: i for i, d in enumerate(session_dates(epoch, origins[-1]))}
+    blocks = defaultdict(lambda: [0.0] * 6)
+    for r in values:
+        z, c, b = r.get("residual_z"), r.get("candidate_score"), r.get("baseline_score")
+        if not (number(z) and number(c) and number(b)):
+            continue
+        acc = blocks[position.get(r["origin_session"], 0) // max(1, int(horizon))]
+        acc[0] += c * z; acc[1] += c * c; acc[2] += z * z
+        acc[3] += b * z; acc[4] += b * b; acc[5] += z * z
+    return [blocks[k] for k in sorted(blocks)]
+
+
+def _ic_difference(blocks, index):
+    t = [sum(blocks[i][j] for i in index) for j in range(6)]
+    if min(t[1], t[2], t[4], t[5]) <= 0:
+        return 0.0
+    return t[0] / sqrt(t[1] * t[2]) - t[3] / sqrt(t[4] * t[5])
 
 
 def weights_promotion_test(rows, protocol=WEIGHTS_PROTOCOL):
@@ -775,37 +798,53 @@ def weights_promotion_test(rows, protocol=WEIGHTS_PROTOCOL):
     """
     sha = digest(protocol)
     eligible = [r for r in rows if r.get("weights_protocol_sha256") == sha]
-    stats = pooled_statistics(
-        eligible, samples=protocol["bootstrap_samples"], seed=protocol["bootstrap_seed"]
-    )
-    primary = stats.get(str(protocol["primary_horizon_sessions"]))
+    stats = pooled_statistics(eligible)
+    horizon = protocol["primary_horizon_sessions"]
+    primary = stats.get(str(horizon))
     base = {
         "protocol_id": protocol["protocol_id"],
         "protocol_sha256": sha,
-        "primary_horizon_sessions": protocol["primary_horizon_sessions"],
+        "primary_horizon_sessions": horizon,
         "required_blocks": protocol["minimum_blocks"],
-        "secondary": {h: v for h, v in stats.items() if h != str(protocol["primary_horizon_sessions"])},
+        "secondary": {h: v for h, v in stats.items() if h != str(horizon)},
         "promotion": "NOT_AUTHORIZED",
         "trade_qualification": False,
     }
     if not primary:
         return {**base, "status": "AWAITING_MATURED_OUTCOMES", "blocks": 0}
-    point, interval = primary["point"], primary["interval_95"].get("ic_difference")
+    point = primary["point"]
+    blocks = _primary_blocks(eligible, horizon)
+    n = len(blocks)
     summary = {
         **base,
-        "blocks": primary["blocks"],
+        "blocks": n,
         "observations": primary["observations"],
         "candidate_ic": point.get("candidate_ic"),
         "incumbent_ic": point.get("baseline_ic"),
         "ic_difference": point.get("ic_difference"),
-        "ic_difference_interval_95": interval,
-        **_weights_detectable(interval, primary["blocks"], protocol["minimum_blocks"]),
+        "ic_difference_interval_95": None,
+        "detectable_difference_80pct": None,
+        "detectable_at_minimum_blocks": None,
     }
-    if primary["blocks"] < protocol["minimum_blocks"] or interval is None:
+    if n >= 2:
+        pseudo = inference.jackknife_pseudo_values(lambda idx: _ic_difference(blocks, idx), n)
+        se = inference.newey_west_se(pseudo)
+        half = inference.t_quantile_975(n - 1) * se
+        at_minimum = max(n, protocol["minimum_blocks"])
+        diff = _ic_difference(blocks, list(range(n)))
+        summary.update(
+            ic_difference=diff,
+            newey_west_se=se,
+            ic_difference_interval_95=[diff - half, diff + half],
+            detectable_difference_80pct=inference.detectable_difference(se, n),
+            detectable_at_minimum_blocks=inference.detectable_difference(
+                se * sqrt(n / at_minimum), at_minimum),
+        )
+    if n < protocol["minimum_blocks"] or summary["ic_difference_interval_95"] is None:
         return {**summary, "status": "PENDING_EVIDENCE"}
-    diff, candidate = point.get("ic_difference"), point.get("candidate_ic")
+    diff, candidate = summary["ic_difference"], point.get("candidate_ic")
     passed = (
-        diff is not None and diff > 0 and interval[0] > 0
+        diff > 0 and summary["ic_difference_interval_95"][0] > 0
         and candidate is not None and candidate > 0
     )
     return {**summary, "status": "PASS_REQUIRES_INDEPENDENT_REVIEW" if passed else "NOT_SUPERIOR"}

@@ -68,7 +68,7 @@ def test_fewer_than_minimum_blocks_is_pending_however_many_decisions():
 
 
 def test_consistently_better_challenger_passes_only_to_review():
-    value = direction.evaluate(rows(12, 5, inc="LONG", ch="SHORT",
+    value = direction.evaluate(rows(24, 5, inc="LONG", ch="SHORT",
                                     long_reward=lambda b: -0.2 - 0.05 * (b % 3),
                                     short_reward=lambda b: 0.2 + 0.05 * (b % 3)))
     assert value["status"] == "PASS_REQUIRES_INDEPENDENT_REVIEW"
@@ -78,17 +78,17 @@ def test_consistently_better_challenger_passes_only_to_review():
 
 
 def test_worse_or_noisy_challenger_is_not_superior():
-    worse = direction.evaluate(rows(12, 5, inc="LONG", ch="FLAT",
+    worse = direction.evaluate(rows(24, 5, inc="LONG", ch="FLAT",
                                     long_reward=lambda b: 0.3, short_reward=lambda b: -0.3))
     assert worse["status"] == "NOT_SUPERIOR" and worse["mean_paired_difference"] < 0
-    noisy = direction.evaluate(rows(12, 5, inc="LONG", ch="SHORT",
+    noisy = direction.evaluate(rows(24, 5, inc="LONG", ch="SHORT",
                                     long_reward=lambda b: (-1) ** b, short_reward=lambda b: -(-1) ** b))
     assert noisy["status"] == "NOT_SUPERIOR"
 
 
 def test_flat_scores_zero_and_requires_positive_challenger_reward():
     # Abstaining beats a losing heuristic, but a zero-reward challenger cannot pass.
-    value = direction.evaluate(rows(12, 5, inc="LONG", ch="FLAT",
+    value = direction.evaluate(rows(24, 5, inc="LONG", ch="FLAT",
                                     long_reward=lambda b: -0.3, short_reward=lambda b: 0.0))
     assert value["mean_paired_difference"] == pytest.approx(0.3)
     assert value["lower_95pct_paired_difference"] > 0
@@ -108,3 +108,15 @@ def test_protocol_is_frozen_by_hash():
     assert direction.PROTOCOL_SHA256 == digest(direction.PROTOCOL)
     changed = {**direction.PROTOCOL, "minimum_blocks": 6}
     assert direction.evaluate([], changed)["protocol_sha256"] != direction.PROTOCOL_SHA256
+
+
+def test_v2_needs_24_blocks_and_restarts_v1_evidence():
+    assert direction.PROTOCOL["protocol_id"].endswith(".v2") and direction.PROTOCOL["minimum_blocks"] == 24
+    almost = direction.evaluate(rows(23, 5, inc="LONG", ch="SHORT",
+                                     long_reward=lambda b: -0.2 - 0.05 * (b % 3),
+                                     short_reward=lambda b: 0.2 + 0.05 * (b % 3)))
+    assert almost["status"] == "PENDING_EVIDENCE"
+    assert almost["detectable_at_minimum_blocks"] < almost["detectable_difference_80pct"]
+    v1 = {k: v for k, v in direction.PROTOCOL.items() if k not in ("interval", "supersedes")}
+    assert direction.PROTOCOL_SHA256 != direction.digest({**v1, "protocol_id": "learned-direction-vs-heuristic.v1",
+                                                          "minimum_blocks": 12})

@@ -18,7 +18,7 @@ from math import sqrt
 from statistics import mean
 
 from ..agents.contracts import digest
-from . import direction, shadow
+from . import direction, inference, shadow
 
 HORIZON = 20
 COST = 0.02  # round-trip fill cost in volatility units (10 bps/side on ~10% 20-session vol)
@@ -99,10 +99,9 @@ def simulate_panel(
     return direction_rows, weights_rows
 
 
-def _protocols(bootstrap_samples):
-    d = {**direction.PROTOCOL, "bootstrap_samples": bootstrap_samples}
-    w = {**shadow.WEIGHTS_PROTOCOL, "bootstrap_samples": bootstrap_samples}
-    return d, w
+def _protocols(bootstrap_samples=None):
+    # v2 protocols have no bootstrap; the argument is kept for call compatibility.
+    return dict(direction.PROTOCOL), dict(shadow.WEIGHTS_PROTOCOL)
 
 
 def run_once(args) -> dict:
@@ -127,7 +126,7 @@ def run_once(args) -> dict:
 def power_table(
     *,
     rho_challengers=(0.3, 0.45, 0.6, 0.8, 1.0),
-    block_counts=(12, 24, 36),
+    block_counts=(24, 36, 48),
     sims: int = 100,
     edge: float = 0.15,
     rho_incumbent: float = 0.3,
@@ -176,9 +175,6 @@ def power_table(
 
 # --- Calibration of the decision rule itself -------------------------------
 
-T975 = {12: 2.2010, 18: 2.1098, 24: 2.0687, 30: 2.0452, 36: 2.0301, 48: 2.0117}
-
-
 def block_statistics(d_rows, w_rows, blocks, epoch="2026-10-01"):
     """Per-block sufficient statistics for both tests (block = 20 sessions)."""
     from ..market_calendar import session_dates
@@ -206,20 +202,12 @@ def _ic_difference(index, w_blocks):
     return t[0] / sqrt(t[1] * t[2]) - t[3] / sqrt(t[4] * t[5])
 
 
-def newey_west_se(values, lag=1):
-    """Lag-1 Bartlett HAC standard error of a mean, small-sample (n-1) scaled."""
-    n = len(values)
-    m = sum(values) / n
-    e = [v - m for v in values]
-    var = sum(x * x for x in e) / n
-    for l in range(1, lag + 1):
-        var += 2 * (1 - l / (lag + 1)) * sum(e[i] * e[i + l] for i in range(n - l)) / n
-    return sqrt(max(var, 0.0) / (n - 1))
+newey_west_se = inference.newey_west_se
 
 
 def rule_comparison_once(args) -> tuple:
-    """Pass/fail under the current rule (iid block percentile bootstrap, 2.5%)
-    and the Newey-West lag-1 + t(n-1) rule, on one simulated panel."""
+    """Pass/fail under the v1 rule (independent block percentile bootstrap, 2.5%)
+    and the v2 rule (Newey-West lag-1 + t(n-1)), on one simulated panel."""
     seed, blocks, rho, draws = args
     d_rows, w_rows = simulate_panel(seed, blocks, rho_challenger=rho)
     d_blocks, w_blocks = block_statistics(d_rows, w_rows, blocks)
@@ -233,7 +221,7 @@ def rule_comparison_once(args) -> tuple:
     w_boot = sorted(_ic_difference([rng.randrange(blocks) for _ in full], w_blocks) for _ in range(draws))
     q = int(0.025 * draws)
     pseudo = [blocks * w - (blocks - 1) * _ic_difference([j for j in full if j != i], w_blocks) for i in full]
-    t = T975[blocks]
+    t = inference.t_quantile_975(blocks - 1)
     return (
         blocks, rho,
         d > 0 and ch > 0 and d_boot[q] > 0,
@@ -264,10 +252,10 @@ def rule_comparison(*, rhos=(0.3, 0.6, 0.8), block_counts=(12, 24, 36), sims=200
             cell = [r for r in results if r[0] == b and r[1] == rho]
             table.append({
                 "rho_challenger": rho, "blocks": b, "sims": len(cell),
-                "direction_current": mean(r[2] for r in cell),
-                "weights_current": mean(r[3] for r in cell),
-                "direction_newey_west_t": mean(r[4] for r in cell),
-                "weights_newey_west_t": mean(r[5] for r in cell),
+                "direction_v1_bootstrap": mean(r[2] for r in cell),
+                "weights_v1_bootstrap": mean(r[3] for r in cell),
+                "direction_v2_newey_west_t": mean(r[4] for r in cell),
+                "weights_v2_newey_west_t": mean(r[5] for r in cell),
             })
     return table
 
@@ -277,18 +265,19 @@ def calibrate(conn) -> dict:
     d = direction.summary(conn)
     w = shadow.weights_promotion_test(shadow.cumulative_rows(conn))
     out = {"direction": {k: d.get(k) for k in (
-        "status", "blocks", "decisions", "block_difference_sd",
+        "status", "blocks", "decisions", "newey_west_se",
         "detectable_difference_80pct", "detectable_at_minimum_blocks")}}
-    sd = d.get("block_difference_sd")
+    sd = d.get("newey_west_se")
     out["direction"]["projected_detectable"] = (
-        {str(b): direction.DETECTION_MULTIPLIER * sd / sqrt(b) for b in (12, 24, 36, 48)}
-        if sd else None
+        {str(b): inference.detectable_difference(sd * sqrt(d.get("blocks") or 1) / sqrt(b), b)
+         for b in (24, 36, 48)}
+        if sd and d.get("blocks") else None
     )
     out["weights"] = {k: w.get(k) for k in (
         "status", "blocks", "observations", "detectable_difference_80pct",
         "detectable_at_minimum_blocks")}
     mde, blocks = w.get("detectable_difference_80pct"), w.get("blocks")
     out["weights"]["projected_detectable"] = (
-        {str(b): mde * sqrt(blocks / b) for b in (12, 24, 36, 48)} if mde and blocks else None
+        {str(b): mde * sqrt(blocks / b) for b in (24, 36, 48)} if mde and blocks else None
     )
     return out

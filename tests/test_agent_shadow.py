@@ -325,15 +325,15 @@ def test_weights_protocol_is_frozen_into_snapshots_and_outcomes():
     assert shadow.WEIGHTS_PROTOCOL["primary_horizon_sessions"] == 20
 
 
-def test_weights_test_needs_twelve_primary_blocks():
-    origins = session_dates("2026-10-01", "2027-03-01")   # ~5 blocks of 20 sessions
+def test_weights_test_needs_twenty_four_primary_blocks():
+    origins = session_dates("2026-10-01", "2028-07-25")   # 23 blocks: still short of 24
     value = shadow.weights_promotion_test(protocol_rows(20, origins, 0.9, 0.0))
-    assert value["status"] == "PENDING_EVIDENCE" and value["blocks"] < 12
+    assert value["status"] == "PENDING_EVIDENCE" and value["blocks"] == 23 < shadow.WEIGHTS_PROTOCOL["minimum_blocks"]
     assert value["promotion"] == "NOT_AUTHORIZED"
 
 
 def test_better_candidate_passes_only_to_review_and_worse_does_not():
-    origins = session_dates("2026-10-01", "2028-01-31")   # ~17 blocks of 20 sessions
+    origins = session_dates("2026-10-01", "2029-01-31")   # ~29 blocks of 20 sessions
     better = shadow.weights_promotion_test(protocol_rows(20, origins, 0.6, 0.0))
     assert better["status"] == "PASS_REQUIRES_INDEPENDENT_REVIEW"
     assert better["ic_difference_interval_95"][0] > 0 and better["trade_qualification"] is False

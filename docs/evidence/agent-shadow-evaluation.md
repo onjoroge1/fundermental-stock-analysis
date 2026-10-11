@@ -98,7 +98,7 @@ reviewed change and prospective evidence against the existing agent and simple c
 
 ## Candidate-weight promotion test (added 2026-10-11)
 
-Protocol `shadow-candidate-weights-vs-heuristic.v1` is defined in code
+Protocol `shadow-candidate-weights-vs-heuristic.v2` (v1 superseded 2026-10-11) is defined in code
 (`shadow.WEIGHTS_PROTOCOL`). Its SHA-256 is frozen into every snapshot and copied to the
 outcome; only outcomes carrying the current hash count, so any change to the protocol, or
 to the weighting method it names, starts fresh evidence.
@@ -107,10 +107,13 @@ to the weighting method it names, starts fresh evidence.
   using the information coefficient against the volatility-scaled stock-specific move.
 - **Primary horizon:** 20 sessions. The 5- and 10-session results are reported but never
   used for promotion.
-- **Resampling:** blocks of 20 origin sessions; at least 12 blocks; 5,000 draws with a
-  fixed seed.
-- **Pass:** the IC difference > 0, its bootstrap lower 2.5% bound > 0, and the candidate
-  IC > 0.
+- **Uncertainty:** blocks of 20 origin sessions; at least **24 blocks**. The standard
+  error is a Newey–West lag-1 error of delete-one-block jackknife pseudo-values, with a
+  t(n−1) cutoff.
+- **Pass:** the IC difference > 0, the IC difference − t × that standard error > 0, and
+  the candidate IC > 0.
+- **Why v2:** v1 (an independent block bootstrap with 12 blocks) passed 5–7% of the time
+  with no real improvement; v2 stays near 3% (see `promotion-test-power.md`).
 - **Outcome of a pass:** `PASS_REQUIRES_INDEPENDENT_REVIEW` only. Changing the heuristic
   weights remains a separate reviewed change. The result is shown in the admin shadow card.
 
