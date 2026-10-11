@@ -72,3 +72,22 @@ aligned to `0022_admin_panel` in the controlled release sequence.
 Normal operation after release should require no GitHub Actions interaction:
 visit `/admin`, sign in, pause/resume research, run the five-stock review, and
 inspect results.
+
+## Learned-direction policy (added 2026-10-11)
+
+The intelligence view shows which trade direction drives paper decisions, and has two
+owner controls.
+
+- **Approve learned direction.** Refused (`DIRECTION_TEST_NOT_PASSED`) unless the latest
+  learning-stage result for the pre-registered test (`learned-direction-vs-heuristic.v2`)
+  is `PASS_REQUIRES_INDEPENDENT_REVIEW` under the current protocol hash. The approval
+  records the evaluation it was based on, and approving it is the independent review step.
+- **Use heuristic direction.** Always allowed.
+
+Changes are append-only `DIRECTION_POLICY_SET` audit events, version-checked against
+concurrent edits.
+
+The learned direction applies only while its approval and a still-passing result match
+the current protocol. If later evidence stops passing, or the protocol changes, decisions
+revert to the heuristic automatically. The 80% confidence gate still decides whether to
+trade at all, and broker submission does not exist.

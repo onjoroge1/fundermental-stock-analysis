@@ -20,7 +20,7 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
 
 | # | Gap | Evidence | Fix direction | Status |
 |---|---|---|---|---|
-| 6 | Direction is never learned (hand-set weights 0.50/0.25/0.15/0.10, ±0.25 threshold); no promotion rule for shadow weights. | `state.assemble` | Each decision freezes the heuristic direction and the pooled model's learned direction (`direction_challenger`). Both are scored on the same matured counterfactual rewards, with FLAT = 0. A paired test is fixed in code (`learned-direction-vs-heuristic.v1`, hashed into every snapshot): resample 20-session blocks, ≥12 blocks, pass if the mean and the bootstrap lower 2.5% bound of (learned − heuristic) are > 0 and the learned mean reward is > 0. | PARTIAL, on main (#102 via #104): the direction is learned and measured; acting on it needs a pass plus a separate reviewed change. |
+| 6 | Direction is never learned (hand-set weights 0.50/0.25/0.15/0.10, ±0.25 threshold); no promotion rule for shadow weights. | `state.assemble` | Each decision freezes the heuristic direction and the pooled model's learned direction (`direction_challenger`). Both are scored on the same matured counterfactual rewards, with FLAT = 0. A paired test is fixed in code (`learned-direction-vs-heuristic.v1`, hashed into every snapshot): resample 20-session blocks, ≥12 blocks, pass if the mean and the bootstrap lower 2.5% bound of (learned − heuristic) are > 0 and the learned mean reward is > 0. | IN PR (`feat/learned-direction-owner-gate`): the promotion path exists, owner-gated:<br>- approving LEARNED is refused unless the latest learning-stage result for test v2 passes under the current protocol hash;<br>- once approved, the learned direction routes paper decisions only while the approval and a still-passing result match the current protocol, otherwise reverting to the heuristic automatically;<br>- the test's frozen incumbent stays the heuristic, so evidence is unaffected.<br><br>The earliest possible pass is about 24 blocks (~2 years) after evidence starts. |
 | 7 | Shadow weight metric (squared error vs ±1) penalizes conviction. | A 56%-hit, magnitude-0.6 signal got 0.459 weight vs 0.541 for zero-skill ±0.1 noise. | Rank IC or calibrated log-loss, or a stacked ridge/logistic model. | DONE (#103, on main via #104) |
 | 8 | Shadow targets use raw returns, which mostly measure market beta over 5 sessions. | `shadow.evaluate` | Score stock-specific components against SPY/sector-excess returns. | DONE (#103, on main via #104) |
 | 9 | Technical-setup utility `mean − 0.5·std` needs per-trade Sharpe > 0.5, so it nearly always abstains. | Annual Sharpe 1.0: utility −1.97% (5d), −2.35% (20d). | Penalize standard error (`k·std/√n`) or rank by Sharpe with a cost floor. | DONE (#105 on main) |
@@ -49,7 +49,7 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
 | 27 | Brier skill uses the evaluated set's own base rate (in-sample climatology), which slightly favours the reference; a prior-period base rate would be stricter. | DONE (#114 on main) |
 | 28 | The cumulative pooled view reads every v2 shadow outcome on each admin load; at ~162 a session that grows ~41,000 rows a year. | DONE (#114 on main) |
 | 29 | Release coordination for migration 0027: deployed code requires schema 0027 and ingestion fails closed until the migration workflow succeeds; the daily technical workflow's `alembic upgrade head` would also apply it. | DONE: the 0027 workflow succeeded on 2026-10-10 (run 38084929642); CI on main is green. |
-| 30 | Both pre-registered tests pass too often with no real improvement: about 5–7% instead of 2.5%. Adjacent blocks are correlated (lag-1 ≈ +0.16) and the percentile bootstrap understates the spread by 22–26%. A Newey–West lag-1 + t(n−1) bound reaches about 3% from 24 blocks; nothing tried is calibrated at 12. | IN PR (`feat/promotion-tests-v2`): both tests move to v2, a Newey–West lag-1 + t(n−1) bound (the weights test applies it to jackknife pseudo-values of the IC difference) with a 24-block minimum. Shared code is `agent_intelligence/inference.py`. Verified through the live evaluators: no-edge false-pass 2.5–3.5% (one cell 5.5% ±1.6); ρ 0.8 power 40–77% (direction) and 59–88% (weights) over 24–48 blocks. Both hashes changed; neither test had matured v1 evidence. |
+| 30 | Both pre-registered tests pass too often with no real improvement: about 5–7% instead of 2.5%. Adjacent blocks are correlated (lag-1 ≈ +0.16) and the percentile bootstrap understates the spread by 22–26%. A Newey–West lag-1 + t(n−1) bound reaches about 3% from 24 blocks; nothing tried is calibrated at 12. | DONE (#115 on main) |
 | 31 | The direction test's protocol now names reward v5 and the sector-aware challenger, so its hash changed and evidence restarts. No 20-session window had matured yet, so nothing is lost; item 30's protocol decision is still open. | INFO |
 | 32 | `session_offset` built its calendar from the year before the origin, so look-backs of ~1 year from early January ran off its start. From early January 2027, shadow training history (−252) and the daily technical-setup job (−252) would have failed; the shadow capture failure would have been silent inside its savepoint. | DONE (#114 on main) |
 
@@ -257,3 +257,12 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
     difference). `power.py` uses it and the live protocols; the v1/v2 rule comparison
     stays labelled.
   - Item 24 is closed as documented.
+
+- **2026-10-11 — owner-gated learned direction** (branch `feat/learned-direction-owner-gate`):
+  - `agent_intelligence/direction_policy.py`: `setting`, `latest_evaluation`,
+    `effective`, `set_policy` and `apply`.
+  - The orchestrator freezes `direction_challenger` before routing, records
+    `direction_policy`, and routes on the learned direction when it's effective
+    (`state.direction_source`, `heuristic_direction`).
+  - Owner endpoint `POST /api/operator/direction-policy` (409 when the test isn't
+    passing or the version changed), plus admin controls.
