@@ -335,6 +335,7 @@ def test_better_candidate_passes_only_to_review_and_worse_does_not():
     better = shadow.weights_promotion_test(protocol_rows(20, origins, 0.6, 0.0))
     assert better["status"] == "PASS_REQUIRES_INDEPENDENT_REVIEW"
     assert better["ic_difference_interval_95"][0] > 0 and better["trade_qualification"] is False
+    assert 0 < better["detectable_difference_80pct"] < 1
     worse = shadow.weights_promotion_test(protocol_rows(20, origins, 0.0, 0.6))
     assert worse["status"] == "NOT_SUPERIOR"
 

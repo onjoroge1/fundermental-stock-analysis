@@ -34,13 +34,13 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
 | 12 | The shadow training window (5,000 latest outcomes at ~162/day) covers only ~31 sessions. | DONE (#106 on main) |
 | 13 | Missing context features are coerced to 0 (looks neutral); clipped annual vol acts as a hidden intercept. | DONE (#106 on main) |
 | 14 | `settle_holding_limits` exits at the latest close when late (holds can exceed 20 sessions) and caps at 6 exits per pass. | DONE (#109 on main) |
-| 15 | Per-decision JSONB trial-count scan and one DB connection per scored record grow with history. | IN PR (`perf/scorer-shared-connections`): the trial-count scan was removed earlier (item 2). Both scorers now open one autocommit connection per pass with one transaction per record (per-record locks and rollback kept); `record_counterfactual` and `record_check` accept the caller's connection; the shadow pass reads SPY once. Measured in tests: one connection per pass (it was 2–3 per scored decision and 1–2 per snapshot). |
+| 15 | Per-decision JSONB trial-count scan and one DB connection per scored record grow with history. | DONE (#110 on main) |
 | 16 | Shadow scores from the origin close, while paper trades fill at the next close. | DONE (#108 on main) |
 | 17 | With no edge anywhere, Thompson sampling keeps trading about half the time (the posterior mean sits near 0), so churn and costs continue while it learns. In simulation this is about 675 trades/yr vs 509 before, at zero expected reward. | OPEN: consider a small required margin over 0, or a cost-aware baseline, once real outcomes exist. |
 | 18 | A matured decision whose price path stays incomplete is retried on every pass; enough of them could fill the bounded 100-record scan. The shadow scorer rotates these with per-session CHECK records; the paper learner does not. | DONE (#107 on main; migration 0027 applied) |
 | 19 | Overlap weighting handles one stock's correlated daily labels; same-day labels across stocks share market moves and are still treated as independent. Related to item 8. | PARTIAL: shadow targets now remove the market move (item 8); the bandit's counterfactual labels are still raw returns and same-day labels are still treated as independent. |
 | 20 | No automatic reconciliation between each executed position's realized ledger return and its counterfactual label for the same window (they should match apart from late exits). | DONE (#108 on main) |
-| 21 | No power analysis for the direction test: 12 blocks may be too few to detect a realistic improvement, and too many decisions per block are correlated to know in advance. | OPEN: covers both pre-registered tests (direction #102 and candidate weights, item 22). Simulate block-level noise on real records before reading NOT_SUPERIOR as evidence against the challenger. |
+| 21 | No power analysis for the direction test: 12 blocks may be too few to detect a realistic improvement, and too many decisions per block are correlated to know in advance. | IN PR (`feat/promotion-test-power`): simulation with the live evaluators (`power.py`, `scripts/power_promotion_tests.py`, `promotion-test-power.md`). Power: at 12 blocks only large improvements are caught reliably (direction ≥ ~0.07 reward units, weights ≥ ~0.09 IC). Both tests now report `detectable_difference_80pct` and `detectable_at_minimum_blocks`. `calibrate` recomputes them from real records. Found the size problem logged as item 30. |
 | 22 | The candidate shadow weights (item 7) still have no promotion protocol; item 6 covers direction only. | DONE (#107 on main). Evidence restarts under this branch's new entry-aligned target (item 16), since the protocol names its target. |
 | 23 | The residual is relative to SPY only; there's no sector-relative target, and a 63-day beta is a noisy hedge ratio. | OPEN |
 | 24 | Shadow snapshots captured before this change are scored under the v2 target with default beta/volatility when missing; their frozen candidate scores used v1 weights, so the first weeks mix weight versions in the weekly view. | OPEN: transitional, and repeats with item 16's target change. Old-target outcomes are excluded from training and views, but early weeks under each new target have thin evidence. |
@@ -49,6 +49,7 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
 | 27 | Brier skill uses the evaluated set's own base rate (in-sample climatology), which slightly favours the reference; a prior-period base rate would be stricter. | OPEN |
 | 28 | The cumulative pooled view reads every v2 shadow outcome on each admin load; at ~162 a session that grows ~41,000 rows a year. | OPEN: materialize daily or cap by date once it is slow. |
 | 29 | Release coordination for migration 0027: deployed code requires schema 0027 and ingestion fails closed until the migration workflow succeeds; the daily technical workflow's `alembic upgrade head` would also apply it. | DONE: the 0027 workflow succeeded on 2026-10-10 (run 38084929642); CI on main is green. |
+| 30 | Both pre-registered tests pass too often with no real improvement: about 5–7% instead of 2.5%. Adjacent blocks are correlated (lag-1 ≈ +0.16) and the percentile bootstrap understates the spread by 22–26%. A Newey–West lag-1 + t(n−1) bound reaches about 3% from 24 blocks; nothing tried is calibrated at 12. | OPEN — owner decision: adopt v2 protocols (Newey–West + t, ≥ 24 blocks), which restarts both tests' evidence and costs about 8–10 points of power. |
 
 ## Change log
 
@@ -199,3 +200,12 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
   - `shadow.score_matured` follows the same pattern and fetches SPY prices once per pass.
   - `learning.record_counterfactual(..., conn=)` and `outcomes.record_check(..., conn=)`
     reuse the caller's connection; standalone calls still open their own.
+
+- **2026-10-11 — power and size of the promotion tests** (branch `feat/promotion-test-power`):
+  - `agent_intelligence/power.py` simulates production-shaped panels and runs the live
+    evaluators. `rule_comparison` checks the current rule against Newey–West + t;
+    `calibrate` reads real records. `scripts/power_promotion_tests.py` is the CLI.
+  - `direction.evaluate` and `shadow.weights_promotion_test` now report
+    `detectable_difference_80pct` and `detectable_at_minimum_blocks`. The protocols and
+    their hashes are unchanged.
+  - The direction block index is cached (it was one calendar query per decision row).

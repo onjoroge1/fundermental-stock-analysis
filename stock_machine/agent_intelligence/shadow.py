@@ -652,6 +652,18 @@ def pooled_statistics(rows, *, samples=None, seed=None):
     return result
 
 
+def _weights_detectable(interval, blocks, minimum_blocks):
+    """80%-power detectable IC difference implied by the bootstrap interval."""
+    if not interval:
+        return {"detectable_difference_80pct": None, "detectable_at_minimum_blocks": None}
+    se = (interval[1] - interval[0]) / (2 * 1.959964)
+    mde = (1.959964 + 0.841621) * se
+    return {
+        "detectable_difference_80pct": mde,
+        "detectable_at_minimum_blocks": mde * sqrt(blocks / max(blocks, minimum_blocks)),
+    }
+
+
 def weights_promotion_test(rows, protocol=WEIGHTS_PROTOCOL):
     """Pre-registered test: do frozen candidate weights beat the heuristic bias?
 
@@ -684,6 +696,7 @@ def weights_promotion_test(rows, protocol=WEIGHTS_PROTOCOL):
         "incumbent_ic": point.get("baseline_ic"),
         "ic_difference": point.get("ic_difference"),
         "ic_difference_interval_95": interval,
+        **_weights_detectable(interval, primary["blocks"], protocol["minimum_blocks"]),
     }
     if primary["blocks"] < protocol["minimum_blocks"] or interval is None:
         return {**summary, "status": "PENDING_EVIDENCE"}
