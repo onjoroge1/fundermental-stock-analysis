@@ -305,6 +305,15 @@ def action(signals, weights):
     )
 
 
+def _wilson(successes, n, z=1.959964):
+    if n <= 0:
+        return None
+    p = successes / n
+    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
+    half = z * sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+    return [centre - half, centre + half]
+
+
 def metrics(values):
     # Values are individual overlapping opportunities, never portfolio returns.
     active = [v for v in values if v["action"]]
@@ -313,17 +322,44 @@ def metrics(values):
     adverse = [v for v in adverse if v is not None]
     favorable = [v.get("long_mfe" if v["action"] == 1 else "short_mfe") for v in active]
     favorable = [v for v in favorable if v is not None]
+    # Overlapping trades share most of their window: intervals use the count
+    # of non-overlapping holding windows, not the raw trade count.
+    effective = non_overlapping_windows(active) if active and "entry" in active[0] else len(active)
+    mean_net = mean(net) if net else None
+    sd = pstdev(net) if len(net) >= 2 else None
+    wins = sum(x > 0 for x in net)
     return {
-        "return_std": pstdev(net) if len(net) >= 2 else None,
+        "return_std": sd,
         "worst_net_return": min(net) if net else None,
         "mean_adverse_excursion": mean(adverse) if adverse else None,
         "mean_favorable_excursion": mean(favorable) if favorable else None,
         "opportunities": len(values),
         "trades": len(active),
-        "mean_net_return": mean(net) if net else None,
+        "effective_trades": effective,
+        "mean_net_return": mean_net,
+        "mean_net_return_ci95": (
+            [mean_net - 1.959964 * sd / sqrt(effective), mean_net + 1.959964 * sd / sqrt(effective)]
+            if sd is not None and effective >= 2 else None
+        ),
         "mean_net_return_per_opportunity": sum(net) / len(values) if values else None,
-        "net_win_rate": sum(x > 0 for x in net) / len(net) if net else None,
+        "net_win_rate": wins / len(net) if net else None,
+        "net_win_rate_ci95": _wilson(wins / len(net) * effective, effective) if net and effective else None,
     }
+
+
+PLACEBO_SEED = "technical-setups-placebo.v1"
+
+
+def placebo(samples):
+    """Returns sign-flipped by origin date, shared across stocks: no setup has an edge.
+
+    Same-date stocks keep their common move, so the placebo keeps the
+    cross-sectional structure the real evaluation faces.
+    """
+    def flip(day):
+        return 1 if int(digest({"seed": PLACEBO_SEED, "date": day})[:8], 16) % 2 else -1
+
+    return [{**s, "return": flip(s["origin"]) * s["return"]} for s in samples]
 
 
 def prepare_walk_forward(pooled, cutoff):
@@ -348,6 +384,7 @@ def prepare_walk_forward(pooled, cutoff):
                 "pooled_train_count": len(train),
                 "train_hash": digest(train),
                 "stats": pooled_statistics(train),
+                "placebo_stats": pooled_statistics(placebo(train)),
             }
         )
     current_start = session_offset(cutoff, -POLICY["train_sessions"])
@@ -365,6 +402,7 @@ def walk_forward(samples, pooled, cutoff, *, context=None):
     context = context if context is not None else prepare_walk_forward(pooled, cutoff)
     folds = []
     predictions = []
+    placebo_acting = []
     for c in context["folds"]:
         first, last, earliest = c["test_start"], c["test_end"], c["train_origin_start"]
         local = [
@@ -376,9 +414,11 @@ def walk_forward(samples, pooled, cutoff, *, context=None):
         if not test:
             continue
         weights = fit(local, [], pooled_stats=c["stats"])
+        placebo_fit = fit(placebo(local), [], pooled_stats=c["placebo_stats"])
+        placebo_acting.append(placebo_fit["status"] == "SHADOW_CANDIDATE")
         folds.append(
             {
-                **{k: v for k, v in c.items() if k != "stats"},
+                **{k: v for k, v in c.items() if k not in ("stats", "placebo_stats")},
                 "train_count": len(local),
                 "weights": weights["weights"],
                 "status": weights["status"],
@@ -413,6 +453,14 @@ def walk_forward(samples, pooled, cutoff, *, context=None):
     return {
         "candidate": candidate,
         "folds": folds,
+        # How often the same fitting would act with no edge anywhere: a
+        # per-run false-positive check on the training rule.
+        "placebo": {
+            "method": "returns sign-flipped by origin date, shared across stocks",
+            "folds": len(placebo_acting),
+            "acting_folds": sum(placebo_acting),
+            "act_rate": sum(placebo_acting) / len(placebo_acting) if placebo_acting else None,
+        },
         "oos": comparisons,
         "oos_predictions": predictions,
         "current_train_hash": context["current_train_hash"],

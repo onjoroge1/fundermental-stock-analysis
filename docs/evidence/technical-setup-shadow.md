@@ -71,3 +71,16 @@ Owner UI separates historical walk-forward metrics from prospective maturity cou
 This layer is a transparent performance-based weight estimator; it does not add neural
 backpropagation or LSTM training. A neural challenger can be evaluated later against
 these frozen baselines with the same folds and execution contract.
+
+## Uncertainty and placebo (added 2026-10-11)
+
+- **Confidence ranges.** Out-of-sample metrics report `effective_trades` (non-overlapping
+  holding windows), a 95% interval for the mean net return (normal, using effective
+  trades), and a Wilson 95% interval for the net win rate. Raw trade counts overstate
+  the evidence, because consecutive daily trades share most of their window.
+- **Placebo check.** Each walk-forward run re-fits every fold on placebo returns, signs
+  flipped by origin date and shared across stocks, so no setup has an edge. It reports
+  how many folds would still act (`placebo.act_rate`), as a per-run false-positive check
+  on the training rule.
+- **Speed.** The daily job now reuses the pooled walk-forward context built once per
+  horizon, instead of rebuilding it for each of the 54 stocks; results are identical.

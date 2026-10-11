@@ -248,6 +248,8 @@ def test_capture_freezes_exchange_timestamp_and_requires_forecast_version(
     assert snap["first_future_session"] == "2026-09-02"
     assert len(snap["forecasts"]) == forecast_count
     assert (snap["target"], snap["beta"], snap["ex_ante_vol"]) == (shadow.TARGET, 1.3, 0.25)
+    from stock_machine.regime import sector_etf
+    assert snap["sector_etf"] == sector_etf("communications") is not None
     assert saved[(shadow.WEIGHTS, "d:5")]["training_history_hash"]
 
 
@@ -392,3 +394,32 @@ def test_capture_freezes_the_paper_entry_session(monkeypatch, learning, basis):
     assert (snap["entry_session"], snap["entry_basis"]) == (expected, basis)
     assert snap["due_session"] == session_offset(expected, 5)
     assert snap["forecast_due_session"] == session_offset("2026-09-01", 5)
+
+
+def test_sector_relative_return_is_a_diagnostic_beside_the_spy_target():
+    s = snapshot(sector_etf="XLK", ex_ante_vol=0.3)
+    days = session_dates(s["origin_session"], s["due_session"])
+    sector = [{"date": d, "adj_close": 100 if d <= "2026-09-02" else 104} for d in days]
+    result = shadow.evaluate(
+        s, path(s), completed=s["due_session"], market_prices=flat_market(s), sector_prices=sector)
+    assert result["sector_relative_return_pct"] == pytest.approx(10 - 4)
+    assert result["sector_relative_basis"] == "XLK"
+    assert result["sector_relative_z"] == pytest.approx(0.06 / (0.3 * (5 / 252) ** 0.5))
+    assert result["residual_return_pct"] == pytest.approx(10)          # primary target unchanged
+    missing = shadow.evaluate(s, path(s), completed=s["due_session"], market_prices=flat_market(s),
+                              sector_prices=sector[2:])
+    assert missing["sector_relative_z"] is None and missing["sector_relative_basis"] == "SECTOR_PATH_INCOMPLETE"
+    assert score(snapshot())["sector_relative_basis"] == "UNAVAILABLE"
+
+
+def test_pooled_statistics_report_skill_against_the_sector_too():
+    origins = session_dates("2026-10-01", "2026-12-31")
+    rows = []
+    for o in origins:
+        for z, zs in ((1.0, -1.0), (-1.0, 1.0)):
+            rows.append({**pooled_row(o, 5, z, 0.5 if z > 0 else -0.5, 0.0), "sector_relative_z": zs})
+    point = shadow.pooled_statistics(rows)["5"]["point"]
+    # Perfect against SPY-relative, perfectly wrong against the sector: the
+    # skill was sector rotation, not stock selection within the sector.
+    assert point["candidate_ic"] == pytest.approx(1.0)
+    assert point["candidate_ic_vs_sector"] == pytest.approx(-1.0)

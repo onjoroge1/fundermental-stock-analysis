@@ -111,3 +111,19 @@ def test_blocked_outcomes_record_a_once_per_session_retry(monkeypatch):
     result=outcomes.score_matured()
     assert checks==[("blocked","2026-10-15")]
     assert result["results"][0]["retry"]=="NEXT_SESSION"
+
+
+def test_counterfactual_records_sector_relative_return_without_blocking(monkeypatch):
+    paths={"SPY":2.0,"XLK":5.0,"AAPL":8.0}
+    def outcome(conn,ticker,action,entry,due):
+        if ticker=="XLB":
+            raise ValueError("OUTCOME_PATH_SESSION_MISSING")
+        sign=1 if action=="LONG_STOCK" else -1
+        return {"gross_return_pct":sign*paths[ticker],"max_drawdown_pct":-1.0,"entry_date":entry,"exit_date":due}
+    monkeypatch.setattr(outcomes,"_stock_outcome",outcome)
+    value=outcomes.counterfactual_outcomes(None,"AAPL","2026-09-02","2026-09-30",(1.0,"x"),"XLK")
+    assert value["LONG_STOCK"]["sector_relative_return_pct"]==pytest.approx(3.0)
+    assert value["SHORT_STOCK"]["sector_relative_return_pct"]==pytest.approx(-3.0)
+    assert value["LONG_STOCK"]["residual_return_pct"]==pytest.approx(6.0)   # the learning label is unchanged
+    missing=outcomes.counterfactual_outcomes(None,"AAPL","2026-09-02","2026-09-30",(1.0,"x"),"XLB")
+    assert missing["LONG_STOCK"]["sector_relative_return_pct"] is None

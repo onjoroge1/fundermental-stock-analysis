@@ -180,3 +180,36 @@ def test_policy_change_produces_new_versioned_runs():
     assert t.POLICY["standard_error_penalty"] == 1.645
     assert "risk_penalty" not in t.POLICY
     assert t.POLICY_HASH == t.digest(t.POLICY)
+
+
+def test_metrics_report_intervals_on_independent_trades():
+    samples = overlapping_samples([0.08 if i % 2 else -0.04 for i in range(120)])
+    values = [{**s, "action": 1} for s in samples]
+    m = t.metrics(values)
+    assert m["trades"] == 120 and m["effective_trades"] == t.non_overlapping_windows(samples) == 20
+    low, high = m["mean_net_return_ci95"]
+    assert low < m["mean_net_return"] < high
+    # Width reflects 20 independent windows, not 120 overlapping trades.
+    assert (high - low) == pytest.approx(2 * 1.959964 * m["return_std"] / 20 ** 0.5)
+    wl, wh = m["net_win_rate_ci95"]
+    assert wl < m["net_win_rate"] < wh
+
+
+def test_placebo_flips_by_date_shared_across_stocks_and_is_deterministic():
+    a = overlapping_samples([0.01] * 30)
+    b = [{**s, "return": 0.02} for s in a]
+    pa, pb = t.placebo(a), t.placebo(b)
+    assert pa == t.placebo(a)
+    assert all((x["return"] > 0) == (y["return"] > 0) for x, y in zip(pa, pb))
+    assert {x["return"] > 0 for x in pa} == {True, False}
+
+
+def test_walk_forward_reports_how_often_a_no_edge_fit_would_act():
+    samples = overlapping_samples([0.08 if i % 2 else -0.04 for i in range(700)])
+    result = t.walk_forward(samples, samples, samples[-1]["due"])
+    placebo = result["placebo"]
+    assert placebo["folds"] == len(result["folds"]) > 0
+    assert placebo["acting_folds"] <= placebo["folds"]
+    # The real edge acts; the sign-randomized placebo should rarely do so.
+    assert result["candidate"]["status"] == "SHADOW_CANDIDATE"
+    assert placebo["act_rate"] < 0.5

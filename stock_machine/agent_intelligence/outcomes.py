@@ -16,6 +16,7 @@ from __future__ import annotations
 from math import isfinite
 from .learning import record_counterfactual
 from .. import db
+from ..regime import sector_etf
 from ..market_calendar import (
     latest_completed_session,
     next_close_after,
@@ -135,7 +136,7 @@ def frozen_beta(run: dict) -> tuple[float, str]:
     return min(BETA_RANGE[1], max(BETA_RANGE[0], float(value))), "frozen_beta_63_vs_spy"
 
 
-def counterfactual_outcomes(conn, ticker: str, entry: str, due: str, beta=None) -> dict:
+def counterfactual_outcomes(conn, ticker: str, entry: str, due: str, beta=None, sector_symbol=None) -> dict:
     """Both directions over the frozen window.
 
     gross_return_pct stays the raw stock return (the paper ledger reconciles
@@ -148,6 +149,14 @@ def counterfactual_outcomes(conn, ticker: str, entry: str, due: str, beta=None) 
 
     beta, basis = beta if beta is not None else (DEFAULT_BETA, "default_beta")
     market_pct = _stock_outcome(conn, "SPY", "LONG_STOCK", entry, due)["gross_return_pct"]
+    # Diagnostic only (never the learning label): return relative to the
+    # sector ETF over the same window; missing sector data does not block.
+    sector_pct = None
+    if sector_symbol:
+        try:
+            sector_pct = _stock_outcome(conn, sector_symbol, "LONG_STOCK", entry, due)["gross_return_pct"]
+        except ValueError:
+            sector_pct = None
     size_pct = TARGET_POSITION_PCT * 100
     result = {}
     for action in LEARNED_ARMS:
@@ -162,6 +171,10 @@ def counterfactual_outcomes(conn, ticker: str, entry: str, due: str, beta=None) 
             beta=beta,
             beta_basis=basis,
             residual_return_pct=round(outcome["gross_return_pct"] - sign * beta * market_pct, 6),
+            sector_symbol=sector_symbol,
+            sector_relative_return_pct=(
+                None if sector_pct is None else round(outcome["gross_return_pct"] - sign * sector_pct, 6)
+            ),
         )
         result[action] = outcome
     return result
@@ -244,7 +257,8 @@ def _score_one(conn, run: dict, completed: str) -> dict | None:
             if status != "READY_COUNTERFACTUAL":
                 return row
             arm_outcomes = counterfactual_outcomes(
-                conn, ticker, run["learning"]["execution_session"], due, frozen_beta(run)
+                conn, ticker, run["learning"]["execution_session"], due, frozen_beta(run),
+                sector_etf((run.get("state") or {}).get("sector")),
             )
             # Nested: the reward record joins this decision's transaction.
             learned = record_counterfactual(ticker, key, arm_outcomes, conn=conn)

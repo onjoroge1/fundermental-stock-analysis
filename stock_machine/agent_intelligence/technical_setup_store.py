@@ -185,7 +185,8 @@ def run_daily(*, now=None):
                             }
                         )
                         continue
-                    test = walk_forward(samples[ticker, horizon], pooled, cutoff)
+                    # Reuse the pooled folds built once per horizon above.
+                    test = walk_forward(samples[ticker, horizon], pooled, cutoff, context=context)
                     predictions = test.pop("oos_predictions")
                     test["oos_predictions_hash"] = digest(predictions)
                     test["oos_prediction_count"] = len(predictions)
@@ -327,7 +328,8 @@ def summary():
         "latest_receipt": receipt[0] if receipt else None,
         "rows": [
             {
-                k: r[0][k]
+                # .get: runs stored before a field existed (e.g. placebo) still render.
+                k: r[0].get(k)
                 for k in (
                     "ticker",
                     "horizon_sessions",
@@ -335,6 +337,7 @@ def summary():
                     "status",
                     "candidate",
                     "oos",
+                    "placebo",
                     "weight_version",
                     "source",
                 )
