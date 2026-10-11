@@ -9,7 +9,8 @@ def snapshot(**overrides):
         "ticker": "VZ",
         "decision_id": "d",
         "origin_session": "2026-09-01",
-        "due_session": session_offset("2026-09-01", 5),
+        # Scorable when the entry-aligned window (from 2026-09-02) matures.
+        "due_session": session_offset("2026-09-02", 5),
         "first_future_session": "2026-09-02",
         "horizon_sessions": 5,
         "components": {"technical": 0.5},
@@ -31,8 +32,11 @@ def snapshot(**overrides):
 
 
 def path(s, last=110):
+    # Flat at 100 until the forecast target, then `last`: both the forecast
+    # window (origin -> origin+h) and the entry window (entry -> entry+h) move.
+    forecast_due = session_offset(s["origin_session"], s["horizon_sessions"])
     days = session_dates(s["origin_session"], s["due_session"])
-    return [{"date": d, "adj_close": 100 if d != days[-1] else last} for d in days]
+    return [{"date": d, "adj_close": last if d >= forecast_due else 100} for d in days]
 
 
 def flat_market(s):
@@ -77,8 +81,10 @@ def test_missing_middle_session_and_unmatured_target_are_rejected():
         score(s, completed=s["origin_session"])
     with pytest.raises(ValueError, match="ADJUSTED_PATH_INCOMPLETE"):
         score(s, path(s)[1:])
+    market = flat_market(s)
     with pytest.raises(ValueError, match="MARKET_PATH_INCOMPLETE"):
-        score(s, market=flat_market(s)[1:])
+        # SPY is needed over the entry window; drop its entry close.
+        score(s, market=market[:1] + market[2:])
 
 
 def test_zero_return_is_not_called_a_successful_direction():
@@ -342,3 +348,46 @@ def test_secondary_horizons_and_other_protocols_never_decide():
     assert shadow.weights_promotion_test(stale)["status"] == "AWAITING_MATURED_OUTCOMES"
     changed = {**shadow.WEIGHTS_PROTOCOL, "minimum_blocks": 6}
     assert shadow.weights_promotion_test(protocol_rows(20, origins, 0.9, 0.0), changed)["status"] == "AWAITING_MATURED_OUTCOMES"
+
+
+def test_signals_use_the_paper_entry_window_and_forecasts_their_origin_window():
+    s = snapshot(entry_session="2026-09-02", agent_action="LONG_STOCK")
+    days = session_dates("2026-09-01", s["due_session"])
+    # The stock gaps up between the origin and entry closes, then is flat.
+    rows = [{"date": d, "adj_close": 100 if d == "2026-09-01" else 110} for d in days]
+    result = score(s, rows)
+    assert result["entry_session"] == "2026-09-02"
+    assert result["realized_return_pct"] == pytest.approx(0)        # nothing tradeable to capture
+    assert result["forecast_return_pct"] == pytest.approx(10)       # but the forecast was right
+    assert result["candidate_hit"] is None and result["agent_action_hit"] is None
+    assert result["forecast_scores"]["forecast:lstm:v1"]["brier"] == pytest.approx(0.09)
+
+
+def test_pre_alignment_snapshot_derives_entry_and_waits_for_it():
+    legacy = snapshot(due_session=session_offset("2026-09-01", 5))   # origin-based, no entry fields
+    origin, forecast_due, entry, due = shadow.windows(legacy)
+    assert entry == "2026-09-02" and due == session_offset("2026-09-02", 5) > forecast_due
+    with pytest.raises(ValueError, match="NOT_MATURE"):
+        score(legacy, completed=forecast_due)
+
+
+@pytest.mark.parametrize("learning,basis", [
+    ({"execution_session": "2026-09-03"}, "paper_execution_session"),
+    (None, "next_close_after_capture"),
+])
+def test_capture_freezes_the_paper_entry_session(monkeypatch, learning, basis):
+    saved = {}
+    monkeypatch.setattr(shadow.db, "fetch_company", lambda *a: {})
+    monkeypatch.setattr(shadow, "training_history", lambda *a: [])
+    monkeypatch.setattr(shadow.research_store, "get", lambda *a: None)
+    monkeypatch.setattr(shadow.research_store, "save", lambda conn, kind, key, payload, ticker: saved.update({(kind, key): payload}))
+    intelligence = {"state": {"signal_components": {"technical": 0.5}, "bias_score": 0.5}}
+    if learning:
+        intelligence["learning"] = learning
+    shadow.capture(None, {"ticker": "VZ", "decision_id": "d", "price_date": "2026-09-01", "input_sha256": "a" * 64},
+                   {}, intelligence, now="2026-09-01T21:00:00Z")
+    snap = saved[(shadow.SNAPSHOT, "d:5")]
+    expected = (learning or {}).get("execution_session", "2026-09-02")
+    assert (snap["entry_session"], snap["entry_basis"]) == (expected, basis)
+    assert snap["due_session"] == session_offset(expected, 5)
+    assert snap["forecast_due_session"] == session_offset("2026-09-01", 5)

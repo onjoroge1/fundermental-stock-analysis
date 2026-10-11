@@ -76,12 +76,14 @@ def test_capture_maturity_replay_and_weekly_projection_are_isolated(pg, monkeypa
             is None
         )
         assert research_store.latest(conn, "AGENT_BANDIT_STATE_V2", "VZ") is None
-    due = session_offset("2026-09-01", 20)
+    # Snapshots are scorable once the entry-aligned window (from the 09-02
+    # paper entry close) matures, one session after the origin window.
+    due = session_offset("2026-09-02", 20)
     with pg() as conn:
         for day in session_dates("2026-09-01", due):
             conn.execute(
                 "INSERT INTO prices_daily(ticker,date,close,adj_close) VALUES ('VZ',%s,110,%s)",
-                (day, 100 if day == "2026-09-01" else 110),
+                (day, 100 if day <= "2026-09-02" else 110),
             )
             # Flat market: the whole stock move is stock-specific.
             conn.execute(
@@ -110,7 +112,7 @@ def test_missing_path_is_retryable_and_does_not_starve_newer_snapshots(pg, monke
     d, p, i = inputs()
     with pg() as conn:
         shadow.capture(conn, d, p, i, now="2026-09-01T21:00:00Z")
-    due = session_offset("2026-09-01", 20)
+    due = session_offset("2026-09-02", 20)
     clock = [due]
     monkeypatch.setattr(shadow, "latest_completed_session", lambda *a: clock[0])
     assert shadow.score_matured(limit=1)["results"][0]["status"] == "BLOCKED"

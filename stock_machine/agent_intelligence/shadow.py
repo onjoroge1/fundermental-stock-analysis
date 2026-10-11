@@ -16,7 +16,9 @@ from ..market_calendar import (
 )
 
 VERSION = "agent-shadow.v2"
-TARGET = "spy-beta-residual.v1"
+# Entry-aligned: signals are judged from the close a paper fill would use,
+# not from the research origin close a day earlier.
+TARGET = "spy-beta-residual-entry.v1"
 HORIZONS = (5, 10, 20)
 SNAPSHOT = "AGENT_SHADOW_SNAPSHOT_V1"
 OUTCOME = "AGENT_SHADOW_OUTCOME_V1"
@@ -42,7 +44,7 @@ WEIGHTS_PROTOCOL = {
     "challenger": "candidate score from shadow weights frozen at capture",
     "weights_method": "family-budget-shrunk-information-coefficient.v2",
     "training_window_sessions": 252,
-    "target": "spy-beta-residual.v1",
+    "target": "spy-beta-residual-entry.v1",
     "statistic": "candidate IC minus incumbent IC against the volatility-scaled residual",
     "primary_horizon_sessions": 20,
     "secondary_horizons": "5 and 10 sessions: reported, never used for promotion",
@@ -212,6 +214,11 @@ def capture(conn, decision, packet, intelligence, *, now=None):
     except (ValueError, TypeError):
         pass
     company = db.fetch_company(conn, ticker) or {}
+    # The paper fill session frozen with the decision (#101), else the next close.
+    entry = (intelligence.get("learning") or {}).get("execution_session")
+    entry_basis = "paper_execution_session"
+    if not entry:
+        entry, entry_basis = next_close_after(now.isoformat()), "next_close_after_capture"
     features = (state.get("technical") or {}).get("features") or {}
     beta = features.get("beta_63_vs_spy")
     vol = features.get("realized_vol_20")
@@ -283,7 +290,11 @@ def capture(conn, decision, packet, intelligence, *, now=None):
             "decision_id": decision_id,
             "horizon_sessions": horizon,
             "origin_session": origin,
-            "due_session": session_offset(origin, horizon),
+            "forecast_due_session": session_offset(origin, horizon),
+            "entry_session": entry,
+            "entry_basis": entry_basis,
+            # Scorable once both the forecast and the tradeable window mature.
+            "due_session": max(session_offset(origin, horizon), session_offset(entry, horizon)),
             "captured_at": now.isoformat(),
             "first_future_session": next_close_after(now.isoformat()),
             "input_sha256": decision["input_sha256"],
@@ -327,16 +338,34 @@ def _path(prices, origin, due, error):
     return by_date
 
 
+def windows(snapshot):
+    """Forecast window (origin close) and tradeable window (paper entry close).
+
+    Snapshots captured before entry alignment derive the entry from their
+    frozen first_future_session.
+    """
+    horizon = snapshot["horizon_sessions"]
+    origin = snapshot["origin_session"]
+    forecast_due = snapshot.get("forecast_due_session") or session_offset(origin, horizon)
+    entry = snapshot.get("entry_session") or snapshot["first_future_session"]
+    return origin, forecast_due, entry, session_offset(entry, horizon)
+
+
 def evaluate(snapshot, prices, *, completed, market_prices):
-    if snapshot["due_session"] > completed:
+    origin, forecast_due, entry, due = windows(snapshot)
+    if max(forecast_due, due) > completed:
         raise ValueError("SHADOW_NOT_MATURE")
-    origin, due = snapshot["origin_session"], snapshot["due_session"]
-    if snapshot["first_future_session"] > due:
+    if snapshot["first_future_session"] > forecast_due:
         raise ValueError("SHADOW_CAPTURE_AFTER_TARGET")
-    by_date = _path(prices, origin, due, "SHADOW_ADJUSTED_PATH_INCOMPLETE")
-    market = _path(market_prices, origin, due, "SHADOW_MARKET_PATH_INCOMPLETE")
-    ret = by_date[due] / by_date[origin] - 1
-    market_ret = market[due] / market[origin] - 1
+    last = max(forecast_due, due)
+    by_date = _path(prices, origin, last, "SHADOW_ADJUSTED_PATH_INCOMPLETE")
+    market = _path(market_prices, entry, due, "SHADOW_MARKET_PATH_INCOMPLETE")
+    # Signals and the agent's action: entry close to entry + horizon, the
+    # window a paper position actually holds.
+    ret = by_date[due] / by_date[entry] - 1
+    market_ret = market[due] / market[entry] - 1
+    # Forecast models predict from their origin close; keep their window.
+    forecast_ret = by_date[forecast_due] / by_date[origin] - 1
     beta, beta_basis = snapshot.get("beta"), "frozen_beta_63_vs_spy"
     if not number(beta):
         beta, beta_basis = DEFAULT_BETA, "default_beta"
@@ -351,6 +380,7 @@ def evaluate(snapshot, prices, *, completed, market_prices):
         return 1.0 if x > 0 else (-1.0 if x < 0 else 0.0)
 
     raw_target, residual_target = sign(ret), sign(residual)
+    forecast_target = sign(forecast_ret)
 
     def hit(score, target):
         return None if target == 0 or score == 0 else (score > 0) == (target > 0)
@@ -370,17 +400,17 @@ def evaluate(snapshot, prices, *, completed, market_prices):
         )
         forecast_scores[name] = {
             "median_abs_return_error_pct": (
-                abs(row["p50"] / reference - 1 - ret) * 100 if price_valid else None
+                abs(row["p50"] / reference - 1 - forecast_ret) * 100 if price_valid else None
             ),
             "interval_80_covered": (
-                row["p10"] <= reference * (1 + ret) <= row["p90"]
+                row["p10"] <= reference * (1 + forecast_ret) <= row["p90"]
                 if price_valid
                 else None
             ),
             "brier": (
-                None if raw_target == 0 else (row["prob_positive"] - (raw_target > 0)) ** 2
+                None if forecast_target == 0 else (row["prob_positive"] - (forecast_target > 0)) ** 2
             ),
-            "direction_hit": hit(2 * row["prob_positive"] - 1, raw_target),
+            "direction_hit": hit(2 * row["prob_positive"] - 1, forecast_target),
             "calibration_status": row.get("calibration_status", "pending"),
         }
     return {
@@ -391,8 +421,11 @@ def evaluate(snapshot, prices, *, completed, market_prices):
         "decision_id": snapshot["decision_id"],
         "horizon_sessions": snapshot["horizon_sessions"],
         "origin_session": origin,
+        "entry_session": entry,
         "due_session": due,
+        "forecast_due_session": forecast_due,
         "realized_return_pct": ret * 100,
+        "forecast_return_pct": forecast_ret * 100,
         "market_return_pct": market_ret * 100,
         "beta": beta,
         "beta_basis": beta_basis,
@@ -421,8 +454,8 @@ def evaluate(snapshot, prices, *, completed, market_prices):
         "weights_protocol_sha256": snapshot.get("weights_protocol_sha256"),
         "price_vintage_hash": digest(
             {
-                "stock": {d: by_date[d] for d in session_dates(origin, due)},
-                "SPY": {d: market[d] for d in session_dates(origin, due)},
+                "stock": {d: by_date[d] for d in session_dates(origin, last)},
+                "SPY": {d: market[d] for d in session_dates(entry, due)},
             }
         ),
         "broker_submission": False,
@@ -464,6 +497,11 @@ def score_matured(*, limit=100):
                 research_store.save(conn, OUTCOME, key, outcome, snapshot["ticker"])
                 results.append({"key": key, "status": "SCORED"})
         except ValueError as exc:
+            if str(exc) == "SHADOW_NOT_MATURE":
+                # Pre-alignment snapshot whose entry window ends after its
+                # stored due session; it becomes scorable next session.
+                results.append({"key": key, "status": "PENDING_ENTRY_WINDOW"})
+                continue
             result = {"key": key, "status": "BLOCKED", "reason": str(exc)}
             with db.connect() as conn:
                 research_store.save(
@@ -534,7 +572,7 @@ def pooled_statistics(rows, *, samples=None, seed=None):
                 if hit is not None:
                     b[name + "_hits"] += 1.0 if hit else 0.0
                     b[name + "_calls"] += 1
-            ret = r.get("realized_return_pct")
+            ret = r.get("forecast_return_pct", r.get("realized_return_pct"))
             for model, metrics in (r.get("forecast_scores") or {}).items():
                 brier = (metrics or {}).get("brier")
                 if number(brier) and number(ret) and ret != 0:
@@ -659,6 +697,7 @@ def cumulative_rows(conn):
                 'residual_z',payload->'residual_z','candidate_score',payload->'candidate_score',
                 'baseline_score',payload->'baseline_score','candidate_hit',payload->'candidate_hit',
                 'baseline_hit',payload->'baseline_hit','realized_return_pct',payload->'realized_return_pct',
+                'forecast_return_pct',payload->'forecast_return_pct',
                 'forecast_scores',payload->'forecast_scores',
                 'weights_protocol_sha256',payload->'weights_protocol_sha256')
         FROM research_evidence_records WHERE kind=%s AND payload->>'target'=%s""",

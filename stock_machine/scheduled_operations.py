@@ -113,8 +113,17 @@ def learning_operation():
             direction = direction_summary(conn)
     except Exception as exc:
         direction = {"status": "FAILED", "reason_code": type(exc).__name__}
+    # Read-only: do executed paper positions agree with their learning labels?
+    try:
+        from .agent_intelligence.reconcile import summary as reconcile_summary
+
+        with db.connect() as conn:
+            reconciliation = reconcile_summary(conn)
+    except Exception as exc:
+        reconciliation = {"status": "FAILED", "reason_code": type(exc).__name__}
     return {
         "direction_challenger": direction,
+        "ledger_reconciliation": reconciliation,
         "status": (
             "ATTENTION" if any(r["status"] != "OK" for r in results.values()) else "OK"
         ),
