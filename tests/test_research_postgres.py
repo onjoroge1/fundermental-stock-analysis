@@ -257,3 +257,57 @@ def test_check_falls_back_to_every_pass_before_the_0027_migration(pg):
     assert outcomes.record_check({'decision_id':'x','ticker':'VZ'},'2026-10-01')=='EVERY_PASS_CHECK_UNAVAILABLE'
     with pg() as conn:
         assert conn.execute("SELECT count(*) FROM research_evidence_records").fetchone()[0]==0
+
+
+def test_learning_pass_uses_one_connection_and_one_transaction_per_decision(pg, monkeypatch):
+    from stock_machine.agent_intelligence import outcomes
+    from stock_machine.agent_intelligence.learning import pooled_state
+    from stock_machine.market_calendar import session_dates, session_offset
+    entry='2026-09-01'; due=session_offset(entry, outcomes.HORIZON_SESSIONS)
+    def run(key, eligible=True):
+        return {'ticker':'VZ','decision_id':key,'learning_contract':outcomes.CONTRACT,
+                'learning':{'contract':outcomes.CONTRACT,'execution_session':entry,'due_session':due},
+                'state':{'paper_eligible':eligible,'signal_components':{'fundamental':.5}},
+                'bandit':{'selected':{'action':'NO_TRADE'}}}
+    with pg() as conn:
+        for key in ('ready-1','ready-2'):
+            research_store.save(conn,'AGENT_INTELLIGENCE_V2',key,run(key),'VZ')
+        research_store.save(conn,'AGENT_INTELLIGENCE_V2','blocked-state',run('blocked-state',False),'VZ')
+        research_store.save(conn,'AGENT_INTELLIGENCE_V2','no-path',{**run('no-path'),'ticker':'AAPL'},'AAPL')
+        for i,day in enumerate(session_dates(entry,due)):
+            conn.execute("INSERT INTO prices_daily(ticker,date,close,adj_close) VALUES ('VZ',%s,%s,%s)",(day,100+i,100+i))
+    opened=[]
+    original=db.connect
+    monkeypatch.setattr(db,'connect',lambda: opened.append(1) or original())
+    monkeypatch.setattr(outcomes,'latest_completed_session',lambda: due)
+    result=outcomes.score_matured()
+    assert len(opened)==1
+    by_key={r['decision_id']:r['status'] for r in result['results']}
+    assert by_key=={'ready-1':'SCORED','ready-2':'SCORED','blocked-state':'EXCLUDED_BLOCKED_STATE','no-path':'BLOCKED_INPUTS'}
+    with pg() as conn:
+        assert pooled_state(conn)['sequence']==2
+        # The failed decision rolled back cleanly: a retry check, no reward, no exclusion.
+        assert research_store.get(conn,'AGENT_REWARD_V3','no-path') is None
+        assert research_store.get(conn,'AGENT_OUTCOME_EXCLUSION_V1','no-path') is None
+        assert research_store.get(conn,'AGENT_OUTCOME_CHECK_V1','no-path:'+due)
+    opened.clear()
+    assert outcomes.score_matured()['results']==[] and len(opened)==1
+
+
+def test_shadow_pass_uses_one_connection(pg, monkeypatch):
+    from stock_machine.agent_intelligence import shadow
+    from stock_machine.market_calendar import session_offset
+    due=session_offset('2026-09-02',5)
+    with pg() as conn:
+        for i in range(3):
+            research_store.save(conn,shadow.SNAPSHOT,f's{i}:5',{
+                'ticker':'VZ','decision_id':f's{i}','origin_session':'2026-09-01','first_future_session':'2026-09-02',
+                'horizon_sessions':5,'due_session':due,'components':{},'forecasts':{},'candidate_score':0,
+                'baseline_score':0,'agent_action':'NO_TRADE','weight_version':'w'},'VZ')
+    opened=[]
+    original=db.connect
+    monkeypatch.setattr(db,'connect',lambda: opened.append(1) or original())
+    monkeypatch.setattr(shadow,'latest_completed_session',lambda *a: due)
+    result=shadow.score_matured()
+    assert len(opened)==1
+    assert [r['status'] for r in result['results']]==['BLOCKED']*3   # no prices: checked, not lost

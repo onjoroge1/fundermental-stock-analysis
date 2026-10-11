@@ -33,8 +33,8 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
 | 11 | No pooled statistics or CIs: the weekly shadow view is ~162 ticker×horizon cells of ~5 observations; no Brier skill vs base rate. | DONE (#106 on main) |
 | 12 | The shadow training window (5,000 latest outcomes at ~162/day) covers only ~31 sessions. | DONE (#106 on main) |
 | 13 | Missing context features are coerced to 0 (looks neutral); clipped annual vol acts as a hidden intercept. | DONE (#106 on main) |
-| 14 | `settle_holding_limits` exits at the latest close when late (holds can exceed 20 sessions) and caps at 6 exits per pass. | IN PR (`fix/precommitted-exit-at-target`): committed positions exit at their 20-session target close even when settlement runs late; the exit was frozen at entry, like a market-on-close order placed in advance (entries still never backfill). A decision on a ticker whose commitment has matured settles it first, then acts on a flat book; if the target close isn't priced yet, the decision holds. Exits run before pending entries and are capped at the universe size (54), not 6. Late settlements report `settled_after_sessions`, and the reconciliation (item 20) should now show MATCHED instead of LATE_EXIT. |
-| 15 | Per-decision JSONB trial-count scan and one DB connection per scored record grow with history. | PARTIAL: trial-count scan removed with item 2; per-record connections in `score_matured` still OPEN. |
+| 14 | `settle_holding_limits` exits at the latest close when late (holds can exceed 20 sessions) and caps at 6 exits per pass. | DONE (#109 on main) |
+| 15 | Per-decision JSONB trial-count scan and one DB connection per scored record grow with history. | IN PR (`perf/scorer-shared-connections`): the trial-count scan was removed earlier (item 2). Both scorers now open one autocommit connection per pass with one transaction per record (per-record locks and rollback kept); `record_counterfactual` and `record_check` accept the caller's connection; the shadow pass reads SPY once. Measured in tests: one connection per pass (it was 2–3 per scored decision and 1–2 per snapshot). |
 | 16 | Shadow scores from the origin close, while paper trades fill at the next close. | DONE (#108 on main) |
 | 17 | With no edge anywhere, Thompson sampling keeps trading about half the time (the posterior mean sits near 0), so churn and costs continue while it learns. In simulation this is about 675 trades/yr vs 509 before, at zero expected reward. | OPEN: consider a small required margin over 0, or a cost-aware baseline, once real outcomes exist. |
 | 18 | A matured decision whose price path stays incomplete is retried on every pass; enough of them could fill the bounded 100-record scan. The shadow scorer rotates these with per-session CHECK records; the paper learner does not. | DONE (#107 on main; migration 0027 applied) |
@@ -191,3 +191,11 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
     hold.
   - The paper stage runs exits before pending entries, with no 6-per-pass cap.
   - No migration or trading-mode change.
+
+- **2026-10-11 — one connection per scoring pass** (branch `perf/scorer-shared-connections`):
+  - `outcomes.score_matured` uses `_score_one` per decision inside `conn.transaction()` on
+    one autocommit connection. A failed decision rolls back fully, then writes its retry
+    check on the same connection.
+  - `shadow.score_matured` follows the same pattern and fetches SPY prices once per pass.
+  - `learning.record_counterfactual(..., conn=)` and `outcomes.record_check(..., conn=)`
+    reuse the caller's connection; standalone calls still open their own.

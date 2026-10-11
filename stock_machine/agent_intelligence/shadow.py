@@ -468,7 +468,9 @@ def score_matured(*, limit=100):
         raise ValueError("SHADOW_LIMIT_INVALID")
     completed = latest_completed_session()
     results = []
+    # One connection per pass, one transaction per snapshot.
     with db.connect() as conn:
+        conn.autocommit = True
         rows = conn.execute(
             """SELECT r.request_key,r.payload FROM research_evidence_records r
             WHERE r.kind=%s AND r.payload->>'due_session'<=%s
@@ -479,35 +481,39 @@ def score_matured(*, limit=100):
             ORDER BY r.payload->>'due_session',r.recorded_at,r.record_id LIMIT %s""",
             (SNAPSHOT, completed, OUTCOME, CHECK, completed, limit),
         ).fetchall()
-    for key, snapshot in rows:
-        try:
-            with db.connect() as conn:
-                conn.execute(
-                    "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
-                    ("shadow:" + key,),
-                )
-                if research_store.get(conn, OUTCOME, key):
-                    continue
-                outcome = evaluate(
-                    snapshot,
-                    db.fetch_prices(conn, snapshot["ticker"], completed),
-                    completed=completed,
-                    market_prices=db.fetch_prices(conn, "SPY", completed),
-                )
-                research_store.save(conn, OUTCOME, key, outcome, snapshot["ticker"])
+        market = None
+        for key, snapshot in rows:
+            try:
+                with conn.transaction():
+                    conn.execute(
+                        "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                        ("shadow:" + key,),
+                    )
+                    if research_store.get(conn, OUTCOME, key):
+                        continue
+                    if market is None:
+                        # SPY is shared by every snapshot in the pass.
+                        market = db.fetch_prices(conn, "SPY", completed)
+                    outcome = evaluate(
+                        snapshot,
+                        db.fetch_prices(conn, snapshot["ticker"], completed),
+                        completed=completed,
+                        market_prices=market,
+                    )
+                    research_store.save(conn, OUTCOME, key, outcome, snapshot["ticker"])
                 results.append({"key": key, "status": "SCORED"})
-        except ValueError as exc:
-            if str(exc) == "SHADOW_NOT_MATURE":
-                # Pre-alignment snapshot whose entry window ends after its
-                # stored due session; it becomes scorable next session.
-                results.append({"key": key, "status": "PENDING_ENTRY_WINDOW"})
-                continue
-            result = {"key": key, "status": "BLOCKED", "reason": str(exc)}
-            with db.connect() as conn:
-                research_store.save(
-                    conn, CHECK, key + ":" + completed, result, snapshot["ticker"]
-                )
-            results.append(result)
+            except ValueError as exc:
+                if str(exc) == "SHADOW_NOT_MATURE":
+                    # Pre-alignment snapshot whose entry window ends after its
+                    # stored due session; it becomes scorable next session.
+                    results.append({"key": key, "status": "PENDING_ENTRY_WINDOW"})
+                    continue
+                result = {"key": key, "status": "BLOCKED", "reason": str(exc)}
+                with conn.transaction():
+                    research_store.save(
+                        conn, CHECK, key + ":" + completed, result, snapshot["ticker"]
+                    )
+                results.append(result)
     return {
         "status": (
             "ATTENTION" if any(r["status"] == "BLOCKED" for r in results) else "OK"

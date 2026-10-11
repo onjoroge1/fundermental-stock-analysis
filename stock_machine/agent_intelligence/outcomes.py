@@ -139,30 +139,107 @@ def counterfactual_outcomes(conn, ticker: str, entry: str, due: str) -> dict:
     return result
 
 
-def record_check(row: dict, completed: str) -> str:
+def record_check(row: dict, completed: str, *, conn=None) -> str:
     """Durable once-per-session attempt record for a blocked outcome.
 
     The candidate query skips decisions already checked this session, so a
     pile of incomplete price paths cannot fill every bounded pass; each one
     retries after the next completed session. If the schema predates the
-    check kind, scanning falls back to retrying every pass.
+    check kind, scanning falls back to retrying every pass. A scanner may pass
+    its autocommit connection; the write is then one transaction on it.
     """
     from .. import research_store
 
     key = f"{row['decision_id']}:{completed}"
+
+    def write(c):
+        # One record per decision and session; a later attempt in the same
+        # session (with a different reason) is already covered.
+        if research_store.get(c, CHECK_KIND, key):
+            return
+        with c.transaction():
+            research_store.save(
+                c, CHECK_KIND, key, {**row, "session": completed}, row.get("ticker")
+            )
+
     try:
-        with db.connect() as conn:
-            # One record per decision and session; a later attempt in the same
-            # session (with a different reason) is already covered.
-            if research_store.get(conn, CHECK_KIND, key):
-                return "NEXT_SESSION"
+        if conn is None:
+            with db.connect() as own:
+                write(own)
+        else:
             with conn.transaction():
-                research_store.save(
-                    conn, CHECK_KIND, key, {**row, "session": completed}, row.get("ticker")
-                )
+                write(conn)
         return "NEXT_SESSION"
     except Exception:
         return "EVERY_PASS_CHECK_UNAVAILABLE"
+
+
+def _score_one(conn, run: dict, completed: str) -> dict | None:
+    from .. import research_store
+
+    ticker, key = run.get("ticker"), run.get("decision_id")
+    if not ticker or not key:
+        return None
+    action = ((run.get("bandit") or {}).get("selected") or {}).get("action")
+    if str(action).startswith("OPTION:"):
+        from .option_paper import settle_if_matured
+
+        try:
+            result = settle_if_matured(ticker, key)
+            return {
+                "ticker": ticker,
+                "decision_id": key,
+                "status": "OPTION_" + result.get("status", "UNKNOWN"),
+                "option_outcome": result,
+            }
+        except ValueError as exc:
+            return {
+                "ticker": ticker,
+                "decision_id": key,
+                "status": "BLOCKED_INPUTS",
+                "reason": str(exc),
+            }
+    try:
+        with conn.transaction():
+            if research_store.get(conn, "AGENT_REWARD_V3", key):
+                return None
+            status, due = learning_status(run, completed)
+            row = {
+                "ticker": ticker,
+                "decision_id": key,
+                "status": status,
+                "due_session": due,
+            }
+            if status.startswith("EXCLUDED_"):
+                research_store.save(conn, "AGENT_OUTCOME_EXCLUSION_V1", key, row, ticker)
+                return row
+            if status != "READY_COUNTERFACTUAL":
+                return row
+            arm_outcomes = counterfactual_outcomes(
+                conn, ticker, run["learning"]["execution_session"], due
+            )
+            # Nested: the reward record joins this decision's transaction.
+            learned = record_counterfactual(ticker, key, arm_outcomes, conn=conn)
+        return {
+            **row,
+            "status": "SCORED",
+            "selected_action": action,
+            "rewards": {
+                a: v["reward"]["reward"]
+                for a, v in learned["reward_record"]["arms"].items()
+            },
+        }
+    except (ValueError, TypeError, KeyError, ZeroDivisionError) as exc:
+        row = {
+            "status": "BLOCKED_INPUTS",
+            "ticker": ticker,
+            "decision_id": key,
+            "reason": (
+                str(exc) if isinstance(exc, ValueError) else type(exc).__name__
+            ),
+        }
+        row["retry"] = record_check(row, completed, conn=conn)
+        return row
 
 
 def score_matured(*, limit: int = 100) -> dict:
@@ -171,86 +248,18 @@ def score_matured(*, limit: int = 100) -> dict:
     if not 1 <= limit <= 1000:
         raise ValueError("OUTCOME_LIMIT_INVALID")
     completed = latest_completed_session()
+    results = []
+    # One connection per pass, one transaction per decision: the scan once
+    # opened two or three connections for every record it scored.
     with db.connect() as conn:
+        conn.autocommit = True
         records = research_store.outcome_candidates(
             conn, limit=limit, completed=completed, contract=CONTRACT
         )
-    results = []
-    for record in records:
-        run = record.get("payload") or {}
-        ticker, key = run.get("ticker"), run.get("decision_id")
-        if not ticker or not key:
-            continue
-        action = ((run.get("bandit") or {}).get("selected") or {}).get("action")
-        if str(action).startswith("OPTION:"):
-            from .option_paper import settle_if_matured
-
-            try:
-                result = settle_if_matured(ticker, key)
-                results.append(
-                    {
-                        "ticker": ticker,
-                        "decision_id": key,
-                        "status": "OPTION_" + result.get("status", "UNKNOWN"),
-                        "option_outcome": result,
-                    }
-                )
-            except ValueError as exc:
-                results.append(
-                    {
-                        "ticker": ticker,
-                        "decision_id": key,
-                        "status": "BLOCKED_INPUTS",
-                        "reason": str(exc),
-                    }
-                )
-            continue
-        try:
-            with db.connect() as conn:
-                if research_store.get(conn, "AGENT_REWARD_V3", key):
-                    continue
-                status, due = learning_status(run, completed)
-                row = {
-                    "ticker": ticker,
-                    "decision_id": key,
-                    "status": status,
-                    "due_session": due,
-                }
-                if status.startswith("EXCLUDED_"):
-                    research_store.save(
-                        conn, "AGENT_OUTCOME_EXCLUSION_V1", key, row, ticker
-                    )
-                    results.append(row)
-                    continue
-                if status != "READY_COUNTERFACTUAL":
-                    results.append(row)
-                    continue
-                arm_outcomes = counterfactual_outcomes(
-                    conn, ticker, run["learning"]["execution_session"], due
-                )
-            learned = record_counterfactual(ticker, key, arm_outcomes)
-            results.append(
-                {
-                    **row,
-                    "status": "SCORED",
-                    "selected_action": action,
-                    "rewards": {
-                        a: v["reward"]["reward"]
-                        for a, v in learned["reward_record"]["arms"].items()
-                    },
-                }
-            )
-        except (ValueError, TypeError, KeyError, ZeroDivisionError) as exc:
-            row = {
-                "status": "BLOCKED_INPUTS",
-                "ticker": ticker,
-                "decision_id": key,
-                "reason": (
-                    str(exc) if isinstance(exc, ValueError) else type(exc).__name__
-                ),
-            }
-            row["retry"] = record_check(row, completed)
-            results.append(row)
+        for record in records:
+            row = _score_one(conn, record.get("payload") or {}, completed)
+            if row is not None:
+                results.append(row)
     blocked = sum(r["status"] == "BLOCKED_INPUTS" for r in results)
     return {
         "schema_version": "agent-intelligence-outcomes.v3",
