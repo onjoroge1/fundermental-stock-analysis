@@ -166,6 +166,19 @@ def set_trading_mode(actor: str, mode: str, expected_version: int | None, reason
     return after
 
 
+def set_direction_policy(actor: str, policy: str, expected_version: int, reason: str):
+    """Owner switch between heuristic and learned direction (learned needs a test pass)."""
+    from ..agent_intelligence import direction_policy
+
+    try:
+        with connect() as conn:
+            return direction_policy.set_policy(conn, actor, policy, expected_version, reason)
+    except ValueError as exc:
+        code = str(exc)
+        status = 409 if code in {"DIRECTION_POLICY_CHANGED_RELOAD", "DIRECTION_TEST_NOT_PASSED"} else 400
+        raise PanelError(code, status) from None
+
+
 def recent_audit():
     with connect() as conn:
         rows = conn.execute("SELECT actor,event,details,occurred_at::text FROM operator_audit ORDER BY id DESC LIMIT 30").fetchall()

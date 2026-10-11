@@ -10,6 +10,7 @@ from . import bandit
 from .learning import current_arms, current_offsets, pooled_state
 from .outcomes import CONTRACT as LEARNING_CONTRACT, learning_window
 from .direction import challenger as direction_challenger
+from . import direction_policy as policy_module
 
 
 def _regime(conn, ticker: str, as_of: str):
@@ -123,6 +124,14 @@ def evaluate_decision(
                 "reason": "Options remain observable separately; unvalued option paths cannot train stock paper arms.",
             }
             option_candidates = []
+        # Freeze the test's incumbent (heuristic) and challenger before any
+        # direction policy applies, so the pre-registered comparison is unchanged.
+        frozen_direction = direction_challenger(
+            state, arms, offsets=offsets,
+            model_sequence=(pooled or {}).get("sequence") if arms else None,
+        )
+        direction_policy = policy_module.effective(conn)
+        state = policy_module.apply(state, frozen_direction, direction_policy)
         routed = route(state, option_candidates or [])
         choices = eligible_actions(routed)
         # Unvalued option paths cannot compete with execution-backed stock rewards.
@@ -180,10 +189,8 @@ def evaluate_decision(
             "decided_at": decision.get("decided_at"),
             "learning_contract": LEARNING_CONTRACT,
             "learning": learning_window(conn, decision_id, observed.isoformat()),
-            "direction_challenger": direction_challenger(
-                state, arms, offsets=offsets,
-                model_sequence=(pooled or {}).get("sequence") if arms else None,
-            ),
+            "direction_challenger": frozen_direction,
+            "direction_policy": direction_policy,
             "state": state,
             "router": routed,
             "bandit": selection,

@@ -178,6 +178,8 @@ def intelligence_summary():
         shadow = weekly_summary(conn, cumulative=latest_precomputed(conn))
         from ..agent_intelligence.direction import summary as direction_summary
         direction = direction_summary(conn)
+        from ..agent_intelligence.direction_policy import effective as direction_effective
+        direction_policy = direction_effective(conn)
         from ..agent_intelligence.reconcile import summary as reconcile_summary
         reconciliation = reconcile_summary(conn)
         loop_health = _learning_loop_health(conn)
@@ -295,6 +297,7 @@ def intelligence_summary():
         "learning_loop": loop_health,
         "shadow_evaluation": shadow,
         "direction_challenger": direction,
+        "direction_policy": direction_policy,
         "ledger_reconciliation": reconciliation,
         "broker_submission": False,
         "note": "Latest v2 outcomes are reconciled from the evidence index and durable pilot-run results. Research mode is SHADOW; PAPER can simulate stock instructions only.",

@@ -344,3 +344,46 @@ def test_admin_shadow_view_reads_the_learning_stage_summary_not_every_outcome(pg
         report=shadow.weekly_summary(conn,cumulative=precomputed)
     assert report["cumulative_source"]["source"]=="LEARNING_STAGE_RECEIPT"
     assert report["weights_promotion_test"]["status"]=="AWAITING_MATURED_OUTCOMES"
+
+
+def test_learned_direction_needs_owner_approval_and_a_current_passing_test(pg):
+    from stock_machine.admin_panel import store
+    from stock_machine.agent_intelligence import direction, direction_policy as dp
+    def receipt(status, sha=direction.PROTOCOL_SHA256):
+        with pg() as conn:
+            store.audit(conn,"agent-scheduler","AGENT_STAGE_FINISHED",
+                        {"key":"agent-stage:learning:2028-10-02:1","status":"OK",
+                         "direction_challenger":{"status":status,"protocol_sha256":sha,"blocks":24}})
+    def effective():
+        with pg() as conn:
+            return dp.effective(conn)
+    assert effective()["policy"]=="HEURISTIC" and effective()["reason"]=="NOT_APPROVED"
+    # No passing evidence: the owner cannot approve.
+    receipt("PENDING_EVIDENCE")
+    with pytest.raises(ValueError,match="DIRECTION_TEST_NOT_PASSED"), pg() as conn:
+        dp.set_policy(conn,"owner","LEARNED",0,"try early")
+    # A pass under a different protocol hash does not count either.
+    receipt(dp.PASS, sha="0"*64)
+    with pytest.raises(ValueError,match="DIRECTION_TEST_NOT_PASSED"), pg() as conn:
+        dp.set_policy(conn,"owner","LEARNED",0,"wrong protocol")
+    receipt(dp.PASS)
+    with pg() as conn:
+        approved=dp.set_policy(conn,"owner","LEARNED",0,"independent review done")
+    assert approved["version"]==1 and approved["evaluation_at_approval"]["status"]==dp.PASS
+    assert effective()["policy"]=="LEARNED"
+    with pytest.raises(ValueError,match="CHANGED_RELOAD"), pg() as conn:
+        dp.set_policy(conn,"owner","HEURISTIC",0,"stale page")
+    # Later evidence stops passing: decisions revert without owner action.
+    receipt("NOT_SUPERIOR")
+    assert effective()=={**effective(),"policy":"HEURISTIC","reason":"EVIDENCE_NO_LONGER_PASSES"}
+    receipt(dp.PASS)
+    assert effective()["policy"]=="LEARNED"
+    # An approval made under another protocol no longer applies.
+    with pg() as conn:
+        store.audit(conn,"owner",dp.EVENT,{"policy":"LEARNED","version":2,"protocol_sha256":"1"*64})
+    assert effective()["reason"]=="PROTOCOL_CHANGED_SINCE_APPROVAL"
+    # The owner can always revert.
+    receipt("NOT_SUPERIOR")
+    with pg() as conn:
+        reverted=dp.set_policy(conn,"owner","HEURISTIC",2,"revert")
+    assert reverted["effective"]["policy"]=="HEURISTIC" and reverted["effective"]["reason"]=="NOT_APPROVED"

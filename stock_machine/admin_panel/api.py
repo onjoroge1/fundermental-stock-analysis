@@ -185,6 +185,23 @@ async def trading_mode(request: Request):
     return await safe(work)
 
 
+@router.post("/api/operator/direction-policy")
+async def direction_policy(request: Request):
+    async def work():
+        account = await owner(request, write=True)
+        data = await body(request, {"policy", "expected_version", "reason"})
+        policy = text(data, "policy", 7, 9).upper()
+        expected = data["expected_version"]
+        if policy not in {"HEURISTIC", "LEARNED"} or type(expected) is not int or expected < 0:
+            raise PanelError("INVALID_REQUEST")
+        value = await run_in_threadpool(
+            store.set_direction_policy, account["username"], policy, expected,
+            text(data, "reason", 3, 300),
+        )
+        return response(value)
+    return await safe(work)
+
+
 @router.post("/api/operator/runs")
 async def start_run(request: Request):
     async def work():

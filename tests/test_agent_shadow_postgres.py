@@ -257,6 +257,8 @@ def test_shadow_failure_preserves_existing_paper_instruction(pg, monkeypatch):
     from stock_machine.agent_intelligence import direction
 
     frozen = result["direction_challenger"]
+    assert result["direction_policy"]["policy"] == "HEURISTIC"
+    assert result["state"]["direction_source"] == "HEURISTIC"
     assert frozen["protocol_sha256"] == direction.PROTOCOL_SHA256
     assert frozen["incumbent"] == direction.incumbent(result["state"])
     # Cold start: no pooled model yet, so the challenger abstains and never acts.
@@ -268,3 +270,34 @@ def test_shadow_failure_preserves_existing_paper_instruction(pg, monkeypatch):
             research_store.get(conn, "AGENT_INTELLIGENCE_V2", d["decision_id"])
             is not None
         )
+
+
+
+def test_approved_learned_direction_routes_without_changing_the_frozen_test(pg, monkeypatch):
+    from stock_machine.admin_panel import store
+    from stock_machine.agent_intelligence import direction, direction_policy as dp
+    now = datetime.now(timezone.utc)
+    day = latest_completed_session(now)
+    d, p, i = inputs(day)
+    d.update(observed_at=now.isoformat(), decided_at=now.isoformat(), status="RECORDED")
+    p.update(ticker="VZ", market_snapshot={"price_date": day},
+             fundamentals={"fundamental_scores": {"composite_score": 80}},
+             data_quality={"status": "PASS", "financial_integrity": {"status": "VERIFIED"}})
+    monkeypatch.setattr(orchestrator, "build_for_ticker", lambda *a, **k: {"features": {"momentum_63": 0.1}})
+    monkeypatch.setattr(orchestrator, "_regime", lambda *a, **k: {"status": "UNAVAILABLE"})
+    with pg() as conn:
+        conn.execute("INSERT INTO agent_lab_evidence(input_sha256,payload) VALUES (%s,%s)", ("a" * 64, Jsonb(p)))
+        store.audit(conn, "agent-scheduler", "AGENT_STAGE_FINISHED",
+                    {"key": "agent-stage:learning:x:1", "status": "OK",
+                     "direction_challenger": {"status": dp.PASS, "protocol_sha256": direction.PROTOCOL_SHA256}})
+    with pg() as conn:
+        dp.set_policy(conn, "owner", "LEARNED", 0, "reviewed")
+    result = orchestrator.evaluate_decision(d, mode="SHADOW")
+    assert result["direction_policy"]["policy"] == "LEARNED"
+    frozen = result["direction_challenger"]
+    # The test's incumbent stays the heuristic; routing uses the learned
+    # direction (FLAT at cold start, so only NO_TRADE is offered).
+    assert frozen["incumbent"] == "LONG" and frozen["challenger"] == "FLAT"
+    assert result["state"]["heuristic_direction"] == "BULLISH"
+    assert result["state"]["direction"] == "NEUTRAL" and result["state"]["direction_source"] == "LEARNED"
+    assert {c["action"] for c in result["router"]["candidates"]} == {"NO_TRADE"}

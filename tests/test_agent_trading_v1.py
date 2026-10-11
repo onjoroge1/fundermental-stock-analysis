@@ -141,3 +141,22 @@ def test_experimental_paper_selector_fails_closed_without_verified_packet():
     )
     assert value["desired_side"] == "FLAT"
     assert value["blockers"] == ["PAPER_EXPERIMENT_DATA_QUALITY_NOT_PASS"]
+
+
+def test_direction_policy_route_accepts_only_known_policies_and_maps_refusals(client, monkeypatch):
+    calls = []
+    def fake(actor, policy, version, reason):
+        calls.append((actor, policy, version, reason))
+        if policy == "LEARNED":
+            raise store.PanelError("DIRECTION_TEST_NOT_PASSED", 409)
+        return {"policy": policy, "version": version + 1, "broker_submission": False}
+    monkeypatch.setattr(store, "set_direction_policy", fake)
+    r = client.post("/api/operator/direction-policy", headers=HEADERS,
+                    json={"policy": "learned", "expected_version": 0, "reason": "try"})
+    assert r.status_code == 409 and r.json()["error_code"] == "DIRECTION_TEST_NOT_PASSED"
+    r = client.post("/api/operator/direction-policy", headers=HEADERS,
+                    json={"policy": "HEURISTIC", "expected_version": 1, "reason": "revert"})
+    assert r.status_code == 200 and calls[-1] == ("admin", "HEURISTIC", 1, "revert")
+    r = client.post("/api/operator/direction-policy", headers=HEADERS,
+                    json={"policy": "AUTO", "expected_version": 1, "reason": "no"})
+    assert r.status_code == 400
