@@ -57,7 +57,11 @@ def sessions_between(start: str, end: str) -> int:
 def session_offset(origin: str, sessions: int) -> str:
     """Exact exchange-session target; missing vendor bars never extend a horizon."""
     d = date.fromisoformat(origin[:10])
-    cal = _calendar(d.year, d.year + max(1, sessions // 200 + 1))
+    # Size the calendar in both directions: look-backs of a year or more
+    # (e.g. -252 sessions) from early January once ran off its start.
+    back = max(0, -sessions) // 200 + 1
+    ahead = max(0, sessions) // 200 + 1
+    cal = _calendar(d.year - back + 1, d.year + max(1, ahead))
     start = cal.date_to_session(d.isoformat(), direction="previous")
     return cal.session_offset(start, sessions).date().isoformat()
 

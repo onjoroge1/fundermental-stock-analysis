@@ -321,3 +321,26 @@ def test_shadow_pass_uses_one_connection(pg, monkeypatch):
     result=shadow.score_matured()
     assert len(opened)==1
     assert [r['status'] for r in result['results']]==['BLOCKED']*3   # no prices: checked, not lost
+
+
+def test_admin_shadow_view_reads_the_learning_stage_summary_not_every_outcome(pg, monkeypatch):
+    from stock_machine.admin_panel import store
+    from stock_machine.agent_intelligence import shadow
+    with pg() as conn:
+        assert shadow.latest_precomputed(conn) is None
+        summary=shadow.cumulative_summary(conn)
+        assert summary["outcomes"]==0 and summary["reference_counts"]=={}
+        store.audit(conn,"agent-scheduler","AGENT_STAGE_FINISHED",
+                    {"key":"agent-stage:learning:2026-10-09:1","status":"OK","shadow_cumulative":summary})
+        store.audit(conn,"agent-scheduler","AGENT_STAGE_FINISHED",
+                    {"key":"agent-stage:paper:2026-10-09:1","status":"OK"})
+    def no_scan(conn):
+        raise AssertionError("cumulative outcomes must not be re-read per page load")
+    monkeypatch.setattr(shadow,"cumulative_rows",no_scan)
+    with pg() as conn:
+        precomputed=shadow.latest_precomputed(conn)
+        assert precomputed["computed_at"]==summary["computed_at"]
+        conn.execute("ROLLBACK")
+        report=shadow.weekly_summary(conn,cumulative=precomputed)
+    assert report["cumulative_source"]["source"]=="LEARNING_STAGE_RECEIPT"
+    assert report["weights_promotion_test"]["status"]=="AWAITING_MATURED_OUTCOMES"

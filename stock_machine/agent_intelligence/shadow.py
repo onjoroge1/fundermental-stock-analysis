@@ -564,15 +564,74 @@ def _block_of(origin, horizon, index):
     return index.get(origin, 0) // max(1, int(horizon))
 
 
-def pooled_statistics(rows, *, samples=None, seed=None):
+REFERENCE_WINDOW_SESSIONS = 252
+REFERENCE_MINIMUM_OUTCOMES = 50
+
+
+def _forecast_due(row):
+    return row.get("forecast_due_session") or row.get("due_session")
+
+
+def reference_counts(rows) -> dict:
+    """Compact up/total counts per horizon and forecast-target session."""
+    counts: dict = {}
+    for r in rows:
+        due, ret = _forecast_due(r), r.get("forecast_return_pct", r.get("realized_return_pct"))
+        if due and number(ret) and ret != 0:
+            cell = counts.setdefault(str(r.get("horizon_sessions")), {}).setdefault(due, [0, 0])
+            cell[0] += 1 if ret > 0 else 0
+            cell[1] += 1
+    return counts
+
+
+def prior_base_rates(rows, counts) -> dict:
+    """Up-rate known before each forecast was made, per horizon.
+
+    For a row with origin o, uses outcomes whose forecast target completed in
+    the REFERENCE_WINDOW_SESSIONS before o: information available when the
+    forecast was issued. 0.5 until enough history exists. Returns
+    {id(row): (rate, basis)}.
+    """
+    from bisect import bisect_left
+
+    prepared = {}
+    for horizon, by_due in counts.items():
+        dues = sorted(by_due)
+        ups, totals = [0], [0]
+        for d in dues:
+            ups.append(ups[-1] + by_due[d][0])
+            totals.append(totals[-1] + by_due[d][1])
+        prepared[horizon] = (dues, ups, totals)
+    starts, out = {}, {}
+    for r in rows:
+        origin = r.get("origin_session")
+        dues, ups, totals = prepared.get(str(r.get("horizon_sessions")), ([], [0], [0]))
+        if not origin or not dues:
+            out[id(r)] = (0.5, "DEFAULT_INSUFFICIENT_HISTORY")
+            continue
+        if origin not in starts:
+            starts[origin] = session_offset(origin, -REFERENCE_WINDOW_SESSIONS)
+        lo, hi = bisect_left(dues, starts[origin]), bisect_left(dues, origin)
+        n = totals[hi] - totals[lo]
+        if n < REFERENCE_MINIMUM_OUTCOMES:
+            out[id(r)] = (0.5, "DEFAULT_INSUFFICIENT_HISTORY")
+        else:
+            out[id(r)] = ((ups[hi] - ups[lo]) / n, "PRIOR_252_SESSIONS")
+    return out
+
+
+def pooled_statistics(rows, *, samples=None, seed=None, counts=None):
     """Pooled shadow evidence per horizon with date-block bootstrap ranges.
 
     Per-stock cells hold a handful of correlated outcomes each; pooling with
     block resampling gives one honest interval per horizon. Reports the
     candidate and current scores' information coefficients against the
     stock-specific move, their direction hit rates, and each forecast model's
-    Brier skill against the base rate of the same observations (in-sample
-    climatology, slightly favourable to the reference).
+    Brier skill against a prospective base rate: the up-rate of outcomes known
+    before each forecast was issued (prior 252 sessions of reference_rows,
+    default the rows themselves; 0.5 until 50 such outcomes). The in-sample
+    base rate used before slightly favoured the reference. `counts` lets a
+    caller supply precomputed history (see cumulative_summary).
     """
     import random
 
@@ -585,6 +644,7 @@ def pooled_statistics(rows, *, samples=None, seed=None):
         sessions = session_dates(epoch, origins[-1])
         position = {d: i for i, d in enumerate(sessions)}
         index = {o: position.get(o, 0) for o in origins}
+    references = prior_base_rates(rows, reference_counts(rows) if counts is None else counts)
     by_horizon = defaultdict(list)
     for row in rows:
         by_horizon[row["horizon_sessions"]].append(row)
@@ -612,9 +672,12 @@ def pooled_statistics(rows, *, samples=None, seed=None):
                 brier = (metrics or {}).get("brier")
                 if number(brier) and number(ret) and ret != 0:
                     models.add(model)
+                    rate, basis = references[id(r)]
                     b["brier_sum:" + model] += brier
-                    b["up:" + model] += 1.0 if ret > 0 else 0.0
+                    b["reference_sum:" + model] += (rate - (1.0 if ret > 0 else 0.0)) ** 2
                     b["count:" + model] += 1
+                    if basis != "PRIOR_252_SESSIONS":
+                        b["default_reference:" + model] += 1
 
         def measures(sums):
             out = {}
@@ -641,10 +704,9 @@ def pooled_statistics(rows, *, samples=None, seed=None):
                 if not n:
                     out["brier_skill:" + model] = None
                     continue
-                base = sums["up:" + model] / n
-                reference = base * (1 - base)
+                reference = sums.get("reference_sum:" + model, 0.0)
                 out["brier_skill:" + model] = (
-                    1 - (sums["brier_sum:" + model] / n) / reference if reference > 0 else None
+                    1 - sums["brier_sum:" + model] / reference if reference > 0 else None
                 )
             return out
 
@@ -679,6 +741,10 @@ def pooled_statistics(rows, *, samples=None, seed=None):
             "blocks": len(keys),
             "candidate_direction_calls": int(total(blocks.values()).get("candidate_calls", 0)),
             "baseline_direction_calls": int(total(blocks.values()).get("baseline_calls", 0)),
+            "brier_reference": "prior 252-session base rate; 0.5 until 50 prior outcomes",
+            "brier_default_reference_counts": {
+                m: int(total(blocks.values()).get("default_reference:" + m, 0)) for m in sorted(models)
+            },
             "point": point,
             "interval_95": intervals,
             "interval_basis": (
@@ -745,6 +811,36 @@ def weights_promotion_test(rows, protocol=WEIGHTS_PROTOCOL):
     return {**summary, "status": "PASS_REQUIRES_INDEPENDENT_REVIEW" if passed else "NOT_SUPERIOR"}
 
 
+def cumulative_summary(conn) -> dict:
+    """Everything the cumulative view needs, computed once (learning stage).
+
+    The admin page reads this from the latest learning receipt instead of
+    re-reading every outcome on each load.
+    """
+    rows = cumulative_rows(conn)
+    counts = reference_counts(rows)
+    return {
+        "computed_at": datetime.now(timezone.utc).isoformat(),
+        "outcomes": len(rows),
+        "latest_due_session": max((r.get("due_session") or "" for r in rows), default=None) or None,
+        "pooled": pooled_statistics(rows, counts=counts),
+        "weights_promotion_test": weights_promotion_test(rows),
+        "reference_counts": counts,
+    }
+
+
+def latest_precomputed(conn) -> dict | None:
+    """The most recent cumulative summary saved by the learning stage."""
+    row = conn.execute(
+        """SELECT details->'shadow_cumulative' FROM operator_audit
+        WHERE event='AGENT_STAGE_FINISHED' AND details->>'key' LIKE 'agent-stage:learning:%%'
+          AND jsonb_typeof(details->'shadow_cumulative')='object'
+          AND details->'shadow_cumulative' ? 'pooled'
+        ORDER BY id DESC LIMIT 1"""
+    ).fetchone()
+    return row[0] if row else None
+
+
 def cumulative_rows(conn):
     """Every scored v2 outcome, reduced to the fields pooled statistics read."""
     rows = conn.execute(
@@ -755,6 +851,7 @@ def cumulative_rows(conn):
                 'baseline_score',payload->'baseline_score','candidate_hit',payload->'candidate_hit',
                 'baseline_hit',payload->'baseline_hit','realized_return_pct',payload->'realized_return_pct',
                 'forecast_return_pct',payload->'forecast_return_pct',
+                'due_session',payload->'due_session','forecast_due_session',payload->'forecast_due_session',
                 'forecast_scores',payload->'forecast_scores',
                 'weights_protocol_sha256',payload->'weights_protocol_sha256')
         FROM research_evidence_records WHERE kind=%s AND payload->>'target'=%s""",
@@ -768,7 +865,7 @@ def metric_mean(metrics, field):
     return sum(values) / len(values) if values else None
 
 
-def weekly_summary(conn, *, end=None):
+def weekly_summary(conn, *, end=None, cumulative=None):
     conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
     end = end or latest_completed_session()
     start = session_offset(end, -5)
@@ -852,14 +949,21 @@ def weekly_summary(conn, *, end=None):
         AND NOT EXISTS (SELECT 1 FROM research_evidence_records o WHERE o.kind=%s AND o.request_key=r.request_key)""",
         (end, SNAPSHOT, OUTCOME),
     ).fetchone()
-    cumulative = cumulative_rows(conn)
+    if cumulative is None:
+        cumulative = {**cumulative_summary(conn), "source": "LIVE_COMPUTATION"}
+    else:
+        cumulative = {**cumulative, "source": "LEARNING_STAGE_RECEIPT"}
     pooled = {
-        "week": pooled_statistics([row for (row,) in rows]),
-        "cumulative": pooled_statistics(cumulative),
+        "week": pooled_statistics(
+            [row for (row,) in rows], counts=cumulative.get("reference_counts") or {}
+        ),
+        "cumulative": cumulative["pooled"],
     }
     return {
         "pooled": pooled,
-        "weights_promotion_test": weights_promotion_test(cumulative),
+        "cumulative_source": {k: cumulative.get(k) for k in (
+            "source", "computed_at", "outcomes", "latest_due_session")},
+        "weights_promotion_test": cumulative["weights_promotion_test"],
         "status": "ATTENTION" if overdue else ("OK" if rows else "AWAITING_MATURITY"),
         "period_start": start,
         "period_end": end,

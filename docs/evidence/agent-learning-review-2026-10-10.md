@@ -42,15 +42,16 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
 | 20 | No automatic reconciliation between each executed position's realized ledger return and its counterfactual label for the same window (they should match apart from late exits). | DONE (#108 on main) |
 | 21 | No power analysis for the direction test: 12 blocks may be too few to detect a realistic improvement, and too many decisions per block are correlated to know in advance. | DONE (#111 on main) |
 | 22 | The candidate shadow weights (item 7) still have no promotion protocol; item 6 covers direction only. | DONE (#107 on main). Evidence restarts under this branch's new entry-aligned target (item 16), since the protocol names its target. |
-| 23 | The residual is relative to SPY only; there's no sector-relative target, and a 63-day beta is a noisy hedge ratio. | IN PR (`feat/sector-relative-diagnostics-technical-uncertainty`): sector-relative return (vs the sector ETF frozen at capture) recorded on shadow and counterfactual outcomes, with pooled ICs reported against it. It's a diagnostic separating stock selection from sector rotation; targets, rewards and tests are unchanged. Beta noise was measured and left alone: a 63-day beta has error sd ≈ 0.26 but adds only ~1.9% to the 20-session residual variance (Blume shrinkage: ~1.2%), not worth restarting the target, model and tests. |
+| 23 | The residual is relative to SPY only; there's no sector-relative target, and a 63-day beta is a noisy hedge ratio. | DONE (#113 on main): sector-relative diagnostic; beta noise measured and left alone. |
 | 24 | Shadow snapshots captured before this change are scored under the v2 target with default beta/volatility when missing; their frozen candidate scores used v1 weights, so the first weeks mix weight versions in the weekly view. | OPEN: transitional, and repeats with item 16's target change. Old-target outcomes are excluded from training and views, but early weeks under each new target have thin evidence. |
 | 25 | Stacked PRs merge into each other, not main: #100–#103 merged into their base branches and only reached main via #104. | DONE: #104 landed #100–#103 on main. PRs now target main directly. |
-| 26 | The technical evaluator's other per-trade metrics (net win rate, mean per opportunity) are reported without uncertainty, and walk-forward folds don't report how often a no-edge setup would act. | IN PR (same branch): technical metrics report `effective_trades` (non-overlapping windows), a 95% interval for the mean net return and a Wilson interval for the net win rate. Each walk-forward run also reports a placebo false-positive rate (folds re-fit on returns sign-flipped by date, shared across stocks). The daily job now reuses the pooled walk-forward context instead of rebuilding it 54 times per horizon. |
-| 27 | Brier skill uses the evaluated set's own base rate (in-sample climatology), which slightly favours the reference; a prior-period base rate would be stricter. | OPEN |
-| 28 | The cumulative pooled view reads every v2 shadow outcome on each admin load; at ~162 a session that grows ~41,000 rows a year. | OPEN: materialize daily or cap by date once it is slow. |
+| 26 | The technical evaluator's other per-trade metrics (net win rate, mean per opportunity) are reported without uncertainty, and walk-forward folds don't report how often a no-edge setup would act. | DONE (#113 on main) |
+| 27 | Brier skill uses the evaluated set's own base rate (in-sample climatology), which slightly favours the reference; a prior-period base rate would be stricter. | IN PR (`feat/prior-climatology-precomputed-cumulative`): Brier skill now uses a prospective base rate, the up-rate of outcomes completed in the 252 sessions before each forecast's origin (0.5 until 50 exist; the default count is reported). |
+| 28 | The cumulative pooled view reads every v2 shadow outcome on each admin load; at ~162 a session that grows ~41,000 rows a year. | IN PR (same branch): the learning stage precomputes the cumulative pooled statistics, the weights test and daily up/total counts into its receipt (`shadow_cumulative`). The admin page reads the latest receipt (with source and time shown) and computes live only before the first one. Tested: the admin view reads the receipt without scanning outcomes. |
 | 29 | Release coordination for migration 0027: deployed code requires schema 0027 and ingestion fails closed until the migration workflow succeeds; the daily technical workflow's `alembic upgrade head` would also apply it. | DONE: the 0027 workflow succeeded on 2026-10-10 (run 38084929642); CI on main is green. |
 | 30 | Both pre-registered tests pass too often with no real improvement: about 5–7% instead of 2.5%. Adjacent blocks are correlated (lag-1 ≈ +0.16) and the percentile bootstrap understates the spread by 22–26%. A Newey–West lag-1 + t(n−1) bound reaches about 3% from 24 blocks; nothing tried is calibrated at 12. | OPEN — owner decision: adopt v2 protocols (Newey–West + t, ≥ 24 blocks), which restarts both tests' evidence and costs about 8–10 points of power. |
 | 31 | The direction test's protocol now names reward v5 and the sector-aware challenger, so its hash changed and evidence restarts. No 20-session window had matured yet, so nothing is lost; item 30's protocol decision is still open. | INFO |
+| 32 | `session_offset` built its calendar from the year before the origin, so look-backs of ~1 year from early January ran off its start. From early January 2027, shadow training history (−252) and the daily technical-setup job (−252) would have failed; the shadow capture failure would have been silent inside its savepoint. | IN PR (same branch): the calendar is sized for the look-back; regression tests cover year boundaries both ways. |
 
 ## Change log
 
@@ -240,3 +241,11 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
     `placebo` (stored with each run and shown in admin).
   - The store passes the precomputed walk-forward context; the summary tolerates fields
     missing from older runs.
+
+- **2026-10-11 — prospective Brier reference, precomputed cumulative view, calendar
+  look-back fix** (branch `feat/prior-climatology-precomputed-cumulative`):
+  - `shadow.reference_counts`, `prior_base_rates`, `cumulative_summary` and
+    `latest_precomputed` are added.
+  - `pooled_statistics(..., counts=)`; `weekly_summary(..., cumulative=)`.
+  - `learning_operation` saves `shadow_cumulative` in its receipt.
+  - `market_calendar.session_offset` sizes the calendar for negative offsets.

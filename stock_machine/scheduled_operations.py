@@ -114,6 +114,16 @@ def learning_operation():
             direction = direction_summary(conn)
     except Exception as exc:
         direction = {"status": "FAILED", "reason_code": type(exc).__name__}
+    # Precompute the cumulative shadow view once per stage run; the admin page
+    # reads it from this receipt rather than scanning every outcome per load.
+    try:
+        from .agent_intelligence.shadow import cumulative_summary
+
+        with db.connect() as conn:
+            conn.execute("SET TRANSACTION READ ONLY")
+            shadow_cumulative = cumulative_summary(conn)
+    except Exception as exc:
+        shadow_cumulative = {"status": "FAILED", "reason_code": type(exc).__name__}
     # Read-only: do executed paper positions agree with their learning labels?
     try:
         from .agent_intelligence.reconcile import summary as reconcile_summary
@@ -125,6 +135,7 @@ def learning_operation():
     return {
         "direction_challenger": direction,
         "ledger_reconciliation": reconciliation,
+        "shadow_cumulative": shadow_cumulative,
         "status": (
             "ATTENTION" if any(r["status"] != "OK" for r in results.values()) else "OK"
         ),

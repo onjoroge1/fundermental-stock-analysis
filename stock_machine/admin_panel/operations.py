@@ -174,7 +174,8 @@ def intelligence_summary():
     rows = []
     with store.connect() as conn:
         from ..agent_intelligence.shadow import weekly_summary
-        shadow = weekly_summary(conn)
+        from ..agent_intelligence.shadow import latest_precomputed
+        shadow = weekly_summary(conn, cumulative=latest_precomputed(conn))
         from ..agent_intelligence.direction import summary as direction_summary
         direction = direction_summary(conn)
         from ..agent_intelligence.reconcile import summary as reconcile_summary
