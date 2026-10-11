@@ -20,7 +20,7 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
 
 | # | Gap | Evidence | Fix direction | Status |
 |---|---|---|---|---|
-| 6 | Direction is never learned (hand-set weights 0.50/0.25/0.15/0.10, ±0.25 threshold); no promotion rule for shadow weights. | `state.assemble` | Each decision freezes the heuristic direction and the pooled model's learned direction (`direction_challenger`). Both are scored on the same matured counterfactual rewards, with FLAT = 0. A paired test is fixed in code (`learned-direction-vs-heuristic.v1`, hashed into every snapshot): resample 20-session blocks, ≥12 blocks, pass if the mean and the bootstrap lower 2.5% bound of (learned − heuristic) are > 0 and the learned mean reward is > 0. | IN PR (`feat/learned-direction-owner-gate`): the promotion path exists, owner-gated:<br>- approving LEARNED is refused unless the latest learning-stage result for test v2 passes under the current protocol hash;<br>- once approved, the learned direction routes paper decisions only while the approval and a still-passing result match the current protocol, otherwise reverting to the heuristic automatically;<br>- the test's frozen incumbent stays the heuristic, so evidence is unaffected.<br><br>The earliest possible pass is about 24 blocks (~2 years) after evidence starts. |
+| 6 | Direction is never learned (hand-set weights 0.50/0.25/0.15/0.10, ±0.25 threshold); no promotion rule for shadow weights. | `state.assemble` | Each decision freezes the heuristic direction and the pooled model's learned direction (`direction_challenger`). Both are scored on the same matured counterfactual rewards, with FLAT = 0. A paired test is fixed in code (`learned-direction-vs-heuristic.v1`, hashed into every snapshot): resample 20-session blocks, ≥12 blocks, pass if the mean and the bootstrap lower 2.5% bound of (learned − heuristic) are > 0 and the learned mean reward is > 0. | DONE (#116 on main): owner-gated switch to the learned direction. Approval requires a v2 test pass under the current protocol; it reverts automatically if evidence stops passing or the protocol changes. |
 | 7 | Shadow weight metric (squared error vs ±1) penalizes conviction. | A 56%-hit, magnitude-0.6 signal got 0.459 weight vs 0.541 for zero-skill ±0.1 noise. | Rank IC or calibrated log-loss, or a stacked ridge/logistic model. | DONE (#103, on main via #104) |
 | 8 | Shadow targets use raw returns, which mostly measure market beta over 5 sessions. | `shadow.evaluate` | Score stock-specific components against SPY/sector-excess returns. | DONE (#103, on main via #104) |
 | 9 | Technical-setup utility `mean − 0.5·std` needs per-trade Sharpe > 0.5, so it nearly always abstains. | Annual Sharpe 1.0: utility −1.97% (5d), −2.35% (20d). | Penalize standard error (`k·std/√n`) or rank by Sharpe with a cost floor. | DONE (#105 on main) |
@@ -266,3 +266,10 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
     (`state.direction_source`, `heuristic_direction`).
   - Owner endpoint `POST /api/operator/direction-policy` (409 when the test isn't
     passing or the version changed), plus admin controls.
+
+- **2026-10-11 — close-out:** `technical-setups.v1`'s hashed `candidate_selection` label
+  said "minus one standard error" while the rule (#105) subtracts 1.645. The label is
+  corrected, so the policy hash changes and new daily technical runs are versioned
+  separately; behavior is unchanged. Item 6 is marked done. **All 32 tracked items are
+  now done or closed (24 as documented).** What remains is operational: watch the first
+  matured windows from November.
