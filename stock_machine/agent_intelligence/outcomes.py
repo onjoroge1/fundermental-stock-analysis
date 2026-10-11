@@ -121,19 +121,47 @@ def learning_status(run: dict, completed: str) -> tuple[str, str | None]:
     return ("READY_COUNTERFACTUAL" if completed >= due else "PENDING_MATURITY"), due
 
 
-def counterfactual_outcomes(conn, ticker: str, entry: str, due: str) -> dict:
+BETA_RANGE = (0.0, 3.0)
+DEFAULT_BETA = 1.0
+
+
+def frozen_beta(run: dict) -> tuple[float, str]:
+    """Beta to SPY known at decision time (63-session), clipped; 1.0 when missing."""
+    value = (((run.get("state") or {}).get("technical") or {}).get("features") or {}).get(
+        "beta_63_vs_spy"
+    )
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
+        return DEFAULT_BETA, "default_beta"
+    return min(BETA_RANGE[1], max(BETA_RANGE[0], float(value))), "frozen_beta_63_vs_spy"
+
+
+def counterfactual_outcomes(conn, ticker: str, entry: str, due: str, beta=None) -> dict:
+    """Both directions over the frozen window.
+
+    gross_return_pct stays the raw stock return (the paper ledger reconciles
+    against it); residual_return_pct removes beta times SPY's return over the
+    same window and is what the model learns from. Same-day labels across
+    stocks then no longer share the market's move.
+    """
     cost_pct = 2 * FILL_COST_BPS_PER_SIDE / 100
     from ..agent_trading import TARGET_POSITION_PCT
 
+    beta, basis = beta if beta is not None else (DEFAULT_BETA, "default_beta")
+    market_pct = _stock_outcome(conn, "SPY", "LONG_STOCK", entry, due)["gross_return_pct"]
     size_pct = TARGET_POSITION_PCT * 100
     result = {}
     for action in LEARNED_ARMS:
         outcome = _stock_outcome(conn, ticker, action, entry, due)
+        sign = 1 if action == "LONG_STOCK" else -1
         outcome.update(
             costs_pct=cost_pct,
             capital_used_pct=size_pct,
             turnover_pct=2 * size_pct,
             learning_basis="PROSPECTIVE_COUNTERFACTUAL_V1",
+            market_return_pct=market_pct,
+            beta=beta,
+            beta_basis=basis,
+            residual_return_pct=round(outcome["gross_return_pct"] - sign * beta * market_pct, 6),
         )
         result[action] = outcome
     return result
@@ -216,7 +244,7 @@ def _score_one(conn, run: dict, completed: str) -> dict | None:
             if status != "READY_COUNTERFACTUAL":
                 return row
             arm_outcomes = counterfactual_outcomes(
-                conn, ticker, run["learning"]["execution_session"], due
+                conn, ticker, run["learning"]["execution_session"], due, frozen_beta(run)
             )
             # Nested: the reward record joins this decision's transaction.
             learned = record_counterfactual(ticker, key, arm_outcomes, conn=conn)

@@ -73,6 +73,7 @@ def test_orchestrator_freezes_clock_and_replays_before_rebuilding(monkeypatch):
     monkeypatch.setattr(research_store, "latest", lambda *a: None)
     monkeypatch.setattr(research_store, "save", lambda conn, kind, key, value, ticker: records.update({key: {"payload": value}}))
     monkeypatch.setattr(surface_store, "latest_as_of", lambda *a, **k: None)
+    monkeypatch.setattr(db, "fetch_company", lambda *a: {"sector": "Technology"})
     monkeypatch.setattr(o, "build_for_ticker", lambda *a, **k: calls.append("features") or {})
     monkeypatch.setattr(o, "_regime", lambda *a: {})
     def news(value, *, now):

@@ -28,6 +28,13 @@ def current_arms(state: dict | None) -> dict:
     return dict(state.get("arms") or {})
 
 
+def current_offsets(state: dict | None) -> dict:
+    """Sector offsets trained under the current contracts (same gate as arms)."""
+    if not current_arms(state):
+        return {}
+    return {k: dict(v) for k, v in ((state or {}).get("offsets") or {}).items()}
+
+
 def pooled_state(conn) -> dict | None:
     """Latest pooled state by its own sequence, not by transaction start time.
 
@@ -91,6 +98,8 @@ def _record_counterfactual(conn, ticker, decision_id, arm_outcomes):
     x = bandit.context_vector(payload["state"])
     previous = pooled_state(conn)
     arms = current_arms(previous)
+    offsets = current_offsets(previous)
+    sector = (payload.get("state") or {}).get("sector")
     scored = {}
     for action in LEARNED_ARMS:
         outcome = arm_outcomes[action]
@@ -102,8 +111,11 @@ def _record_counterfactual(conn, ticker, decision_id, arm_outcomes):
             raise ValueError("COUNTERFACTUAL_WINDOW_MISMATCH")
         sessions = len(session_dates(outcome["entry_date"], outcome["exit_date"])) - 1
         scale = reward.risk_scale(features, sessions)
+        if "residual_return_pct" not in outcome:
+            raise ValueError("COUNTERFACTUAL_RESIDUAL_MISSING")
+        # Learn from the stock-specific move; the raw return stays on the outcome.
         r = reward.compute(
-            gross_return_pct=float(outcome["gross_return_pct"]),
+            gross_return_pct=float(outcome["residual_return_pct"]),
             max_drawdown_pct=float(outcome["max_drawdown_pct"]),
             capital_used_pct=float(outcome["capital_used_pct"]),
             turnover_pct=float(outcome.get("turnover_pct", 0.0)),
@@ -112,9 +124,14 @@ def _record_counterfactual(conn, ticker, decision_id, arm_outcomes):
         )
         r["risk_scale"] = scale
         scored[action] = {"outcome": outcome, "reward": r}
-        arms[action] = bandit.update(
-            arms.get(action) or bandit.empty_arm(len(x)), x, r["reward"], OVERLAP_WEIGHT
+        current = arms.get(action) or bandit.empty_arm(len(x))
+        # Sector intercept learns the residual against the pooled estimate
+        # made before this label.
+        residual = r["reward"] - bandit.estimate(current, x)["mean"]
+        offsets[action] = bandit.update_sector_offset(
+            offsets.get(action), sector, residual, OVERLAP_WEIGHT
         )
+        arms[action] = bandit.update(current, x, r["reward"], OVERLAP_WEIGHT)
     sequence = int((previous or {}).get("sequence") or 0) + 1
     state = {
         "scope": POOLED_SCOPE,
@@ -125,6 +142,7 @@ def _record_counterfactual(conn, ticker, decision_id, arm_outcomes):
         "source_ticker": ticker,
         "source_decision_id": decision_id,
         "arms": arms,
+        "offsets": offsets,
     }
     record = {
         "ticker": ticker,

@@ -175,6 +175,7 @@ def test_concurrent_counterfactual_learning_is_serialized_and_replays_do_not_dou
     from stock_machine.agent_intelligence.learning import pooled_state, record_counterfactual
     window={'contract':outcomes.CONTRACT,'execution_session':'2026-09-01','due_session':'2026-09-29'}
     arm_outcomes={a:{'learning_basis':'PROSPECTIVE_COUNTERFACTUAL_V1','gross_return_pct':3. if a=='LONG_STOCK' else -3.,
+                     'residual_return_pct':1. if a=='LONG_STOCK' else -1.,
                      'max_drawdown_pct':-1.,'capital_used_pct':.93,'turnover_pct':1.86,'costs_pct':.2,
                      'entry_date':'2026-09-01','exit_date':'2026-09-29'} for a in outcomes.LEARNED_ARMS}
     def run(key):
@@ -205,14 +206,22 @@ def test_direction_evidence_counts_only_matured_decisions_under_the_current_prot
     def intelligence(key, protocol):
         return {'ticker':'VZ','decision_id':key,'learning':{'execution_session':'2026-10-02'},
                 'direction_challenger':{'protocol_sha256':protocol,'incumbent':'LONG','challenger':'SHORT'}}
+    from stock_machine.agent_intelligence import reward as reward_module
+    v=reward_module.VERSION
     reward={'learning_basis':'PROSPECTIVE_COUNTERFACTUAL_V1',
-            'arms':{'LONG_STOCK':{'reward':{'reward':-.2}},'SHORT_STOCK':{'reward':{'reward':.2}}}}
+            'arms':{'LONG_STOCK':{'reward':{'reward':-.2,'schema_version':v}},'SHORT_STOCK':{'reward':{'reward':.2,'schema_version':v}}}}
+    raw_v4={'learning_basis':'PROSPECTIVE_COUNTERFACTUAL_V1',
+            'arms':{'LONG_STOCK':{'reward':{'reward':-.2,'schema_version':'risk-scaled-net-paper-reward.v4'}},
+                    'SHORT_STOCK':{'reward':{'reward':.2,'schema_version':'risk-scaled-net-paper-reward.v4'}}}}
     with pg() as conn:
         research_store.save(conn,'AGENT_INTELLIGENCE_V2','counted',intelligence('counted',direction.PROTOCOL_SHA256),'VZ')
         research_store.save(conn,'AGENT_REWARD_V3','counted',reward,'VZ')
         research_store.save(conn,'AGENT_INTELLIGENCE_V2','old-protocol',intelligence('old-protocol','0'*64),'VZ')
         research_store.save(conn,'AGENT_REWARD_V3','old-protocol',reward,'VZ')
         research_store.save(conn,'AGENT_INTELLIGENCE_V2','immature',intelligence('immature',direction.PROTOCOL_SHA256),'VZ')
+        # Raw-return (v4) labels are a different target and never count.
+        research_store.save(conn,'AGENT_INTELLIGENCE_V2','raw-reward',intelligence('raw-reward',direction.PROTOCOL_SHA256),'VZ')
+        research_store.save(conn,'AGENT_REWARD_V3','raw-reward',raw_v4,'VZ')
     with pg() as conn:
         rows=direction.matured_rows(conn)
         value=direction.summary(conn)
@@ -276,6 +285,7 @@ def test_learning_pass_uses_one_connection_and_one_transaction_per_decision(pg, 
         research_store.save(conn,'AGENT_INTELLIGENCE_V2','no-path',{**run('no-path'),'ticker':'AAPL'},'AAPL')
         for i,day in enumerate(session_dates(entry,due)):
             conn.execute("INSERT INTO prices_daily(ticker,date,close,adj_close) VALUES ('VZ',%s,%s,%s)",(day,100+i,100+i))
+            conn.execute("INSERT INTO prices_daily(ticker,date,close,adj_close) VALUES ('SPY',%s,%s,%s)",(day,400+i,400+i))
     opened=[]
     original=db.connect
     monkeypatch.setattr(db,'connect',lambda: opened.append(1) or original())

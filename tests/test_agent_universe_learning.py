@@ -142,16 +142,15 @@ def test_reward_rejects_invalid_operating_inputs(field, value):
         reward.compute(**args)
 
 
-def test_cold_start_explores_both_actions_while_outcomes_are_pending():
-    # Lexical ties once selected the same arm forever; sampling seeded by the
-    # decision key must explore both before any outcome matures.
+def test_cold_start_does_not_trade_on_no_evidence():
+    # Every decision earns counterfactual labels for both directions, so the
+    # model learns without exploring; it trades once it is confident.
     state = {"bias_score": 0.5, "signal_components": {"technical": 0.4}}
-    picks = [
+    picks = {
         bandit.select(state, ["LONG_STOCK", "NO_TRADE"], decision_key=str(i))["selected"]["action"]
-        for i in range(200)
-    ]
-    assert 0.25 < picks.count("LONG_STOCK") / len(picks) < 0.75
-
+        for i in range(50)
+    }
+    assert picks == {"NO_TRADE"}
 
 def paper_position(**overrides):
     return {

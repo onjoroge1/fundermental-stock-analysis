@@ -1,21 +1,32 @@
-"""Pooled contextual Thompson sampling for PAPER/SHADOW only.
+"""Pooled contextual model with sector offsets and a confidence gate, PAPER/SHADOW only.
 
-One Bayesian linear model per trading action, shared by every covered stock:
-a single ticker produces about a dozen non-overlapping 20-session trades a
-year, too few to learn from alone. NO_TRADE is a known zero-reward baseline,
-not an arm to estimate. Rewards are in ex-ante volatility units (reward v4),
-so unit noise variance is the natural scale. Sampling is seeded by the
-decision key, making every choice reproducible for audit. No arm selection
-produced here can authorize broker execution.
+One Bayesian linear model per trading action, shared by every covered stock,
+plus a sector random intercept shrunk toward zero: a single ticker produces
+about a dozen independent 20-session labels a year, too few for its own
+offset, while a sector pools several tickers. NO_TRADE is a known zero
+baseline. Rewards are stock-specific (beta-adjusted) net returns in ex-ante
+volatility units (reward v5), so unit noise variance is the natural scale.
+
+Every eligible decision is scored for both directions from its counterfactual
+outcome (#101), so the model learns the same whatever is traded and
+exploration buys no information. A trading arm is chosen only when the model
+is at least 80% confident its net edge is positive; Thompson sampling, used
+before, kept trading about half the time with no edge. Choices are
+deterministic. No arm selection produced here can authorize broker execution.
 """
 
 from __future__ import annotations
 
-import hashlib
-import random
 from math import isfinite, sqrt
 
-VERSION = "pooled-linear-thompson.v2"
+VERSION = "pooled-linear-confident-sector.v3"
+# Trade only when P(net edge > 0) >= 80%: z(0.80). Simulation (54 stocks, two
+# years): no-edge losses fell ~80% versus Thompson sampling while keeping
+# 85-90% of the reward when an edge exists.
+CONFIDENCE_Z = 0.8416
+# Sector intercept prior: sd 0.1 reward units. Per-ticker offsets were tested
+# and not adopted: about 13 effective labels a ticker a year cannot learn them.
+SECTOR_PRIOR_PRECISION = 100.0
 SIGNALS = ("fundamental", "technical", "news", "regime")
 FEATURE_NAMES = (
     "intercept",
@@ -128,9 +139,33 @@ def estimate(arm: dict, x: list[float]) -> dict:
     return {"mean": mean, "uncertainty": sqrt(max(variance, 0.0))}
 
 
-def _rng(decision_key: str) -> random.Random:
-    seed = hashlib.sha256((VERSION + ":" + decision_key).encode()).hexdigest()
-    return random.Random(int(seed[:16], 16))
+def sector_offset(offsets_arm: dict | None, sector: str | None) -> tuple[float, float]:
+    """Posterior mean and variance of a sector's intercept (0, 0 if unknown)."""
+    if not sector:
+        return 0.0, 0.0
+    weight, weighted = ((offsets_arm or {}).get("sector") or {}).get(sector) or (0.0, 0.0)
+    precision = float(weight) + SECTOR_PRIOR_PRECISION
+    return float(weighted) / precision, NOISE_VARIANCE / precision
+
+
+def predict(arm: dict, x: list[float], offsets_arm: dict | None = None, sector: str | None = None) -> dict:
+    """Pooled linear estimate plus the shrunk sector intercept."""
+    pooled = estimate(arm, x)
+    offset, offset_variance = sector_offset(offsets_arm, sector)
+    return {
+        "mean": pooled["mean"] + offset,
+        "uncertainty": sqrt(pooled["uncertainty"] ** 2 + offset_variance),
+        "sector_offset": offset,
+    }
+
+
+def update_sector_offset(offsets_arm: dict | None, sector: str | None, residual: float, weight: float) -> dict:
+    """Accumulate a weighted residual (label minus pooled estimate) for the sector."""
+    out = {"sector": {k: list(v) for k, v in ((offsets_arm or {}).get("sector") or {}).items()}}
+    if sector:
+        w, wr = out["sector"].get(sector) or (0.0, 0.0)
+        out["sector"][sector] = [float(w) + weight, float(wr) + weight * residual]
+    return out
 
 
 def select(
@@ -140,57 +175,60 @@ def select(
     *,
     mode: str = "PAPER",
     decision_key: str = "",
+    offsets: dict | None = None,
 ) -> dict:
+    """Confidence-gated choice; decision_key is kept for callers' audit records."""
     if mode not in {"PAPER", "SHADOW"}:
         raise ValueError("BANDIT_LIVE_MODE_FORBIDDEN")
     x = context_vector(state)
-    arm_states = arm_states or {}
-    rng = _rng(decision_key)
+    arm_states, offsets = arm_states or {}, offsets or {}
+    sector = state.get("sector")
     scored = []
-    # Sorted order fixes the random draw sequence for a given decision key.
     for action in sorted(actions):
         if action == BASELINE_ACTION:
-            est, sample, observations = {"mean": 0.0, "uncertainty": 0.0}, 0.0, None
+            est, observations = {"mean": 0.0, "uncertainty": 0.0, "sector_offset": 0.0}, None
         else:
             arm = arm_states.get(action) or empty_arm(len(x))
-            est = estimate(arm, x)
-            # Exact for the scalar projection x.theta of the Gaussian posterior.
-            sample = rng.gauss(est["mean"], est["uncertainty"])
+            est = predict(arm, x, offsets.get(action), sector)
             observations = int(arm.get("observations") or 0)
+        score = est["mean"] - CONFIDENCE_Z * est["uncertainty"]
         scored.append(
             {
                 "action": action,
                 **est,
-                "sample": sample,
-                "exploration_bonus": sample - est["mean"],
-                # Legacy display key: the score the selection maximized.
-                "ucb": sample,
+                "score": score,
+                # Legacy display keys: the confidence adjustment and gated score.
+                "exploration_bonus": score - est["mean"],
+                "ucb": score,
                 "observations": observations,
                 "baseline": action == BASELINE_ACTION,
             }
         )
-    # Ties go to the capital-preserving baseline.
-    selected = max(scored, key=lambda r: (r["sample"], r["baseline"]))
+    # Ties, and anything not confidently above zero, go to the baseline.
+    selected = max(scored, key=lambda r: (r["score"], r["baseline"]))
     leader = max(scored, key=lambda r: (r["mean"], r["baseline"]))
-    if not selected["baseline"] and selected["observations"] == 0:
-        choice_driver = "EXPLORE_UNTRIED"
-    elif selected["action"] != leader["action"]:
-        choice_driver = "EXPLORE_UNCERTAINTY"
+    if not selected["baseline"]:
+        choice_driver = "EXPLOIT_CONFIDENT"
+    elif not leader["baseline"] and leader["mean"] > 0:
+        choice_driver = "ABSTAIN_UNCERTAIN"
     else:
-        choice_driver = "EXPLOIT_ESTIMATE"
+        choice_driver = "ABSTAIN_NO_EDGE"
     return {
         "schema_version": VERSION,
         "mode": mode,
-        "sampling": "thompson",
-        "pooling": "all covered stocks share one model per action",
+        "selection": "posterior-confidence",
+        "confidence_z": CONFIDENCE_Z,
+        "pooling": "all covered stocks share one model per action, plus shrunk sector intercepts",
         "prior_precision": PRIOR_PRECISION,
+        "sector_prior_precision": SECTOR_PRIOR_PRECISION,
         "noise_variance": NOISE_VARIANCE,
         "features": dict(zip(FEATURE_NAMES, x)),
+        "sector": sector,
         "selected": selected,
         "arms": scored,
         "choice_driver": choice_driver,
         "exploitation_leader": leader["action"],
-        "exploration_enabled": True,
+        "exploration_enabled": False,
         "broker_submission": False,
     }
 

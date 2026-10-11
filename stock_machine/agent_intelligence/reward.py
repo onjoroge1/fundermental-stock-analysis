@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from math import isfinite, sqrt
 
-VERSION = "risk-scaled-net-paper-reward.v4"
+# v5: learning labels use the stock-specific (beta-adjusted vs SPY) return;
+# v4 used the raw return, so a long label mostly measured the market's move.
+VERSION = "risk-scaled-residual-paper-reward.v5"
 TRADING_DAYS = 252
 # Floor keeps an implausibly calm ex-ante estimate from inflating rewards.
 MIN_ANNUAL_VOL = 0.05
