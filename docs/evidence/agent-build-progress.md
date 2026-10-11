@@ -23,7 +23,7 @@ judging candidate weights; continue repairing and verifying the pipeline now.
 | --- | --- | --- |
 | Inputs and canonical forecasts | 17:30 on completed market sessions | GitHub Actions; benchmark result, refresh counts, workflow artifacts, durable receipt |
 | Research | Every 10 minutes | Existing queue drains one current-price/current-forecast stock per tick, plus bounded refresh work |
-| Paper maintenance | Every 10 minutes, 17:00–22:59 | Pending simulated fills, holding-limit exits, marks; requires enabled capture and PAPER mode |
+| Paper maintenance | Every 10 minutes, 17:00–22:59 | Holding-limit exits first (each at its own 20-session target close, even if the job runs late), then pending simulated fills, then marks; requires enabled capture and PAPER mode |
 | Learning | 18:10, 20:10, 22:10 | Independent paper and shadow scoring, at most 100 candidates each per pass |
 | Progress snapshot | Weekdays 08:15 | Current-session coverage, pending target sessions, queue and durable receipts |
 

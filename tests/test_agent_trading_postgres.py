@@ -175,17 +175,19 @@ def test_legacy_positions_keep_signal_driven_exits(pg):
     assert close["status"] == "SIMULATED" and close["action"] == "CLOSE"
 
 
-def test_reversal_after_commitment_requires_two_independent_decisions(pg, monkeypatch):
+def test_matured_commitment_exits_at_target_before_an_opposite_decision_acts(pg, monkeypatch):
+    # The exit comes from the commitment, not the decision: the decision acts
+    # on a flat book. Legacy positions still need a separate closing decision.
     agent_trading.set_mode("PAPER", None)
     first = agent_trading.process_decision(seed(pg, "ATTRACTIVE", 100.0))
     assert first["action"] == "OPEN_LONG"
     due = mature(monkeypatch)
-    close = agent_trading.process_decision(seed(pg, "UNATTRACTIVE", 100.0, on=due))
-    assert close["status"] == "SIMULATED" and close["action"] == "CLOSE"
-    assert agent_trading.portfolio()["open_count"] == 0
     short = agent_trading.process_decision(seed(pg, "UNATTRACTIVE", 100.0, on=due))
+    assert short["risk_snapshot"]["commitment_settlement"]["status"] == "CLOSED"
     assert short["status"] == "SIMULATED" and short["action"] == "OPEN_SHORT"
-    assert agent_trading.portfolio()["positions"][0]["side"] == "SHORT"
+    value = agent_trading.portfolio()
+    assert value["closed_positions"][0]["exit_reason"] == "20-session paper holding limit"
+    assert [p["side"] for p in value["positions"]] == ["SHORT"]
 
 
 def test_blocked_agent_decision_never_creates_fill(pg):
@@ -287,8 +289,9 @@ def test_trade_history_preserves_open_and_close_evidence_with_separate_dates(
     assert p["entry_cost_usd"] == pytest.approx(0.92593)
 
     due = mature(monkeypatch)
-    closing = seed(pg, "UNATTRACTIVE", price=110.0, on=due)
-    exit_intent = agent_trading.process_decision(closing)
+    price(pg, due, 110.0)
+    # The precommitted holding limit closes it; no decision is involved.
+    assert agent_trading.settle_holding_limits()["closed"] == 1
     with pg() as c:
         # Explicit timestamps prove that price session dates aren't presented
         # as the time of execution, and updated_at isn't used as a close fill.
@@ -306,8 +309,8 @@ def test_trade_history_preserves_open_and_close_evidence_with_separate_dates(
     assert closed["closed_at"] == "2026-09-18T03:00:00+00:00"
     assert closed["exit_market_date"] == due
     assert closed["source_decision_id"] == opening["decision_id"]
-    assert closed["exit_decision_id"] == closing["decision_id"]
-    assert closed["exit_rationale"] == exit_intent["rationale"]
+    assert closed["exit_decision_id"] is None
+    assert closed["exit_rationale"] == "20-session paper holding limit"
     assert closed["entry_risk"]["selector"]["score"] == 78.0
     assert closed["realized_pnl_usd"] == pytest.approx(
         90.648547
@@ -528,3 +531,77 @@ def test_complete_pending_fill_exit_counterfactual_learning_and_replay_flow(pg, 
         audit = reconcile.summary(c)
     # The executed position and its learning label describe the same window.
     assert audit["status"] == "OK" and audit["counts"] == {"MATCHED": 1}
+
+
+def price(pg, day, value, ticker="AAPL"):
+    with pg() as c:
+        c.execute("DELETE FROM prices_daily WHERE ticker=%s AND date=%s", (ticker, day))
+        c.execute("INSERT INTO prices_daily(ticker,date,close,adj_close) VALUES (%s,%s,%s,%s)",
+                  (ticker, day, value, value))
+
+
+def test_late_settlement_still_exits_at_the_target_close(pg, monkeypatch):
+    from stock_machine.market_calendar import session_offset
+
+    agent_trading.set_mode("PAPER", None)
+    agent_trading.process_decision(seed(pg, "ATTRACTIVE"))
+    due = session_offset("2026-09-16", agent_trading.HOLDING_SESSIONS)
+    late = session_offset(due, 3)
+    price(pg, due, 110.0)
+    price(pg, late, 150.0)          # the job runs three sessions late
+    monkeypatch.setattr(agent_trading, "latest_completed_session", lambda: late)
+    result = agent_trading.settle_holding_limits()
+    assert result["closed"] == 1 and result["results"][0]["settled_after_sessions"] == 3
+    closed = agent_trading.portfolio()["closed_positions"][0]
+    assert closed["exit_market_date"] == due
+    assert closed["realized_pnl_usd"] == pytest.approx(90.648547)   # the target close, not 150
+    with pg() as c:
+        assert c.execute("SELECT market_date::text FROM agent_paper_fills WHERE fill_kind='CLOSE'").fetchone()[0] == due
+
+
+def test_missing_target_price_blocks_then_settles_at_the_target(pg, monkeypatch):
+    from stock_machine.market_calendar import session_offset
+
+    agent_trading.set_mode("PAPER", None)
+    agent_trading.process_decision(seed(pg, "ATTRACTIVE"))
+    due = session_offset("2026-09-16", agent_trading.HOLDING_SESSIONS)
+    late = session_offset(due, 1)
+    price(pg, late, 150.0)
+    monkeypatch.setattr(agent_trading, "latest_completed_session", lambda: late)
+    blocked = agent_trading.settle_holding_limits()
+    assert blocked["status"] == "ATTENTION" and blocked["blocked"] == ["AAPL"]
+    price(pg, due, 110.0)
+    assert agent_trading.settle_holding_limits()["closed"] == 1
+    assert agent_trading.portfolio()["closed_positions"][0]["exit_market_date"] == due
+
+
+def test_decision_after_target_settles_first_then_acts_on_a_flat_book(pg, monkeypatch):
+    from stock_machine.market_calendar import session_offset
+
+    agent_trading.set_mode("PAPER", None)
+    agent_trading.process_decision(seed(pg, "ATTRACTIVE"))
+    due = session_offset("2026-09-16", agent_trading.HOLDING_SESSIONS)
+    later = session_offset(due, 2)
+    price(pg, due, 110.0)
+    monkeypatch.setattr(agent_trading, "latest_completed_session", lambda: later)
+    result = agent_trading.process_decision(seed(pg, "UNATTRACTIVE", price=120.0, on=later))
+    # The old long exits at the target close; the new signal opens from flat.
+    assert result["risk_snapshot"]["commitment_settlement"]["exit_session"] == due
+    assert result["action"] == "OPEN_SHORT" and result["status"] == "SIMULATED"
+    value = agent_trading.portfolio()
+    assert value["closed_positions"][0]["exit_market_date"] == due
+    assert [p["side"] for p in value["positions"]] == ["SHORT"]
+
+
+def test_unpriced_target_makes_a_later_signal_hold_not_close_late(pg, monkeypatch):
+    from stock_machine.market_calendar import session_offset
+
+    agent_trading.set_mode("PAPER", None)
+    agent_trading.process_decision(seed(pg, "ATTRACTIVE"))
+    due = session_offset("2026-09-16", agent_trading.HOLDING_SESSIONS)
+    later = session_offset(due, 2)
+    monkeypatch.setattr(agent_trading, "latest_completed_session", lambda: later)
+    result = agent_trading.process_decision(seed(pg, "UNATTRACTIVE", price=120.0, on=later))
+    assert result["action"] == "HOLD" and result["status"] == "NO_ACTION"
+    assert result["risk_snapshot"]["commitment_settlement"]["status"] == "BLOCKED"
+    assert agent_trading.portfolio()["open_count"] == 1

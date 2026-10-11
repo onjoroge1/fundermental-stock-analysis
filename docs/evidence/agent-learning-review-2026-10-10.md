@@ -33,13 +33,13 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
 | 11 | No pooled statistics or CIs: the weekly shadow view is ~162 ticker×horizon cells of ~5 observations; no Brier skill vs base rate. | DONE (#106 on main) |
 | 12 | The shadow training window (5,000 latest outcomes at ~162/day) covers only ~31 sessions. | DONE (#106 on main) |
 | 13 | Missing context features are coerced to 0 (looks neutral); clipped annual vol acts as a hidden intercept. | DONE (#106 on main) |
-| 14 | `settle_holding_limits` exits at the latest close when late (holds can exceed 20 sessions) and caps at 6 exits per pass. | PARTIAL: learning uses the exact frozen window. Late paper exits are now counted by the ledger reconciliation (LATE_EXIT, item 20), but not prevented. |
+| 14 | `settle_holding_limits` exits at the latest close when late (holds can exceed 20 sessions) and caps at 6 exits per pass. | IN PR (`fix/precommitted-exit-at-target`): committed positions exit at their 20-session target close even when settlement runs late; the exit was frozen at entry, like a market-on-close order placed in advance (entries still never backfill). A decision on a ticker whose commitment has matured settles it first, then acts on a flat book; if the target close isn't priced yet, the decision holds. Exits run before pending entries and are capped at the universe size (54), not 6. Late settlements report `settled_after_sessions`, and the reconciliation (item 20) should now show MATCHED instead of LATE_EXIT. |
 | 15 | Per-decision JSONB trial-count scan and one DB connection per scored record grow with history. | PARTIAL: trial-count scan removed with item 2; per-record connections in `score_matured` still OPEN. |
-| 16 | Shadow scores from the origin close, while paper trades fill at the next close. | IN PR (`feat/entry-aligned-shadow-ledger-reconciliation`): snapshots freeze `entry_session` (the decision's paper execution session, else the next close) and are scorable when both windows mature. Signals and agent actions are judged entry → entry+h (target `spy-beta-residual-entry.v1`); forecast metrics keep origin → origin+h. Pre-change snapshots derive entry from their frozen first future session. |
+| 16 | Shadow scores from the origin close, while paper trades fill at the next close. | DONE (#108 on main) |
 | 17 | With no edge anywhere, Thompson sampling keeps trading about half the time (the posterior mean sits near 0), so churn and costs continue while it learns. In simulation this is about 675 trades/yr vs 509 before, at zero expected reward. | OPEN: consider a small required margin over 0, or a cost-aware baseline, once real outcomes exist. |
 | 18 | A matured decision whose price path stays incomplete is retried on every pass; enough of them could fill the bounded 100-record scan. The shadow scorer rotates these with per-session CHECK records; the paper learner does not. | DONE (#107 on main; migration 0027 applied) |
 | 19 | Overlap weighting handles one stock's correlated daily labels; same-day labels across stocks share market moves and are still treated as independent. Related to item 8. | PARTIAL: shadow targets now remove the market move (item 8); the bandit's counterfactual labels are still raw returns and same-day labels are still treated as independent. |
-| 20 | No automatic reconciliation between each executed position's realized ledger return and its counterfactual label for the same window (they should match apart from late exits). | IN PR (same branch): `reconcile.summary` compares each closed position opened under the fixed-horizon contract with its counterfactual label (gross return with costs added back, tolerance 0.05 pp). It classifies MATCHED, LATE_EXIT, RETURN_MISMATCH, ENTRY_MISMATCH, INVALID_INPUTS or AWAITING_LABEL, and appears in the learning receipt and the admin card. |
+| 20 | No automatic reconciliation between each executed position's realized ledger return and its counterfactual label for the same window (they should match apart from late exits). | DONE (#108 on main) |
 | 21 | No power analysis for the direction test: 12 blocks may be too few to detect a realistic improvement, and too many decisions per block are correlated to know in advance. | OPEN: covers both pre-registered tests (direction #102 and candidate weights, item 22). Simulate block-level noise on real records before reading NOT_SUPERIOR as evidence against the challenger. |
 | 22 | The candidate shadow weights (item 7) still have no promotion protocol; item 6 covers direction only. | DONE (#107 on main). Evidence restarts under this branch's new entry-aligned target (item 16), since the protocol names its target. |
 | 23 | The residual is relative to SPY only; there's no sector-relative target, and a 63-day beta is a noisy hedge ratio. | OPEN |
@@ -180,3 +180,14 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
   - The weights protocol hash changes with the target, so its evidence restarts.
   - `agent_intelligence/reconcile.py` (read-only) reports the ledger against the
     counterfactual labels in the learning-stage receipt and admin.
+
+- **2026-10-11 — precommitted exits at the target close** (branch
+  `fix/precommitted-exit-at-target`):
+  - `agent_trading._settle_commitment` is shared by `settle_holding_limits` and
+    `process_decision`.
+  - Exit market date and price are the target session's close. Fill rows record that
+    session; created_at shows when settlement actually ran.
+  - A matured, unpriced target blocks: the scheduled job reports ATTENTION and decisions
+    hold.
+  - The paper stage runs exits before pending entries, with no 6-per-pass cap.
+  - No migration or trading-mode change.

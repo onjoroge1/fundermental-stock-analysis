@@ -64,8 +64,9 @@ def paper_operation():
         return {"status": "SKIPPED", "reason": "CAPTURE_PAUSED"}
     if agent_trading.get_mode()["mode"] != "PAPER":
         return {"status": "SKIPPED", "reason": "RESEARCH_MODE"}
+    # Exits first: they free gross capacity that pending entries may need.
+    exits = agent_trading.settle_holding_limits()
     pending = agent_trading.process_pending(limit=6)
-    exits = agent_trading.settle_holding_limits(limit=6)
     try:
         mark = agent_trading.mark_open_positions()
     except ValueError as exc:

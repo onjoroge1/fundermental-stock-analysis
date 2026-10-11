@@ -740,12 +740,19 @@ def process_decision(decision: dict, paper_instruction: dict | None = None) -> d
             blockers = list(blockers) + ["LATEST_COMPLETED_PRICE_UNAVAILABLE"]
 
         current = _open_position(conn, ticker)
-        action = deterministic_action(desired, current["side"] if current else None)
         commitment = _commitment(conn, current) if current else None
-        if (
-            action == "CLOSE"
-            and commitment
-            and (execution_session or completed) < commitment["due_session"]
+        settlement = None
+        if commitment and completed >= commitment["due_session"]:
+            # A matured commitment exits at its own target close before this
+            # decision acts, so a later signal never closes it at a later price.
+            settlement = _settle_commitment(conn, current, completed)
+            if settlement["status"] == "CLOSED":
+                current, commitment = None, None
+        action = deterministic_action(desired, current["side"] if current else None)
+        if action == "CLOSE" and commitment and (
+            (execution_session or completed) < commitment["due_session"]
+            # Matured but its target close is not yet priced: wait for it.
+            or (settlement or {}).get("status") == "BLOCKED"
         ):
             # Entries are fixed-horizon commitments: a later signal change
             # cannot cut the hold short, so each entry's outcome belongs to
@@ -818,6 +825,7 @@ def process_decision(decision: dict, paper_instruction: dict | None = None) -> d
             "decision_recorded_at": saved[0] if saved else None,
             "execution_contract": "prospective-next-close.v2",
             "holding_commitment": commitment,
+            "commitment_settlement": settlement,
         }
         if prior:
             conn.execute(
@@ -997,10 +1005,68 @@ def process_pending(*, limit: int = 6) -> dict:
     }
 
 
-def settle_holding_limits(*, limit: int = 6) -> dict:
-    """Execute the precommitted 20-session maximum hold for new v2 entries."""
+def _settle_commitment(conn, pos: dict, completed: str) -> dict:
+    """Close a committed position at its target session's close.
+
+    The exit rule was frozen at entry, before that close, like a
+    market-on-close order placed in advance; a job running late therefore
+    fills at the target close instead of a later, unrelated one. Entries
+    never backfill. Caller holds the portfolio lock.
+    """
     from .market_calendar import session_offset
 
+    due = session_offset(pos["entry_market_date"], HOLDING_SESSIONS)
+    if completed < due:
+        return {"status": "WAITING", "due_session": due}
+    _, price = _latest_price(conn, pos["ticker"], due)
+    _, basis = _latest_price(conn, pos["ticker"], pos["entry_market_date"])
+    if price is None or basis is None:
+        return {"status": "BLOCKED", "due_session": due, "reason": "TARGET_CLOSE_PRICE_UNAVAILABLE"}
+    units = float(pos["entry_notional_usd"]) / basis
+    notional = units * price
+    cost = notional * FILL_COST_BPS / 10000
+    sign = 1 if pos["side"] == "LONG" else -1
+    pnl = sign * (price - basis) * units - float(pos["entry_cost_usd"]) - cost
+    conn.execute(
+        """UPDATE agent_paper_positions SET status='CLOSED',exit_market_date=%s,
+        exit_price=%s,exit_cost_usd=%s,realized_pnl_usd=%s,
+        exit_reason='20-session paper holding limit',updated_at=now() WHERE position_id=%s""",
+        (due, price, cost, pnl, pos["position_id"]),
+    )
+    conn.execute(
+        """INSERT INTO agent_paper_fills(fill_id,intent_id,position_id,ticker,
+        fill_kind,side,market_date,price,paper_units,notional_usd,cost_usd)
+        VALUES (%s,%s,%s,%s,'CLOSE',%s,%s,%s,%s,%s,%s)""",
+        (
+            str(uuid4()),
+            pos["source_intent_id"],
+            pos["position_id"],
+            pos["ticker"],
+            pos["side"],
+            due,
+            price,
+            units,
+            notional,
+            cost,
+        ),
+    )
+    return {
+        "status": "CLOSED",
+        "ticker": pos["ticker"],
+        "due_session": due,
+        "exit_session": due,
+        "settled_after_sessions": len(_sessions_between(due, completed)),
+    }
+
+
+def _sessions_between(start: str, end: str) -> list[str]:
+    from .market_calendar import session_dates
+
+    return session_dates(start, end)[1:] if end > start else []
+
+
+def settle_holding_limits(*, limit: int = MAX_OPEN_POSITIONS) -> dict:
+    """Execute the precommitted 20-session maximum hold for new v2 entries."""
     if get_mode()["mode"] != "PAPER":
         return {"status": "SKIPPED", "closed": 0, "broker_submission": False}
     if not 1 <= limit <= 54:
@@ -1024,48 +1090,13 @@ def settle_holding_limits(*, limit: int = 6) -> dict:
             WHERE p.status='OPEN' AND i.risk_snapshot->>'execution_contract'='prospective-next-close.v2'
             ORDER BY p.entry_market_date,p.ticker""").fetchall()
         for (ticker,) in rows:
-            pos = _open_position(conn, ticker)
-            due = session_offset(pos["entry_market_date"], HOLDING_SESSIONS)
-            if completed < due:
-                continue
             if len(closed) + len(blocked) >= limit:
                 break
-            price_date, price = _latest_price(conn, ticker)
-            _, basis = _latest_price(conn, ticker, pos["entry_market_date"])
-            if price_date != completed or price is None or basis is None:
+            result = _settle_commitment(conn, _open_position(conn, ticker), completed)
+            if result["status"] == "CLOSED":
+                closed.append(result)
+            elif result["status"] == "BLOCKED":
                 blocked.append(ticker)
-                continue
-            units = float(pos["entry_notional_usd"]) / basis
-            notional = units * price
-            cost = notional * FILL_COST_BPS / 10000
-            sign = 1 if pos["side"] == "LONG" else -1
-            pnl = sign * (price - basis) * units - float(pos["entry_cost_usd"]) - cost
-            conn.execute(
-                """UPDATE agent_paper_positions SET status='CLOSED',exit_market_date=%s,
-                exit_price=%s,exit_cost_usd=%s,realized_pnl_usd=%s,
-                exit_reason='20-session paper holding limit',updated_at=now() WHERE position_id=%s""",
-                (completed, price, cost, pnl, pos["position_id"]),
-            )
-            conn.execute(
-                """INSERT INTO agent_paper_fills(fill_id,intent_id,position_id,ticker,
-                fill_kind,side,market_date,price,paper_units,notional_usd,cost_usd)
-                VALUES (%s,%s,%s,%s,'CLOSE',%s,%s,%s,%s,%s,%s)""",
-                (
-                    str(uuid4()),
-                    pos["source_intent_id"],
-                    pos["position_id"],
-                    ticker,
-                    pos["side"],
-                    completed,
-                    price,
-                    units,
-                    notional,
-                    cost,
-                ),
-            )
-            closed.append(
-                {"ticker": ticker, "due_session": due, "exit_session": completed}
-            )
     return {
         "status": "ATTENTION" if blocked else "OK",
         "closed": len(closed),
