@@ -36,7 +36,7 @@ POLICY = {
     "entry": "next_session_close",
     "mixtures": "nonnegative_simplex",
     "no_positive_training_edge": "ABSTAIN",
-    "candidate_selection": "training_only_shrunk_mean_net_return_minus_one_standard_error",
+    "candidate_selection": "training_only_shrunk_mean_net_return_minus_1.645_standard_errors",
 }
 POLICY_HASH = digest(POLICY)
 

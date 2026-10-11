@@ -178,6 +178,8 @@ def test_thin_evidence_does_not_act_on_a_noisy_positive_mean():
 
 def test_policy_change_produces_new_versioned_runs():
     assert t.POLICY["standard_error_penalty"] == 1.645
+    # The hashed description must match the rule it labels.
+    assert "1.645_standard_errors" in t.POLICY["candidate_selection"]
     assert "risk_penalty" not in t.POLICY
     assert t.POLICY_HASH == t.digest(t.POLICY)
 
