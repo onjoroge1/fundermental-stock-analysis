@@ -44,88 +44,99 @@ def pooled_state(conn) -> dict | None:
     return row[0] if row else None
 
 
-def record_counterfactual(ticker: str, decision_id: str, arm_outcomes: dict) -> dict:
+def record_counterfactual(ticker: str, decision_id: str, arm_outcomes: dict, *, conn=None) -> dict:
     """Score every learned stock arm for one decision and update the pooled model.
 
     Idempotent per decision; the reward record and state advance commit together.
+    A scanner may pass its own autocommit connection: the work then runs in one
+    transaction on it instead of opening a connection per record.
     """
-    from .. import db, research_store
+    from .. import db
+
+    if conn is None:
+        with db.connect() as own:
+            return _record_counterfactual(own, ticker, decision_id, arm_outcomes)
+    with conn.transaction():
+        return _record_counterfactual(conn, ticker, decision_id, arm_outcomes)
+
+
+def _record_counterfactual(conn, ticker, decision_id, arm_outcomes):
+    from .. import research_store
     from ..market_calendar import session_dates
     from .outcomes import CONTRACT, LEARNED_ARMS, OVERLAP_WEIGHT
 
-    with db.connect() as conn:
-        conn.execute(
-            "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
-            (POOLED_LOCK,),
-        )
-        prior_reward = research_store.get(conn, "AGENT_REWARD_V3", decision_id)
-        if prior_reward:
-            return {
-                "replayed": True,
-                "reward_record": prior_reward["payload"],
-                "bandit_state": pooled_state(conn),
-            }
-        run = research_store.get(conn, "AGENT_INTELLIGENCE_V2", decision_id)
-        if not run:
-            raise ValueError("INTELLIGENCE_RUN_NOT_FOUND")
-        payload = run["payload"]
-        if payload.get("ticker") != ticker or payload.get("learning_contract") != CONTRACT:
-            raise ValueError("LEARNING_IDENTITY_OR_CONTRACT_INVALID")
-        if not (payload.get("state") or {}).get("paper_eligible"):
-            raise ValueError("LEARNING_STATE_NOT_ELIGIBLE")
-        if set(arm_outcomes) != set(LEARNED_ARMS):
-            raise ValueError("COUNTERFACTUAL_ARMS_INCOMPLETE")
-        window = payload.get("learning") or {}
-        features = ((payload.get("state") or {}).get("technical") or {}).get("features")
-        x = bandit.context_vector(payload["state"])
-        previous = pooled_state(conn)
-        arms = current_arms(previous)
-        scored = {}
-        for action in LEARNED_ARMS:
-            outcome = arm_outcomes[action]
-            if (
-                outcome.get("learning_basis") != "PROSPECTIVE_COUNTERFACTUAL_V1"
-                or outcome.get("entry_date") != window.get("execution_session")
-                or outcome.get("exit_date") != window.get("due_session")
-            ):
-                raise ValueError("COUNTERFACTUAL_WINDOW_MISMATCH")
-            sessions = len(session_dates(outcome["entry_date"], outcome["exit_date"])) - 1
-            scale = reward.risk_scale(features, sessions)
-            r = reward.compute(
-                gross_return_pct=float(outcome["gross_return_pct"]),
-                max_drawdown_pct=float(outcome["max_drawdown_pct"]),
-                capital_used_pct=float(outcome["capital_used_pct"]),
-                turnover_pct=float(outcome.get("turnover_pct", 0.0)),
-                costs_pct=float(outcome.get("costs_pct", 0.0)),
-                risk_scale_pct=scale["risk_scale_pct"],
-            )
-            r["risk_scale"] = scale
-            scored[action] = {"outcome": outcome, "reward": r}
-            arms[action] = bandit.update(
-                arms.get(action) or bandit.empty_arm(len(x)), x, r["reward"], OVERLAP_WEIGHT
-            )
-        sequence = int((previous or {}).get("sequence") or 0) + 1
-        state = {
-            "scope": POOLED_SCOPE,
-            "sequence": sequence,
-            "bandit_version": bandit.VERSION,
-            "reward_version": reward.VERSION,
-            "learning_basis": LEARNING_BASIS,
-            "source_ticker": ticker,
-            "source_decision_id": decision_id,
-            "arms": arms,
+    conn.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+        (POOLED_LOCK,),
+    )
+    prior_reward = research_store.get(conn, "AGENT_REWARD_V3", decision_id)
+    if prior_reward:
+        return {
+            "replayed": True,
+            "reward_record": prior_reward["payload"],
+            "bandit_state": pooled_state(conn),
         }
-        record = {
-            "ticker": ticker,
-            "decision_id": decision_id,
-            "learning_basis": LEARNING_BASIS,
-            "learning_contract": CONTRACT,
-            "selected_action": ((payload.get("bandit") or {}).get("selected") or {}).get("action"),
-            "overlap_weight": OVERLAP_WEIGHT,
-            "arms": scored,
-        }
-        research_store.save(conn, "AGENT_REWARD_V3", decision_id, record, ticker)
-        research_store.save(
-            conn, STATE_KIND, f"{POOLED_SCOPE}:{sequence:012d}", state, None
+    run = research_store.get(conn, "AGENT_INTELLIGENCE_V2", decision_id)
+    if not run:
+        raise ValueError("INTELLIGENCE_RUN_NOT_FOUND")
+    payload = run["payload"]
+    if payload.get("ticker") != ticker or payload.get("learning_contract") != CONTRACT:
+        raise ValueError("LEARNING_IDENTITY_OR_CONTRACT_INVALID")
+    if not (payload.get("state") or {}).get("paper_eligible"):
+        raise ValueError("LEARNING_STATE_NOT_ELIGIBLE")
+    if set(arm_outcomes) != set(LEARNED_ARMS):
+        raise ValueError("COUNTERFACTUAL_ARMS_INCOMPLETE")
+    window = payload.get("learning") or {}
+    features = ((payload.get("state") or {}).get("technical") or {}).get("features")
+    x = bandit.context_vector(payload["state"])
+    previous = pooled_state(conn)
+    arms = current_arms(previous)
+    scored = {}
+    for action in LEARNED_ARMS:
+        outcome = arm_outcomes[action]
+        if (
+            outcome.get("learning_basis") != "PROSPECTIVE_COUNTERFACTUAL_V1"
+            or outcome.get("entry_date") != window.get("execution_session")
+            or outcome.get("exit_date") != window.get("due_session")
+        ):
+            raise ValueError("COUNTERFACTUAL_WINDOW_MISMATCH")
+        sessions = len(session_dates(outcome["entry_date"], outcome["exit_date"])) - 1
+        scale = reward.risk_scale(features, sessions)
+        r = reward.compute(
+            gross_return_pct=float(outcome["gross_return_pct"]),
+            max_drawdown_pct=float(outcome["max_drawdown_pct"]),
+            capital_used_pct=float(outcome["capital_used_pct"]),
+            turnover_pct=float(outcome.get("turnover_pct", 0.0)),
+            costs_pct=float(outcome.get("costs_pct", 0.0)),
+            risk_scale_pct=scale["risk_scale_pct"],
         )
+        r["risk_scale"] = scale
+        scored[action] = {"outcome": outcome, "reward": r}
+        arms[action] = bandit.update(
+            arms.get(action) or bandit.empty_arm(len(x)), x, r["reward"], OVERLAP_WEIGHT
+        )
+    sequence = int((previous or {}).get("sequence") or 0) + 1
+    state = {
+        "scope": POOLED_SCOPE,
+        "sequence": sequence,
+        "bandit_version": bandit.VERSION,
+        "reward_version": reward.VERSION,
+        "learning_basis": LEARNING_BASIS,
+        "source_ticker": ticker,
+        "source_decision_id": decision_id,
+        "arms": arms,
+    }
+    record = {
+        "ticker": ticker,
+        "decision_id": decision_id,
+        "learning_basis": LEARNING_BASIS,
+        "learning_contract": CONTRACT,
+        "selected_action": ((payload.get("bandit") or {}).get("selected") or {}).get("action"),
+        "overlap_weight": OVERLAP_WEIGHT,
+        "arms": scored,
+    }
+    research_store.save(conn, "AGENT_REWARD_V3", decision_id, record, ticker)
+    research_store.save(
+        conn, STATE_KIND, f"{POOLED_SCOPE}:{sequence:012d}", state, None
+    )
     return {"replayed": False, "reward_record": record, "bandit_state": state}

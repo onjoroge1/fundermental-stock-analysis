@@ -35,10 +35,13 @@ def counterfactual_run(decision_id="d1", action="NO_TRADE"):
 
 
 def patch_scan(monkeypatch, run, completed="2026-10-15"):
+    from contextlib import nullcontext
     from stock_machine import research_store
     class Conn:
+        autocommit=False
         def __enter__(self): return self
         def __exit__(self,*args): return False
+        def transaction(self): return nullcontext()
     seen={}
     def candidates(conn,limit,completed,contract):
         seen.update(completed=completed,contract=contract)
@@ -59,7 +62,7 @@ def test_score_matured_learns_both_directions_even_when_the_agent_abstained(monk
                 "max_drawdown_pct":-1.0,"entry_date":entry,"exit_date":due}
     monkeypatch.setattr(outcomes,"_stock_outcome",path)
     captured={}
-    def record(ticker,decision_id,arm_outcomes):
+    def record(ticker,decision_id,arm_outcomes,conn=None):
         captured.update(arm_outcomes)
         return {"reward_record":{"arms":{a:{"reward":{"reward":1.0}} for a in arm_outcomes}}}
     monkeypatch.setattr(outcomes,"record_counterfactual",record)
@@ -100,7 +103,7 @@ def test_blocked_outcomes_record_a_once_per_session_retry(monkeypatch):
         raise ValueError("OUTCOME_PATH_SESSION_MISSING")
     monkeypatch.setattr(outcomes,"_stock_outcome",fail)
     checks=[]
-    monkeypatch.setattr(outcomes,"record_check",lambda row,completed:checks.append((row["decision_id"],completed)) or "NEXT_SESSION")
+    monkeypatch.setattr(outcomes,"record_check",lambda row,completed,conn=None:checks.append((row["decision_id"],completed)) or "NEXT_SESSION")
     result=outcomes.score_matured()
     assert checks==[("blocked","2026-10-15")]
     assert result["results"][0]["retry"]=="NEXT_SESSION"
