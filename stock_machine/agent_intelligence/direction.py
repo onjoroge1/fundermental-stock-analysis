@@ -11,15 +11,14 @@ independent review, never an automatic change to paper trading.
 
 from __future__ import annotations
 
-import random
 from functools import lru_cache
 from math import sqrt
 
 from ..agents.contracts import digest
-from . import bandit
+from . import bandit, inference
 
 PROTOCOL = {
-    "protocol_id": "learned-direction-vs-heuristic.v1",
+    "protocol_id": "learned-direction-vs-heuristic.v2",
     "reward_version": "risk-scaled-residual-paper-reward.v5",
     "incumbent": "state.assemble direction: BULLISH->LONG, BEARISH->SHORT, NEUTRAL->FLAT",
     "challenger": (
@@ -33,19 +32,24 @@ PROTOCOL = {
     "clustering": "20-session blocks of execution sessions counted from the epoch",
     "epoch_session": "2026-10-01",
     "block_sessions": 20,
-    "minimum_blocks": 12,
-    "bootstrap": "resample blocks with replacement",
-    "bootstrap_seed": 20261010,
-    "bootstrap_samples": 5000,
+    "minimum_blocks": 24,
+    "interval": (
+        "Newey-West lag-1 standard error of the block-mean differences (n-1 scaled), "
+        "Student t(n-1) 97.5% quantile"
+    ),
     "pass_criteria": [
         "mean paired difference > 0",
-        "bootstrap lower 2.5% bound of the mean paired difference > 0",
+        "mean paired difference - t(n-1) * Newey-West SE > 0",
         "challenger mean reward > 0",
     ],
+    "supersedes": (
+        "v1 (independent block percentile bootstrap, 12 blocks): passed 5-7% of the "
+        "time with no real improvement in simulation; see promotion-test-power.md"
+    ),
     "exclusions": "none; every decision carrying this protocol hash counts",
     "qualification": "PASS_REQUIRES_INDEPENDENT_REVIEW; no automatic promotion",
     "limitations": [
-        "Adjacent blocks share part of their 20-session outcome windows.",
+        "Adjacent blocks share part of their 20-session outcome windows (handled by the lag-1 HAC error).",
         "Stocks in one block share market moves; blocks, not decisions, are the units.",
         "Counterfactual fills use fixed costs; borrow and slippage are not modelled.",
     ],
@@ -98,26 +102,23 @@ def _block(session: str, epoch: str, size: int) -> int:
     return _session_index(epoch, session) // size
 
 
-# z(0.975) + z(0.80): the true difference a two-sided 95% test detects 80% of the time.
-DETECTION_MULTIPLIER = 1.959964 + 0.841621
-
-
 def detectable(block_values: list[float], minimum_blocks: int) -> dict:
     """Smallest true difference detectable with 80% power from the observed noise.
 
-    Uses the spread of block-level values, the same units the test
-    resamples. A NOT_SUPERIOR result says little about differences smaller
-    than this.
+    Uses the same Newey-West error the test uses. A NOT_SUPERIOR result says
+    little about differences smaller than this.
     """
     n = len(block_values)
     if n < 2:
         return {"detectable_difference_80pct": None, "detectable_at_minimum_blocks": None}
-    mean = sum(block_values) / n
-    sd = sqrt(sum((v - mean) ** 2 for v in block_values) / (n - 1))
+    se = inference.newey_west_se(block_values)
+    at_minimum = max(n, minimum_blocks)
     return {
-        "detectable_difference_80pct": DETECTION_MULTIPLIER * sd / sqrt(n),
-        "detectable_at_minimum_blocks": DETECTION_MULTIPLIER * sd / sqrt(max(n, minimum_blocks)),
-        "block_difference_sd": sd,
+        "detectable_difference_80pct": inference.detectable_difference(se, n),
+        # Projected by the usual 1/sqrt(n) scaling of the error.
+        "detectable_at_minimum_blocks": inference.detectable_difference(
+            se * sqrt(n / at_minimum), at_minimum),
+        "newey_west_se": se,
     }
 
 
@@ -166,13 +167,8 @@ def evaluate(rows: list[dict], protocol: dict = PROTOCOL) -> dict:
     }
     if len(blocks) < protocol["minimum_blocks"]:
         return {**summary, "status": "PENDING_EVIDENCE"}
-    rng = random.Random(protocol["bootstrap_seed"])
     diffs = [m[0] for m in means]
-    draws = sorted(
-        sum(rng.choice(diffs) for _ in diffs) / len(diffs)
-        for _ in range(protocol["bootstrap_samples"])
-    )
-    lower = draws[int(0.025 * len(draws))]
+    lower = inference.lower_bound(diff, inference.newey_west_se(diffs), len(diffs))
     passed = diff > 0 and lower > 0 and ch_mean > 0
     return {
         **summary,

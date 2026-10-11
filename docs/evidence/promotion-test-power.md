@@ -92,7 +92,7 @@ pseudo-values for the weights IC difference. No rule tried is well calibrated at
 | Direction, ρ 0.6 / 0.8 | 12% / 25% | 19% / 40% | 27% / 59% |
 | Weights, ρ 0.6 / 0.8 | 19% / 36% | 24% / 57% | 35% / 73% |
 
-## Recommendation (pending owner decision)
+## Recommendation (adopted 2026-10-11 as v2; see below)
 
 Adopt v2 of both protocols:
 
@@ -105,3 +105,29 @@ the protocols are hashed, adopting v2 restarts their evidence; that's cheap now,
 both have been live only about a day. Until then, treat a PASS as carrying about a 5–7%
 false-positive risk under these assumptions, and treat a NOT_SUPERIOR result as bounded
 by its reported detectable difference.
+
+## v2 adopted (2026-10-11)
+
+Both protocols now use the Newey–West lag-1 + t(n−1) bound with a **24-block minimum**:
+`learned-direction-vs-heuristic.v2` and `shadow-candidate-weights-vs-heuristic.v2`.
+
+- **Weights test:** applies the bound to delete-one-block jackknife pseudo-values of the
+  IC difference.
+- **Shared code:** the inference lives in `agent_intelligence/inference.py`; the t
+  quantile uses a Cornish–Fisher expansion, accurate to ~1e-4.
+- **Evidence restart:** both hashes changed. Neither test had any matured evidence under
+  v1.
+
+Verified through the live evaluators (`scripts/power_promotion_tests.py power`, 200
+simulations per cell; the false-pass rate is ±1.6 points at this count):
+
+| Challenger ρ | Blocks | Direction pass rate | Direction 80% detectable | Weights pass rate | Weights 80% detectable |
+|---|---|---|---|---|---|
+| 0.30 (no edge) | 24 / 36 / 48 | 3.0% / 3.0% / 3.5% | 0.066 / 0.053 / 0.047 | 3.5% / 2.5% / 5.5% | 0.089 / 0.072 / 0.062 |
+| 0.60 | 24 / 36 / 48 | 19% / 25% / 36% | ≈ same | 21% / 35% / 51% | ≈ same |
+| 0.80 | 24 / 36 / 48 | 40% / 58% / 77% | 0.060 / 0.048 / 0.043 | 59% / 75% / 88% | 0.080 / 0.065 / 0.057 |
+| 1.00 | 24 / 36 / 48 | 74% / 89% / 98% | 0.057 / 0.047 / 0.041 | 89% / 96% / 100% | 0.076 / 0.062 / 0.054 |
+
+The earliest possible review is now about two years after evidence starts. At 24 blocks,
+a NOT_SUPERIOR result rules out only large improvements; read it with its reported
+`detectable_difference_80pct`.
