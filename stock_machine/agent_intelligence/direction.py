@@ -20,13 +20,15 @@ from . import bandit
 
 PROTOCOL = {
     "protocol_id": "learned-direction-vs-heuristic.v1",
+    "reward_version": "risk-scaled-residual-paper-reward.v5",
     "incumbent": "state.assemble direction: BULLISH->LONG, BEARISH->SHORT, NEUTRAL->FLAT",
     "challenger": (
-        "pooled model posterior mean frozen at decision time: LONG if mean(LONG) > "
-        "max(0, mean(SHORT)); SHORT if mean(SHORT) > max(0, mean(LONG)); else FLAT"
+        "pooled model plus shrunk sector intercept, posterior mean frozen at decision "
+        "time: LONG if mean(LONG) > max(0, mean(SHORT)); SHORT if mean(SHORT) > "
+        "max(0, mean(LONG)); else FLAT"
     ),
     "unit": "paper-eligible decision with a matured prospective counterfactual record",
-    "reward": "counterfactual reward v4 of the chosen direction; FLAT scores 0",
+    "reward": "counterfactual reward v5 (stock-specific, beta-adjusted) of the chosen direction; FLAT scores 0",
     "statistic": "mean paired difference, challenger minus incumbent",
     "clustering": "20-session blocks of execution sessions counted from the epoch",
     "epoch_session": "2026-10-01",
@@ -56,11 +58,13 @@ def incumbent(state: dict) -> str:
     return {"BULLISH": "LONG", "BEARISH": "SHORT"}.get(state.get("direction"), "FLAT")
 
 
-def challenger(state: dict, arms: dict, *, model_sequence: int | None) -> dict:
+def challenger(state: dict, arms: dict, *, model_sequence: int | None, offsets: dict | None = None) -> dict:
     """Frozen learned direction; uses only the pooled state known at decision time."""
     x = bandit.context_vector(state)
     estimates = {
-        side: bandit.estimate(arms.get(arm) or bandit.empty_arm(len(x)), x)
+        side: bandit.predict(
+            arms.get(arm) or bandit.empty_arm(len(x)), x, (offsets or {}).get(arm), state.get("sector")
+        )
         for side, arm in DIRECTIONS.items()
     }
     long, short = estimates["LONG"]["mean"], estimates["SHORT"]["mean"]
@@ -190,8 +194,9 @@ def matured_rows(conn) -> list[dict]:
           ON r.kind='AGENT_REWARD_V3' AND r.request_key=i.request_key
         WHERE i.kind='AGENT_INTELLIGENCE_V2'
           AND i.payload #>> '{direction_challenger,protocol_sha256}'=%s
-          AND r.payload->>'learning_basis'='PROSPECTIVE_COUNTERFACTUAL_V1'""",
-        (PROTOCOL_SHA256,),
+          AND r.payload->>'learning_basis'='PROSPECTIVE_COUNTERFACTUAL_V1'
+          AND r.payload #>> '{arms,LONG_STOCK,reward,schema_version}'=%s""",
+        (PROTOCOL_SHA256, PROTOCOL["reward_version"]),
     ).fetchall()
     return [
         {

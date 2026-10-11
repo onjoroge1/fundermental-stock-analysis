@@ -1,3 +1,4 @@
+import pytest
 from stock_machine.agent_intelligence import outcomes
 
 
@@ -69,7 +70,10 @@ def test_score_matured_learns_both_directions_even_when_the_agent_abstained(monk
     result=outcomes.score_matured()
     assert seen=={"completed":"2026-10-15","contract":outcomes.CONTRACT}
     assert result["scored"]==1 and result["results"][0]["selected_action"]=="NO_TRADE"
-    assert windows==[("LONG_STOCK","2026-09-02","2026-09-30"),("SHORT_STOCK","2026-09-02","2026-09-30")]
+    # SPY over the same window, then both directions of the stock.
+    assert windows==[("LONG_STOCK","2026-09-02","2026-09-30")]*2+[("SHORT_STOCK","2026-09-02","2026-09-30")]
+    assert captured["LONG_STOCK"]["residual_return_pct"]==pytest.approx(3.0-1.0*3.0)
+    assert captured["SHORT_STOCK"]["beta_basis"]=="default_beta"
     assert captured["LONG_STOCK"]["costs_pct"]==.2
     assert captured["SHORT_STOCK"]["learning_basis"]=="PROSPECTIVE_COUNTERFACTUAL_V1"
 

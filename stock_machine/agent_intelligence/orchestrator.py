@@ -7,7 +7,7 @@ from .news_events import build as build_news
 from .state import assemble
 from .strategy_router import route, eligible_actions
 from . import bandit
-from .learning import current_arms, pooled_state
+from .learning import current_arms, current_offsets, pooled_state
 from .outcomes import CONTRACT as LEARNING_CONTRACT, learning_window
 from .direction import challenger as direction_challenger
 
@@ -90,6 +90,7 @@ def evaluate_decision(
         surface = latest_as_of(conn, ticker, observed.isoformat(), max_age_days=10)
         pooled = pooled_state(conn)
         arms = current_arms(pooled)
+        offsets = current_offsets(pooled)
         news = build_news(
             (packet.get("analysis") or {}).get("news_context") or {}, now=observed
         )
@@ -104,6 +105,8 @@ def evaluate_decision(
         state = assemble(
             ticker, bundle, technical, news, option_surface=surface, regime=regime
         )
+        # Frozen with the decision: the learning step and selection read it.
+        state["sector"] = (db.fetch_company(conn, ticker) or {}).get("sector")
         if decision.get("status") != "RECORDED":
             state["blockers"] = sorted(
                 set(state.get("blockers", []) + ["AGENT_DECISION_NOT_RECORDED"])
@@ -131,6 +134,7 @@ def evaluate_decision(
             arms,
             mode=mode,
             decision_key=decision_id,
+            offsets=offsets,
         )
         selected_key = selection["selected"]["action"]
         if selected_key not in choices:
@@ -177,7 +181,8 @@ def evaluate_decision(
             "learning_contract": LEARNING_CONTRACT,
             "learning": learning_window(conn, decision_id, observed.isoformat()),
             "direction_challenger": direction_challenger(
-                state, arms, model_sequence=(pooled or {}).get("sequence") if arms else None
+                state, arms, offsets=offsets,
+                model_sequence=(pooled or {}).get("sequence") if arms else None,
             ),
             "state": state,
             "router": routed,

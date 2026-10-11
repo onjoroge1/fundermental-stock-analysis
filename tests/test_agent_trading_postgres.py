@@ -489,6 +489,11 @@ def test_complete_pending_fill_exit_counterfactual_learning_and_replay_flow(pg, 
             "INSERT INTO prices_daily(ticker,date,close,adj_close) VALUES ('HIMS',%s,100,100)",
             (clock[0],),
         )
+        # Flat SPY: the stock-specific learning label equals the raw move.
+        c.execute(
+            "INSERT INTO prices_daily(ticker,date,close,adj_close) VALUES ('SPY',%s,100,100)",
+            (clock[0],),
+        )
     assert agent_trading.process_pending()["results"][0]["status"] == "SIMULATED"
     # The counterfactual entry is the paper fill session, frozen at decision time.
     position = agent_trading.portfolio()["positions"][0]
@@ -505,6 +510,10 @@ def test_complete_pending_fill_exit_counterfactual_learning_and_replay_flow(pg, 
                 "INSERT INTO prices_daily(ticker,date,close,adj_close) VALUES ('HIMS',%s,%s,%s)",
                 (day, value, value),
             )
+            c.execute(
+                "INSERT INTO prices_daily(ticker,date,close,adj_close) VALUES ('SPY',%s,100,100)",
+                (day,),
+            )
     clock[0] = due
     assert agent_trading.settle_holding_limits()["closed"] == 1
     learned = outcomes.score_matured()
@@ -517,6 +526,7 @@ def test_complete_pending_fill_exit_counterfactual_learning_and_replay_flow(pg, 
         assert long_outcome["entry_date"] == "2026-09-17" and long_outcome["exit_date"] == due
         assert long_outcome["gross_return_pct"] == pytest.approx(10.0)
         assert long_outcome["learning_basis"] == "PROSPECTIVE_COUNTERFACTUAL_V1"
+        assert long_outcome["residual_return_pct"] == pytest.approx(10.0)
         # Realized ledger P&L for the same window remains the execution evidence.
         closed = agent_trading.portfolio()["closed_positions"][0]
         assert closed["realized_pnl_usd"] == pytest.approx(90.648547)

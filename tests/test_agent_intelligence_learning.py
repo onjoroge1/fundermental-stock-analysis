@@ -8,15 +8,14 @@ def state():
             "technical":{"features":{"realized_vol_20":.3}}}
 
 
-def test_contextual_bandit_explores_uncertain_arms_in_paper_only():
+def test_cold_start_abstains_and_reports_the_confidence_gate():
     result=bandit.select(state(),["NO_TRADE","LONG_STOCK"],{},mode="PAPER",decision_key="d1")
-    assert result["exploration_enabled"] is True
-    assert result["sampling"]=="thompson"
+    assert result["selection"]=="posterior-confidence" and result["exploration_enabled"] is False
+    assert result["selected"]["action"]=="NO_TRADE" and result["choice_driver"]=="ABSTAIN_NO_EDGE"
     for arm in result["arms"]:
-        assert arm["ucb"]==pytest.approx(arm["mean"]+arm["exploration_bonus"])
+        assert arm["ucb"]==pytest.approx(arm["mean"]-bandit.CONFIDENCE_Z*arm["uncertainty"])
+        assert arm["exploration_bonus"]==pytest.approx(arm["score"]-arm["mean"])
     assert result["broker_submission"] is False
-    assert result["selected"]["action"] in {"NO_TRADE","LONG_STOCK"}
-
 
 def test_bandit_update_changes_arm_state():
     x=bandit.context_vector(state())
@@ -37,9 +36,8 @@ def test_context_has_intercept_and_no_collinear_bias():
 def test_no_trade_is_a_fixed_zero_baseline():
     result=bandit.select(state(),["NO_TRADE","LONG_STOCK"],{},decision_key="d1")
     baseline=next(a for a in result["arms"] if a["action"]=="NO_TRADE")
-    assert (baseline["mean"],baseline["uncertainty"],baseline["sample"])==(0.0,0.0,0.0)
+    assert (baseline["mean"],baseline["uncertainty"],baseline["score"])==(0.0,0.0,0.0)
     assert baseline["baseline"] is True
-
 
 def test_selection_is_reproducible_from_the_decision_key():
     one=bandit.select(state(),["NO_TRADE","LONG_STOCK"],{},decision_key="same")
@@ -62,17 +60,44 @@ def test_learned_negative_edge_is_avoided_and_positive_edge_is_taken():
     assert long_share(trained(0.5))>0.95
 
 
-def test_one_bad_draw_does_not_lock_out_an_arm():
-    # The diagonal LinUCB never retried an arm after one bad reward at the
-    # same context; the posterior keeps a meaningful chance of retrying.
+def test_uncertain_edge_waits_and_counterfactual_labels_recover_from_a_bad_start():
+    # Labels arrive for every decision whatever is traded, so an early bad
+    # draw cannot lock an arm out: later evidence still updates it.
     x=bandit.context_vector(state())
-    def long_count(r):
-        arm=bandit.update(bandit.empty_arm(len(x)),x,r)
-        return [bandit.select(state(),["NO_TRADE","LONG_STOCK"],{"LONG_STOCK":arm},decision_key=str(i))["selected"]["action"]
-                for i in range(400)].count("LONG_STOCK")
-    assert long_count(-1.0)>60   # one-sigma loss: retried about a quarter of the time
-    assert long_count(-2.0)>10   # two-sigma loss: still explored
+    arm=bandit.update(bandit.empty_arm(len(x)),x,-2.0)
+    for _ in range(3):
+        arm=bandit.update(arm,x,0.5)
+    unsure=bandit.select(state(),["NO_TRADE","LONG_STOCK"],{"LONG_STOCK":arm})
+    assert unsure["selected"]["action"]=="NO_TRADE"
+    for _ in range(200):
+        arm=bandit.update(arm,x,0.5)
+    sure=bandit.select(state(),["NO_TRADE","LONG_STOCK"],{"LONG_STOCK":arm})
+    assert sure["selected"]["action"]=="LONG_STOCK" and sure["choice_driver"]=="EXPLOIT_CONFIDENT"
 
+
+def test_positive_but_unproven_edge_is_reported_as_uncertain():
+    x=bandit.context_vector(state())
+    arm=bandit.empty_arm(len(x))
+    for _ in range(2):
+        arm=bandit.update(arm,x,0.4)
+    result=bandit.select(state(),["NO_TRADE","LONG_STOCK"],{"LONG_STOCK":arm})
+    assert result["selected"]["action"]=="NO_TRADE" and result["choice_driver"]=="ABSTAIN_UNCERTAIN"
+
+
+def test_sector_offset_is_shrunk_and_adds_its_own_uncertainty():
+    x=bandit.context_vector(state())
+    arm=bandit.empty_arm(len(x))
+    assert bandit.sector_offset({},"tech")==(0.0,pytest.approx(1/bandit.SECTOR_PRIOR_PRECISION))
+    offsets=bandit.update_sector_offset(None,"tech",0.3,1.0)
+    for _ in range(99):
+        offsets=bandit.update_sector_offset(offsets,"tech",0.3,1.0)
+    mean,var=bandit.sector_offset(offsets,"tech")
+    assert mean==pytest.approx(0.3*100/(100+bandit.SECTOR_PRIOR_PRECISION))   # half-shrunk at 100 obs
+    assert var==pytest.approx(1/200)
+    with_sector=bandit.predict(arm,x,offsets,"tech"); without=bandit.predict(arm,x,offsets,None)
+    assert with_sector["mean"]==pytest.approx(without["mean"]+mean)
+    assert with_sector["uncertainty"]>without["uncertainty"]
+    assert bandit.update_sector_offset(offsets,None,1.0,1.0)==offsets   # unknown sector: unchanged
 
 def test_bandit_forbids_live_mode():
     try:
@@ -168,9 +193,10 @@ def test_volatility_is_standardized_and_clipped_not_a_second_intercept():
     assert vol(0)["volatility_missing"]==1.0 and vol(0)["volatility_z"]==0.0
 
 
-def test_context_change_cold_starts_the_pooled_model():
-    from stock_machine.agent_intelligence.learning import LEARNING_BASIS, POOLED_SCOPE, current_arms
-    assert bandit.VERSION=="pooled-linear-thompson.v2"
-    old={"scope":POOLED_SCOPE,"reward_version":reward.VERSION,"bandit_version":"pooled-linear-thompson.v1",
-         "learning_basis":LEARNING_BASIS,"arms":{"LONG_STOCK":{"precision":[[1.0]*6]*6}}}
-    assert current_arms(old)=={}
+def test_contract_changes_cold_start_the_pooled_model():
+    from stock_machine.agent_intelligence.learning import LEARNING_BASIS, POOLED_SCOPE, current_arms, current_offsets
+    assert bandit.VERSION=="pooled-linear-confident-sector.v3"
+    assert reward.VERSION=="risk-scaled-residual-paper-reward.v5"
+    old={"scope":POOLED_SCOPE,"reward_version":reward.VERSION,"bandit_version":"pooled-linear-thompson.v2",
+         "learning_basis":LEARNING_BASIS,"arms":{"LONG_STOCK":{"precision":[[1.0]*6]*6}},"offsets":{"LONG_STOCK":{}}}
+    assert current_arms(old)=={} and current_offsets(old)=={}
