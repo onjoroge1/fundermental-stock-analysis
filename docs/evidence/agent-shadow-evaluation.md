@@ -134,3 +134,19 @@ The learning step's what-if outcomes record the same field, also as a diagnostic
 adds only about 1.9% to the variance of the 20-session stock-specific return. Shrinking
 beta toward 1 (Blume adjustment) cuts it to about 1.2%, too small a gain to justify
 restarting the target, the model and both tests. Beta is left unshrunk.
+
+## Prospective Brier reference and precomputed cumulative view (added 2026-10-11)
+
+**Brier reference.** Brier skill is now measured against a **prospective base rate**: for
+each forecast, the up-rate of forecast-window outcomes that completed in the 252
+sessions before its origin. That's information available when the forecast was issued.
+The rate is 0.5 until 50 such outcomes exist, and the pooled statistics report how many
+forecasts used that default. The previous reference, the evaluated set's own base rate,
+slightly favoured the reference.
+
+**Cumulative view.** The learning stage (three times a day) computes the cumulative
+pooled statistics, the candidate-weight promotion test and compact daily up/total counts
+per horizon. It saves them in its receipt (`shadow_cumulative`). The admin page reads the
+latest receipt instead of re-reading every outcome on each load, and computes live only
+before the first such receipt. `cumulative_source` shows which source was used and when
+it was computed.

@@ -423,3 +423,27 @@ def test_pooled_statistics_report_skill_against_the_sector_too():
     # skill was sector rotation, not stock selection within the sector.
     assert point["candidate_ic"] == pytest.approx(1.0)
     assert point["candidate_ic_vs_sector"] == pytest.approx(-1.0)
+
+
+def test_brier_reference_uses_only_outcomes_known_before_each_forecast():
+    history_due = session_dates("2026-10-01", "2026-12-31")
+    # 60 earlier outcomes, all up; the evaluated forecasts start after them.
+    counts = {"5": {d: [1, 1] for d in history_due[:60]}}
+    later = session_dates("2027-01-04", "2027-01-29")
+    rows = [pooled_row(o, 5, 1.0, 0, 0, ret=r, prob=0.5) for o in later for r in (1.0, -1.0)]
+    rates = shadow.prior_base_rates(rows, counts)
+    assert set(rates.values()) == {(1.0, "PRIOR_252_SESSIONS")}
+    point = shadow.pooled_statistics(rows, counts=counts)["5"]["point"]
+    # A coin-flip forecast beats a "always up" prior when half the moves are down.
+    assert point["brier_skill:m"] == pytest.approx(1 - 0.25 / 0.5)
+    # Outcomes that complete on or after the forecast's origin are never used.
+    future = {"5": {d: [0, 1] for d in session_dates("2027-01-04", "2027-06-30")}}
+    assert set(shadow.prior_base_rates(rows, future).values()) == {(0.5, "DEFAULT_INSUFFICIENT_HISTORY")}
+
+
+def test_too_little_prior_history_falls_back_to_one_half():
+    counts = {"5": {d: [1, 1] for d in session_dates("2026-10-01", "2026-10-30")}}  # < 50 outcomes
+    rows = [pooled_row("2027-01-04", 5, 1.0, 0, 0, ret=1.0, prob=0.6)]
+    assert shadow.prior_base_rates(rows, counts)[id(rows[0])] == (0.5, "DEFAULT_INSUFFICIENT_HISTORY")
+    value = shadow.pooled_statistics(rows, counts=counts)["5"]
+    assert value["brier_default_reference_counts"] == {"m": 1}

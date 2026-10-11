@@ -236,3 +236,20 @@ def test_closed_paper_cash_is_not_rewritten_by_current_prices():
         end="2026-10-07",
     )
     assert value["status"] == "OK" and value["account_pnl_usd"] == 0
+
+
+@pytest.mark.parametrize(
+    "origin,sessions,expected",
+    [
+        # A year-long look-back from early January ran off the calendar.
+        ("2027-01-04", -252, "2025-12-31"),
+        ("2027-01-04", -600, "2024-08-12"),
+        ("2026-01-05", -5, "2025-12-26"),
+        ("2026-10-09", -252, "2025-10-08"),
+        ("2026-12-30", 20, "2027-01-29"),
+    ],
+)
+def test_session_offset_spans_year_boundaries_both_ways(origin, sessions, expected):
+    from stock_machine.market_calendar import session_offset
+
+    assert session_offset(origin, sessions) == expected
