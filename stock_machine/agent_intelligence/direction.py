@@ -12,6 +12,8 @@ independent review, never an automatic change to paper trading.
 from __future__ import annotations
 
 import random
+from functools import lru_cache
+from math import sqrt
 
 from ..agents.contracts import digest
 from . import bandit
@@ -79,12 +81,40 @@ def challenger(state: dict, arms: dict, *, model_sequence: int | None) -> dict:
     }
 
 
-def _block(session: str, epoch: str, size: int) -> int:
+@lru_cache(maxsize=8192)
+def _session_index(epoch: str, session: str) -> int:
     from ..market_calendar import session_dates
 
+    return len(session_dates(epoch, session)) - 1
+
+
+def _block(session: str, epoch: str, size: int) -> int:
     if session < epoch:
         raise ValueError("DIRECTION_SESSION_BEFORE_EPOCH")
-    return (len(session_dates(epoch, session)) - 1) // size
+    return _session_index(epoch, session) // size
+
+
+# z(0.975) + z(0.80): the true difference a two-sided 95% test detects 80% of the time.
+DETECTION_MULTIPLIER = 1.959964 + 0.841621
+
+
+def detectable(block_values: list[float], minimum_blocks: int) -> dict:
+    """Smallest true difference detectable with 80% power from the observed noise.
+
+    Uses the spread of block-level values, the same units the test
+    resamples. A NOT_SUPERIOR result says little about differences smaller
+    than this.
+    """
+    n = len(block_values)
+    if n < 2:
+        return {"detectable_difference_80pct": None, "detectable_at_minimum_blocks": None}
+    mean = sum(block_values) / n
+    sd = sqrt(sum((v - mean) ** 2 for v in block_values) / (n - 1))
+    return {
+        "detectable_difference_80pct": DETECTION_MULTIPLIER * sd / sqrt(n),
+        "detectable_at_minimum_blocks": DETECTION_MULTIPLIER * sd / sqrt(max(n, minimum_blocks)),
+        "block_difference_sd": sd,
+    }
 
 
 def evaluate(rows: list[dict], protocol: dict = PROTOCOL) -> dict:
@@ -128,6 +158,7 @@ def evaluate(rows: list[dict], protocol: dict = PROTOCOL) -> dict:
         "mean_paired_difference": diff,
         "challenger_mean_reward": ch_mean,
         "incumbent_mean_reward": inc_mean,
+        **detectable([m[0] for m in means], protocol["minimum_blocks"]),
     }
     if len(blocks) < protocol["minimum_blocks"]:
         return {**summary, "status": "PENDING_EVIDENCE"}

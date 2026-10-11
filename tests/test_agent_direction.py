@@ -61,6 +61,9 @@ def test_fewer_than_minimum_blocks_is_pending_however_many_decisions():
                                     long_reward=lambda b: -1, short_reward=lambda b: 1))
     assert value["status"] == "PENDING_EVIDENCE"
     assert value["blocks"] == 3 and value["decisions"] == 1500
+    # Even while pending, the owner sees what the evidence could detect.
+    # (Identical blocks here, so zero spread and a zero detectable difference.)
+    assert value["detectable_difference_80pct"] == 0 == value["detectable_at_minimum_blocks"]
     assert value["promotion"] == "NOT_AUTHORIZED"
 
 
