@@ -113,3 +113,24 @@ to the weighting method it names, starts fresh evidence.
   IC > 0.
 - **Outcome of a pass:** `PASS_REQUIRES_INDEPENDENT_REVIEW` only. Changing the heuristic
   weights remains a separate reviewed change. The result is shown in the admin shadow card.
+
+## Sector-relative diagnostic and beta noise (added 2026-10-11)
+
+**Sector-relative return.** Snapshots freeze the sector ETF at capture. Outcomes also
+record the stock's return relative to that ETF over the tradeable window
+(`sector_relative_return_pct`, `sector_relative_z`). The pooled statistics report
+candidate and current information coefficients against it (`*_ic_vs_sector`), next to
+the primary SPY-relative target.
+
+- Skill that disappears against the sector came from sector rotation, not from picking
+  stocks within the sector.
+- It's a diagnostic only. The primary target, the training data and the promotion test
+  are unchanged.
+- A missing ETF or price path never blocks scoring.
+
+The learning step's what-if outcomes record the same field, also as a diagnostic only.
+
+**Beta noise.** A 63-day beta estimate has an error sd of about 0.26. In simulation, that
+adds only about 1.9% to the variance of the 20-session stock-specific return. Shrinking
+beta toward 1 (Blume adjustment) cuts it to about 1.2%, too small a gain to justify
+restarting the target, the model and both tests. Beta is left unshrunk.

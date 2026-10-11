@@ -8,6 +8,7 @@ from collections import defaultdict
 
 from .. import db, research_store
 from ..agents.contracts import digest
+from ..regime import sector_etf
 from ..market_calendar import (
     latest_completed_session,
     session_offset,
@@ -316,6 +317,8 @@ def capture(conn, decision, packet, intelligence, *, now=None):
             "evaluation_basis": "direction-from-known-close; no simulated fill or P&L",
             # Frozen at capture: the outcome target never uses later estimates.
             "target": TARGET,
+            # Diagnostic benchmark: the sector ETF known at capture.
+            "sector_etf": sector_etf(company.get("sector")),
             "beta": float(beta) if number(beta) else None,
             "ex_ante_vol": float(vol) if number(vol, 0) and vol > 0 else None,
         }
@@ -351,7 +354,26 @@ def windows(snapshot):
     return origin, forecast_due, entry, session_offset(entry, horizon)
 
 
-def evaluate(snapshot, prices, *, completed, market_prices):
+def _sector_relative(snapshot, sector_prices, entry, due, ret, scale):
+    """Stock return minus its sector ETF's over the tradeable window (diagnostic).
+
+    Separates within-sector stock selection from sector rotation; never
+    blocks scoring when the ETF or its path is missing.
+    """
+    if not snapshot.get("sector_etf") or not sector_prices:
+        return {"sector_relative_return_pct": None, "sector_relative_z": None,
+                "sector_relative_basis": "UNAVAILABLE"}
+    try:
+        path = _path(sector_prices, entry, due, "SECTOR_PATH_INCOMPLETE")
+    except ValueError:
+        return {"sector_relative_return_pct": None, "sector_relative_z": None,
+                "sector_relative_basis": "SECTOR_PATH_INCOMPLETE"}
+    relative = ret - (path[due] / path[entry] - 1)
+    return {"sector_relative_return_pct": relative * 100, "sector_relative_z": relative / scale,
+            "sector_relative_basis": snapshot["sector_etf"]}
+
+
+def evaluate(snapshot, prices, *, completed, market_prices, sector_prices=None):
     origin, forecast_due, entry, due = windows(snapshot)
     if max(forecast_due, due) > completed:
         raise ValueError("SHADOW_NOT_MATURE")
@@ -374,7 +396,8 @@ def evaluate(snapshot, prices, *, completed, market_prices):
     vol = max(MIN_ANNUAL_VOL, float(vol)) if number(vol, 0) and vol > 0 else DEFAULT_ANNUAL_VOL
     residual = ret - beta * market_ret
     # Per-stock volatility scaling keeps volatile names from dominating skill.
-    residual_z = residual / (vol * sqrt(snapshot["horizon_sessions"] / 252))
+    scale = vol * sqrt(snapshot["horizon_sessions"] / 252)
+    residual_z = residual / scale
 
     def sign(x):
         return 1.0 if x > 0 else (-1.0 if x < 0 else 0.0)
@@ -431,6 +454,7 @@ def evaluate(snapshot, prices, *, completed, market_prices):
         "beta_basis": beta_basis,
         "residual_return_pct": residual * 100,
         "residual_z": residual_z,
+        **_sector_relative(snapshot, sector_prices, entry, due, ret, scale),
         "component_values": dict(snapshot["components"]),
         "candidate_score": snapshot["candidate_score"],
         "baseline_score": snapshot["baseline_score"],
@@ -481,7 +505,7 @@ def score_matured(*, limit=100):
             ORDER BY r.payload->>'due_session',r.recorded_at,r.record_id LIMIT %s""",
             (SNAPSHOT, completed, OUTCOME, CHECK, completed, limit),
         ).fetchall()
-        market = None
+        market, sectors = None, {}
         for key, snapshot in rows:
             try:
                 with conn.transaction():
@@ -494,11 +518,15 @@ def score_matured(*, limit=100):
                     if market is None:
                         # SPY is shared by every snapshot in the pass.
                         market = db.fetch_prices(conn, "SPY", completed)
+                    etf = snapshot.get("sector_etf")
+                    if etf and etf not in sectors:
+                        sectors[etf] = db.fetch_prices(conn, etf, completed)
                     outcome = evaluate(
                         snapshot,
                         db.fetch_prices(conn, snapshot["ticker"], completed),
                         completed=completed,
                         market_prices=market,
+                        sector_prices=sectors.get(etf) if etf else None,
                     )
                     research_store.save(conn, OUTCOME, key, outcome, snapshot["ticker"])
                 results.append({"key": key, "status": "SCORED"})
@@ -567,13 +595,14 @@ def pooled_statistics(rows, *, samples=None, seed=None):
         for r in values:
             b = blocks[_block_of(r["origin_session"], horizon, index)]
             b["n"] += 1
-            z = r.get("residual_z")
+            for suffix, z in (("", r.get("residual_z")), ("_sector", r.get("sector_relative_z"))):
+                for name in ("candidate", "baseline"):
+                    score = r.get(name + "_score")
+                    if number(score) and number(z):
+                        b[name + suffix + "_sz"] += score * z
+                        b[name + suffix + "_ss"] += score * score
+                        b[name + suffix + "_zz"] += z * z
             for name in ("candidate", "baseline"):
-                score = r.get(name + "_score")
-                if number(score) and number(z):
-                    b[name + "_sz"] += score * z
-                    b[name + "_ss"] += score * score
-                    b[name + "_zz"] += z * z
                 hit = r.get(name + "_hit")
                 if hit is not None:
                     b[name + "_hits"] += 1.0 if hit else 0.0
@@ -590,13 +619,21 @@ def pooled_statistics(rows, *, samples=None, seed=None):
         def measures(sums):
             out = {}
             for name in ("candidate", "baseline"):
-                ss, zz = sums.get(name + "_ss", 0.0), sums.get(name + "_zz", 0.0)
-                out[name + "_ic"] = sums.get(name + "_sz", 0.0) / sqrt(ss * zz) if ss > 0 and zz > 0 else None
+                for suffix, label in (("", "_ic"), ("_sector", "_ic_vs_sector")):
+                    ss, zz = sums.get(name + suffix + "_ss", 0.0), sums.get(name + suffix + "_zz", 0.0)
+                    out[name + label] = (
+                        sums.get(name + suffix + "_sz", 0.0) / sqrt(ss * zz) if ss > 0 and zz > 0 else None
+                    )
                 calls = sums.get(name + "_calls", 0)
                 out[name + "_hit_rate"] = sums.get(name + "_hits", 0.0) / calls if calls else None
             out["ic_difference"] = (
                 out["candidate_ic"] - out["baseline_ic"]
                 if out["candidate_ic"] is not None and out["baseline_ic"] is not None
+                else None
+            )
+            out["ic_difference_vs_sector"] = (
+                out["candidate_ic_vs_sector"] - out["baseline_ic_vs_sector"]
+                if out["candidate_ic_vs_sector"] is not None and out["baseline_ic_vs_sector"] is not None
                 else None
             )
             for model in models:
@@ -713,7 +750,8 @@ def cumulative_rows(conn):
     rows = conn.execute(
         """SELECT jsonb_build_object(
                 'horizon_sessions',payload->'horizon_sessions','origin_session',payload->'origin_session',
-                'residual_z',payload->'residual_z','candidate_score',payload->'candidate_score',
+                'residual_z',payload->'residual_z','sector_relative_z',payload->'sector_relative_z',
+                'candidate_score',payload->'candidate_score',
                 'baseline_score',payload->'baseline_score','candidate_hit',payload->'candidate_hit',
                 'baseline_hit',payload->'baseline_hit','realized_return_pct',payload->'realized_return_pct',
                 'forecast_return_pct',payload->'forecast_return_pct',
