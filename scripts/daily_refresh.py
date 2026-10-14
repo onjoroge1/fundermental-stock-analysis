@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,7 +19,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from stock_machine import db
 from stock_machine.bundle import build_bundle, write_bundle
-from stock_machine.pipeline import run as run_pipeline
+from stock_machine.pipeline import (
+    PRICE_RETRY_COOLDOWN_SECONDS,
+    PRICE_RETRY_PASSES,
+    is_retryable_price_error,
+    run as run_pipeline,
+)
 
 LOG_DIR = Path(__file__).resolve().parent.parent / "data" / "refresh_logs"
 
@@ -41,6 +47,83 @@ def _previous_log() -> dict | None:
     return json.loads(logs[-1].read_text()) if logs else None
 
 
+def _refresh_ticker(t: str, prev_coverage: dict, attempts: int) -> dict:
+    entry = {"ticker": t, "attempts": attempts}
+    try:
+        summary = run_pipeline(t)
+        bundle = build_bundle(t)
+        write_bundle(bundle)
+        from stock_machine.source_claim_refresh import refresh as refresh_source_claims
+        source_claims = refresh_source_claims(t)
+        entry["source_claims"] = source_claims
+        from stock_machine import monitoring, paper
+        from stock_machine.peers import snapshot_metrics
+        conn = db.connect()
+        try:
+            snapshot_metrics(conn, t, bundle)
+            # invalidation monitoring: flag, never auto-act
+            report = db.latest_report(conn, t)
+            if report:
+                report_id = f"{t}__{report.get('as_of', '')[:10]}"
+                breaches = monitoring.check_bundle(bundle)
+                new_breaches = monitoring.record_breaches(
+                    conn, t, report_id, breaches)
+                if new_breaches:
+                    entry["invalidation_breaches"] = [
+                        {"rule": b["rule_id"], "observed": b["observed"],
+                         "threshold": b["threshold"]}
+                        for b in new_breaches]
+                    paper.flag_position(
+                        conn, t, "invalidation breach: " + "; ".join(
+                            b["rule_id"] for b in new_breaches))
+        finally:
+            conn.close()
+        latest_q = (bundle["financial_history"]["quarterly_periods"] or [{}])[-1]
+        entry.update({
+            "status": "ok",
+            "data_quality": bundle["data_quality"]["status"],
+            "quarters": summary["quarters"],
+            "latest_period": latest_q.get("period_id"),
+            "latest_available_at": latest_q.get("available_at"),
+            "price_date": bundle["market_snapshot"]["price_date"],
+            "consensus_available": bundle["consensus"]["available"],
+            **_field_coverage(bundle),
+        })
+        # data-rot tripwire: fields that were populated last run but
+        # vanished this run mean a provider or tag change, not reality
+        lost = prev_coverage.get(t, set()) - set(entry["fields_present"])
+        if lost:
+            entry["coverage_lost"] = sorted(lost)
+            entry["coverage_alert"] = (
+                f"fields present last refresh but missing now: "
+                f"{', '.join(sorted(lost))} — investigate tag/provider "
+                "change before trusting derived metrics")
+        # staleness check: has a filing arrived after the newest report?
+        conn = db.connect()
+        try:
+            report = db.latest_report(conn, t)
+        finally:
+            conn.close()
+        if report and latest_q.get("available_at"):
+            report_date = report["as_of"][:10]
+            if latest_q["available_at"] > report_date:
+                entry["report_stale"] = True
+                entry["stale_reason"] = (
+                    f"{latest_q.get('period_id')} became available "
+                    f"{latest_q['available_at']}, after the report of "
+                    f"{report_date} — re-run the analyst pass")
+    except Exception as e:
+        entry.update({"status": "error", "error": f"{type(e).__name__}: {e}",
+                      "retryable": is_retryable_price_error(e),
+                      "trace": traceback.format_exc()[-800:]})
+    return entry
+
+
+def _report(entry: dict) -> None:
+    print(json.dumps({k: v for k, v in entry.items()
+                      if k not in ("trace", "fields_present")}))
+
+
 def main() -> int:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     started = datetime.now(timezone.utc)
@@ -58,77 +141,24 @@ def main() -> int:
         conn.close()
 
     for t in tickers:
-        entry = {"ticker": t}
-        try:
-            summary = run_pipeline(t)
-            bundle = build_bundle(t)
-            write_bundle(bundle)
-            from stock_machine.source_claim_refresh import refresh as refresh_source_claims
-            source_claims = refresh_source_claims(t)
-            entry["source_claims"] = source_claims
-            from stock_machine import monitoring, paper
-            from stock_machine.peers import snapshot_metrics
-            conn = db.connect()
-            try:
-                snapshot_metrics(conn, t, bundle)
-                # invalidation monitoring: flag, never auto-act
-                report = db.latest_report(conn, t)
-                if report:
-                    report_id = f"{t}__{report.get('as_of', '')[:10]}"
-                    breaches = monitoring.check_bundle(bundle)
-                    new_breaches = monitoring.record_breaches(
-                        conn, t, report_id, breaches)
-                    if new_breaches:
-                        entry["invalidation_breaches"] = [
-                            {"rule": b["rule_id"], "observed": b["observed"],
-                             "threshold": b["threshold"]}
-                            for b in new_breaches]
-                        paper.flag_position(
-                            conn, t, "invalidation breach: " + "; ".join(
-                                b["rule_id"] for b in new_breaches))
-            finally:
-                conn.close()
-            latest_q = (bundle["financial_history"]["quarterly_periods"] or [{}])[-1]
-            entry.update({
-                "status": "ok",
-                "data_quality": bundle["data_quality"]["status"],
-                "quarters": summary["quarters"],
-                "latest_period": latest_q.get("period_id"),
-                "latest_available_at": latest_q.get("available_at"),
-                "price_date": bundle["market_snapshot"]["price_date"],
-                "consensus_available": bundle["consensus"]["available"],
-                **_field_coverage(bundle),
-            })
-            # data-rot tripwire: fields that were populated last run but
-            # vanished this run mean a provider or tag change, not reality
-            lost = prev_coverage.get(t, set()) - set(entry["fields_present"])
-            if lost:
-                entry["coverage_lost"] = sorted(lost)
-                entry["coverage_alert"] = (
-                    f"fields present last refresh but missing now: "
-                    f"{', '.join(sorted(lost))} — investigate tag/provider "
-                    "change before trusting derived metrics")
-            # staleness check: has a filing arrived after the newest report?
-            conn = db.connect()
-            try:
-                report = db.latest_report(conn, t)
-            finally:
-                conn.close()
-            if report and latest_q.get("available_at"):
-                report_date = report["as_of"][:10]
-                if latest_q["available_at"] > report_date:
-                    entry["report_stale"] = True
-                    entry["stale_reason"] = (
-                        f"{latest_q.get('period_id')} became available "
-                        f"{latest_q['available_at']}, after the report of "
-                        f"{report_date} — re-run the analyst pass")
-        except Exception as e:
-            failures += 1
-            entry.update({"status": "error", "error": f"{type(e).__name__}: {e}",
-                          "trace": traceback.format_exc()[-800:]})
+        entry = _refresh_ticker(t, prev_coverage, 1)
         results.append(entry)
-        print(json.dumps({k: v for k, v in entry.items()
-                          if k not in ("trace", "fields_present")}))
+        _report(entry)
+    # Price providers sometimes refuse a burst of requests from CI runners and
+    # recover within minutes: re-run only those tickers after a cool-down.
+    for pass_number in range(2, PRICE_RETRY_PASSES + 2):
+        retry = [i for i, r in enumerate(results)
+                 if r.get("status") == "error" and r.get("retryable")]
+        if not retry:
+            break
+        print(json.dumps({"event": "price_retry_pass", "pass": pass_number,
+                          "tickers": [results[i]["ticker"] for i in retry],
+                          "cooldown_seconds": PRICE_RETRY_COOLDOWN_SECONDS}))
+        time.sleep(PRICE_RETRY_COOLDOWN_SECONDS)
+        for i in retry:
+            results[i] = _refresh_ticker(results[i]["ticker"], prev_coverage, pass_number)
+            _report(results[i])
+    failures = sum(r.get("status") == "error" for r in results)
 
     # Existing legacy positions remain observable. Unqualified report prose
     # must not create new positions or contaminate the prospective experiment.

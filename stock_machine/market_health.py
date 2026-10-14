@@ -11,6 +11,9 @@ from typing import Iterable
 
 from . import db
 from .data_quality import assess_dataset
+import time
+
+from . import pipeline
 from .pipeline import _fetch_prices
 from .market_calendar import latest_completed_session, price_freshness
 
@@ -20,6 +23,9 @@ DEFAULT_MAX_AGE_HOURS = 18.0
 def _safe_error(exc: Exception) -> str:
     detail = str(exc).replace("\n", " ")[:300]
     return f"{type(exc).__name__}: {detail or 'no provider detail'}"
+
+
+_sleep = time.sleep  # replaced in tests
 
 
 def _now_utc() -> datetime:
@@ -143,7 +149,8 @@ def refresh_prices(
 
     results = []
     failures = []
-    for ticker in wanted:
+
+    def attempt(ticker: str, attempts: int) -> None:
         try:
             price_rows, corporate_actions, price_source, price_events = _fetch_prices(ticker)
             cutoff = latest_completed_session()
@@ -163,6 +170,7 @@ def refresh_prices(
                 "source": price_source,
                 "rows": len(price_rows),
                 "latest_market_date": price_rows[-1]["date"] if price_rows else None,
+                "attempts": attempts,
             })
         except Exception as exc:
             conn.rollback()
@@ -170,7 +178,22 @@ def refresh_prices(
                 "ticker": ticker,
                 "error": _safe_error(exc),
                 "reason_code": "PRIMARY_PRICE_REFRESH_FAILED",
+                "retryable": pipeline.is_retryable_price_error(exc),
+                "attempts": attempts,
             })
+
+    for ticker in wanted:
+        attempt(ticker, 1)
+    # Providers often refuse a burst of requests and recover within minutes:
+    # retry only provider failures, after a cool-down, a bounded number of times.
+    for pass_number in range(2, pipeline.PRICE_RETRY_PASSES + 2):
+        retry = [f for f in failures if f["retryable"]]
+        if not retry:
+            break
+        _sleep(pipeline.PRICE_RETRY_COOLDOWN_SECONDS)
+        failures[:] = [f for f in failures if not f["retryable"]]
+        for failed in retry:
+            attempt(failed["ticker"], pass_number)
 
     # A single-row fallback cannot establish a coherent adjustment vintage.
     # Keep the previous manifest stale until a complete provider history succeeds.

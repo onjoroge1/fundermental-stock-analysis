@@ -22,15 +22,33 @@ class YahooPriceError(RuntimeError):
     """A provider-safe failure suitable for workflow diagnostics."""
 
 
+# Yahoo intermittently refuses requests from cloud runners (HTTP 429 or 5xx,
+# sometimes a stale cached series); the same stocks succeed minutes later.
+ATTEMPTS_PER_HOST = 3
+BACKOFF_SECONDS = (2.0, 4.0)
+MAX_RETRY_AFTER_SECONDS = 20.0
+RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+
+def _retry_after(resp) -> float | None:
+    try:
+        return min(MAX_RETRY_AFTER_SECONDS, max(0.0, float(resp.headers.get("Retry-After", ""))))
+    except (TypeError, ValueError):
+        return None
+
+
 def _payload(symbol: str) -> tuple[dict, str]:
     errors = []
     for host in ("query1.finance.yahoo.com", "query2.finance.yahoo.com"):
         url = (f"https://{host}/v8/finance/chart/{symbol}"
                f"?range=15y&interval=1d&events=div%2Csplits")
-        for attempt in range(2):
+        for attempt in range(ATTEMPTS_PER_HOST):
+            wait = BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)]
             try:
                 resp = httpx.get(url, timeout=60, headers=_UA, follow_redirects=True)
                 if resp.status_code != 200:
+                    if resp.status_code in RETRYABLE_STATUS:
+                        wait = _retry_after(resp) or wait
                     raise YahooPriceError(f"YAHOO_HTTP_{resp.status_code}")
                 payload = resp.json()
                 chart = payload.get("chart") if isinstance(payload, dict) else None
@@ -53,8 +71,10 @@ def _payload(symbol: str) -> tuple[dict, str]:
             except (httpx.HTTPError, ValueError, YahooPriceError) as exc:
                 detail = str(exc) if isinstance(exc, YahooPriceError) else type(exc).__name__.upper()
                 errors.append(f"{host.split('.')[0]}:{detail}")
-                if attempt == 0:
-                    time.sleep(0.5)
+                if detail == "YAHOO_HTTP_404":
+                    break
+                if attempt < ATTEMPTS_PER_HOST - 1:
+                    time.sleep(wait)
     raise YahooPriceError("YAHOO_ALL_ENDPOINTS_FAILED[" + ",".join(errors) + "]")
 
 

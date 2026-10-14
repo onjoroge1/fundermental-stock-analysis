@@ -149,4 +149,46 @@ def test_yahoo_retries_stale_http_200_on_other_host(monkeypatch):
             "timestamp": [ts], "indicators": {"quote": [{"close": [100]}]}}]}})
     monkeypatch.setattr(prices.httpx, "get", get)
     payload, url = prices._payload("AAPL")
-    assert len(calls) == 3 and "query2" in url
+    # Every query1 attempt is stale, then query2 serves the session.
+    assert len(calls) == prices.ATTEMPTS_PER_HOST + 1 and "query2" in url
+
+
+def test_yahoo_honours_retry_after_on_rate_limit_and_skips_unknown_symbols(monkeypatch):
+    import httpx
+    from stock_machine.ingestion import prices
+    slept, calls = [], []
+    monkeypatch.setattr(prices.time, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(prices, "latest_completed_session", lambda: "2026-01-02")
+    def limited(url, **kwargs):
+        calls.append(url)
+        return httpx.Response(429, headers={"Retry-After": "7"}, json={})
+    monkeypatch.setattr(prices.httpx, "get", limited)
+    import pytest
+    with pytest.raises(prices.YahooPriceError, match="YAHOO_HTTP_429"):
+        prices._payload("AAPL")
+    assert len(calls) == 2 * prices.ATTEMPTS_PER_HOST
+    assert slept and set(slept) == {7.0}
+    calls.clear(); slept.clear()
+    monkeypatch.setattr(prices.httpx, "get", lambda url, **k: calls.append(url) or httpx.Response(404, json={}))
+    with pytest.raises(prices.YahooPriceError, match="YAHOO_HTTP_404"):
+        prices._payload("NOPE")
+    assert len(calls) == 2 and slept == []      # one try per host, no waiting
+
+
+def test_both_provider_errors_are_reported_together(monkeypatch):
+    import pytest
+    from stock_machine import pipeline
+    from stock_machine.ingestion import prices, prices_fmp
+    monkeypatch.setattr(pipeline, "PRICE_SOURCE", "yahoo_fmp")
+    def yahoo(t):
+        raise prices.YahooPriceError("YAHOO_ALL_ENDPOINTS_FAILED[query1:YAHOO_HTTP_429]")
+    def fmp(t):
+        raise prices_fmp.FmpPriceError("FMP_PRICE_HTTP_402")
+    monkeypatch.setattr(pipeline.price_ing, "fetch_daily", yahoo)
+    monkeypatch.setattr(prices_fmp, "fetch_daily", fmp)
+    with pytest.raises(pipeline.PriceSourcesUnavailable) as caught:
+        pipeline._fetch_prices("ABNB")
+    message = str(caught.value)
+    assert "YAHOO_HTTP_429" in message and "FMP_PRICE_HTTP_402" in message
+    assert pipeline.is_retryable_price_error(caught.value)
+    assert not pipeline.is_retryable_price_error(KeyError("revenue"))
