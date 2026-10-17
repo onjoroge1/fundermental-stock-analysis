@@ -14,6 +14,30 @@ from .market_calendar import latest_completed_session
 
 
 PRICE_SOURCE = os.environ.get("PRICE_SOURCE", "auto").lower()
+# Sweep-level retries for transient provider refusals: callers retry only the
+# tickers that failed on a price-provider error, after a cool-down.
+PRICE_RETRY_PASSES = int(os.environ.get("PRICE_RETRY_PASSES", "2"))
+PRICE_RETRY_COOLDOWN_SECONDS = float(os.environ.get("PRICE_RETRY_COOLDOWN_SECONDS", "60"))
+
+
+class PriceSourcesUnavailable(RuntimeError):
+    """Every configured price provider failed; the message names each reason."""
+
+
+_RETRYABLE_MARKERS = (
+    "PRICE_SOURCES_UNAVAILABLE",
+    "YahooPriceError",
+    "YAHOO_",
+    "FmpPriceError",
+    "FMP_PRICE_HTTP",
+    "PRICE_LATEST_COMPLETED_SESSION_MISSING",
+)
+
+
+def is_retryable_price_error(error) -> bool:
+    """True for provider refusals or not-yet-published bars, which often clear in minutes."""
+    text = error if isinstance(error, str) else f"{type(error).__name__}: {error}"
+    return any(marker in text for marker in _RETRYABLE_MARKERS)
 
 
 def _completed_prices(rows):
@@ -64,15 +88,22 @@ def _fetch_prices(ticker: str) -> tuple[list[dict], list[dict], str, list[dict]]
             raise
         if PRICE_SOURCE not in ("auto", "yahoo_fmp"):
             raise ValueError(f"unsupported PRICE_SOURCE {PRICE_SOURCE!r}") from exc
+        yahoo_error = f"{type(exc).__name__}: {exc}"
         events.append({
             "event": "PRICE_SOURCE_FALLBACK",
             "dataset": "prices",
-            "detail": (f"Yahoo unavailable ({type(exc).__name__}: {exc}); "
-                       "fell back to FMP for the full series"),
+            "detail": f"Yahoo unavailable ({yahoo_error}); fell back to FMP for the full series",
         })
         from .ingestion import prices_fmp
-        rows, actions = prices_fmp.fetch_daily(ticker)
-        return _completed_prices(rows), actions, "fmp", events
+        try:
+            rows, actions = prices_fmp.fetch_daily(ticker)
+            return _completed_prices(rows), actions, "fmp", events
+        except Exception as fmp_exc:
+            # Keep both reasons: the fallback error alone hid why Yahoo failed.
+            raise PriceSourcesUnavailable(
+                f"PRICE_SOURCES_UNAVAILABLE yahoo=[{yahoo_error}] "
+                f"fmp=[{type(fmp_exc).__name__}: {fmp_exc}]"
+            ) from fmp_exc
 
 
 def run(ticker: str) -> dict:

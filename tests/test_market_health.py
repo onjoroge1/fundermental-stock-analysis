@@ -158,3 +158,48 @@ def test_current_raw_rows_do_not_mask_an_older_price_manifest(monkeypatch):
     result=market_health.health(conn)
     assert result['status']=='STALE' and result['current_count']==0
     assert result['tickers'][0]['state']=='BLOCKED'
+
+
+def _transient_setup(monkeypatch, fail_times, error):
+    calls, slept = {}, []
+    states = iter([
+        {"stale_tickers": ["AAPL"], "tickers": [{"ticker": "AAPL", "state": "STALE"}]},
+        {"status": "HEALTHY", "stale_tickers": [], "tickers": [{"ticker": "AAPL", "state": "CURRENT"}]},
+    ])
+    monkeypatch.setattr(market_health, "health", lambda *a, **k: next(states))
+    monkeypatch.setattr(market_health, "latest_completed_session", lambda: "2026-10-13")
+    monkeypatch.setattr(market_health, "assess_dataset",
+                        lambda name, rows: {"status": "PASS", "max_record_date": "2026-10-13"})
+    for name in ("replace_prices", "replace_actions", "record_events", "record_dataset_snapshots"):
+        monkeypatch.setattr(market_health.db, name, lambda *a, **k: None)
+    monkeypatch.setattr(market_health, "_sleep", lambda s: slept.append(s))
+    def fetch(ticker):
+        calls[ticker] = calls.get(ticker, 0) + 1
+        if calls[ticker] <= fail_times:
+            raise error
+        return [{"date": "2026-10-13", "adj_close": 100.0}], [], "yahoo", []
+    monkeypatch.setattr(market_health, "_fetch_prices", fetch)
+    class Conn:
+        def rollback(self): pass
+    return Conn(), calls, slept
+
+
+def test_provider_refusal_is_retried_after_a_cooldown(monkeypatch):
+    from stock_machine import pipeline
+    conn, calls, slept = _transient_setup(
+        monkeypatch, 1, pipeline.PriceSourcesUnavailable("PRICE_SOURCES_UNAVAILABLE yahoo=[429] fmp=[402]"))
+    result = market_health.refresh_prices(conn, ["AAPL"])
+    assert result["status"] == "OK" and calls["AAPL"] == 2
+    assert result["results"][0]["attempts"] == 2
+    assert slept == [pipeline.PRICE_RETRY_COOLDOWN_SECONDS]
+
+
+def test_retries_are_bounded_and_skip_non_provider_errors(monkeypatch):
+    from stock_machine import pipeline
+    conn, calls, slept = _transient_setup(
+        monkeypatch, 99, pipeline.PriceSourcesUnavailable("PRICE_SOURCES_UNAVAILABLE"))
+    market_health.refresh_prices(conn, ["AAPL"])
+    assert calls["AAPL"] == 1 + pipeline.PRICE_RETRY_PASSES
+    conn, calls, slept = _transient_setup(monkeypatch, 99, KeyError("bad data"))
+    market_health.refresh_prices(conn, ["AAPL"])
+    assert calls["AAPL"] == 1 and slept == []
