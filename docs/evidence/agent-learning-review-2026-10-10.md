@@ -52,6 +52,10 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
 | 30 | Both pre-registered tests pass too often with no real improvement: about 5–7% instead of 2.5%. Adjacent blocks are correlated (lag-1 ≈ +0.16) and the percentile bootstrap understates the spread by 22–26%. A Newey–West lag-1 + t(n−1) bound reaches about 3% from 24 blocks; nothing tried is calibrated at 12. | DONE (#115 on main) |
 | 31 | The direction test's protocol now names reward v5 and the sector-aware challenger, so its hash changed and evidence restarts. No 20-session window had matured yet, so nothing is lost; item 30's protocol decision is still open. | INFO |
 | 32 | `session_offset` built its calendar from the year before the origin, so look-backs of ~1 year from early January ran off its start. From early January 2027, shadow training history (−252) and the daily technical-setup job (−252) would have failed; the shadow capture failure would have been silent inside its savepoint. | DONE (#114 on main) |
+| 33 | Learning saw only ~5 of 54 stocks: 49 decisions a day were blocked, 44 of them only because total debt isn't reconciled to a filing (`TOTAL_DEBT_NOT_SOURCE_RECONCILED`; no total-debt tag, complete subtotals or reviewed reconciliation). The 5 eligible stocks are the original pilot names with reviewed debt. | PARTIAL, IN PR (`feat/learn-from-unverified-fundamentals`): decisions blocked only by unverified financials now train the learner with the fundamental signal withheld (seen as missing). Paper trading stays blocked for them, and the direction test keeps counting paper-eligible decisions only. Learnable decisions go from ~5 to ~40 a day. OPEN data work: reviewed debt reconciliations for the 44 issuers, redone each quarter. |
+| 34 | Admin intelligence view returned "Admin storage or operation unavailable": #114 ran a query before `weekly_summary`'s `SET TRANSACTION ISOLATION LEVEL`, which Postgres allows only first. | IN PR #119: fixed, with an end-to-end Postgres test of the real admin summary. |
+| 35 | Daily technical job reports ATTENTION (workflow failure) when a single stock's latest bar is incomplete (LOW Oct 15, DELL Oct 16) though everything else ran. | OPEN: consider warning instead of failing for one-stock bar gaps. |
+| 36 | Research queue reached only 29–30 of 54 stocks on Oct 14–15. | OPEN: investigate queue throughput. |
 
 ## Change log
 
@@ -273,3 +277,13 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
   separately; behavior is unchanged. Item 6 is marked done. **All 32 tracked items are
   now done or closed (24 as documented).** What remains is operational: watch the first
   matured windows from November.
+
+- **2026-10-17 — learning from stocks with unverified financials** (branch
+  `feat/learn-from-unverified-fundamentals`):
+  - New `agent_intelligence/eligibility.py`. A decision is learning-eligible when it's
+    paper-eligible, or when its only blockers say the financial data is unverified (state
+    and journal checked separately) and price-based inputs are present. In the second case
+    the fundamental signal is set to missing.
+  - The outcome scanner and learning step use it, and reward records carry `eligibility`.
+  - `direction.matured_rows` keeps the protocol's paper-eligible unit.
+  - Paper eligibility is untouched.

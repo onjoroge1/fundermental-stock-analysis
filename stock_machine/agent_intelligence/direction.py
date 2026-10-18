@@ -178,7 +178,11 @@ def evaluate(rows: list[dict], protocol: dict = PROTOCOL) -> dict:
 
 
 def matured_rows(conn) -> list[dict]:
-    """Decisions frozen under this protocol whose counterfactual outcome is recorded."""
+    """Paper-eligible decisions frozen under this protocol with a recorded outcome.
+
+    The protocol's unit is paper-eligible decisions; learning-only decisions
+    (fundamentals withheld) train the model but never enter this test.
+    """
     rows = conn.execute(
         """SELECT i.payload #>> '{learning,execution_session}',
                   i.payload #>> '{direction_challenger,incumbent}',
@@ -190,6 +194,7 @@ def matured_rows(conn) -> list[dict]:
           ON r.kind='AGENT_REWARD_V3' AND r.request_key=i.request_key
         WHERE i.kind='AGENT_INTELLIGENCE_V2'
           AND i.payload #>> '{direction_challenger,protocol_sha256}'=%s
+          AND i.payload #>> '{state,paper_eligible}'='true'
           AND r.payload->>'learning_basis'='PROSPECTIVE_COUNTERFACTUAL_V1'
           AND r.payload #>> '{arms,LONG_STOCK,reward,schema_version}'=%s""",
         (PROTOCOL_SHA256, PROTOCOL["reward_version"]),

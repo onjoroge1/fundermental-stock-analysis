@@ -203,8 +203,9 @@ def test_concurrent_counterfactual_learning_is_serialized_and_replays_do_not_dou
 
 def test_direction_evidence_counts_only_matured_decisions_under_the_current_protocol(pg):
     from stock_machine.agent_intelligence import direction
-    def intelligence(key, protocol):
+    def intelligence(key, protocol, paper=True):
         return {'ticker':'VZ','decision_id':key,'learning':{'execution_session':'2026-10-02'},
+                'state':{'paper_eligible':paper},
                 'direction_challenger':{'protocol_sha256':protocol,'incumbent':'LONG','challenger':'SHORT'}}
     from stock_machine.agent_intelligence import reward as reward_module
     v=reward_module.VERSION
@@ -219,6 +220,9 @@ def test_direction_evidence_counts_only_matured_decisions_under_the_current_prot
         research_store.save(conn,'AGENT_INTELLIGENCE_V2','old-protocol',intelligence('old-protocol','0'*64),'VZ')
         research_store.save(conn,'AGENT_REWARD_V3','old-protocol',reward,'VZ')
         research_store.save(conn,'AGENT_INTELLIGENCE_V2','immature',intelligence('immature',direction.PROTOCOL_SHA256),'VZ')
+        # Learning-only decisions (fundamentals withheld) never enter the test.
+        research_store.save(conn,'AGENT_INTELLIGENCE_V2','learning-only',intelligence('learning-only',direction.PROTOCOL_SHA256,paper=False),'VZ')
+        research_store.save(conn,'AGENT_REWARD_V3','learning-only',reward,'VZ')
         # Raw-return (v4) labels are a different target and never count.
         research_store.save(conn,'AGENT_INTELLIGENCE_V2','raw-reward',intelligence('raw-reward',direction.PROTOCOL_SHA256),'VZ')
         research_store.save(conn,'AGENT_REWARD_V3','raw-reward',raw_v4,'VZ')
@@ -387,3 +391,24 @@ def test_learned_direction_needs_owner_approval_and_a_current_passing_test(pg):
     with pg() as conn:
         reverted=dp.set_policy(conn,"owner","HEURISTIC",2,"revert")
     assert reverted["effective"]["policy"]=="HEURISTIC" and reverted["effective"]["reason"]=="NOT_APPROVED"
+
+
+
+def test_withheld_fundamentals_decision_trains_and_records_its_basis(pg):
+    from stock_machine.agent_intelligence import eligibility, outcomes
+    from stock_machine.agent_intelligence.learning import pooled_state, record_counterfactual
+    window={'contract':outcomes.CONTRACT,'execution_session':'2026-09-01','due_session':'2026-09-29'}
+    state=eligibility.withhold_fundamentals({'paper_eligible':False,
+        'blockers':['DATA_QUALITY_NOT_PASS','FINANCIAL_INTEGRITY_NOT_VERIFIED'],
+        'signal_components':{'fundamental':.6,'technical':.3},'technical':{'features':{'realized_vol_20':.3}}})
+    arm_outcomes={a:{'learning_basis':'PROSPECTIVE_COUNTERFACTUAL_V1','gross_return_pct':2.,'residual_return_pct':1.,
+                     'max_drawdown_pct':-1.,'capital_used_pct':.93,'turnover_pct':1.86,'costs_pct':.2,
+                     'entry_date':'2026-09-01','exit_date':'2026-09-29'} for a in outcomes.LEARNED_ARMS}
+    with pg() as conn:
+        research_store.save(conn,'AGENT_INTELLIGENCE_V2','withheld',{'ticker':'VZ','decision_id':'withheld',
+            'learning_contract':outcomes.CONTRACT,'learning':window,'state':state,
+            'bandit':{'selected':{'action':'NO_TRADE'}}},'VZ')
+    learned=record_counterfactual('VZ','withheld',arm_outcomes)
+    assert learned['reward_record']['eligibility']=='FUNDAMENTALS_WITHHELD'
+    with pg() as conn:
+        assert pooled_state(conn)['arms']['LONG_STOCK']['observations']==1

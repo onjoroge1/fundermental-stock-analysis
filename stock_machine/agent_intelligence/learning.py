@@ -89,7 +89,9 @@ def _record_counterfactual(conn, ticker, decision_id, arm_outcomes):
     payload = run["payload"]
     if payload.get("ticker") != ticker or payload.get("learning_contract") != CONTRACT:
         raise ValueError("LEARNING_IDENTITY_OR_CONTRACT_INVALID")
-    if not (payload.get("state") or {}).get("paper_eligible"):
+    from .eligibility import basis as eligibility_basis, is_learning_eligible
+
+    if not is_learning_eligible(payload.get("state") or {}):
         raise ValueError("LEARNING_STATE_NOT_ELIGIBLE")
     if set(arm_outcomes) != set(LEARNED_ARMS):
         raise ValueError("COUNTERFACTUAL_ARMS_INCOMPLETE")
@@ -151,6 +153,7 @@ def _record_counterfactual(conn, ticker, decision_id, arm_outcomes):
         "learning_contract": CONTRACT,
         "selected_action": ((payload.get("bandit") or {}).get("selected") or {}).get("action"),
         "overlap_weight": OVERLAP_WEIGHT,
+        "eligibility": eligibility_basis(payload.get("state") or {}),
         "arms": scored,
     }
     research_store.save(conn, "AGENT_REWARD_V3", decision_id, record, ticker)
