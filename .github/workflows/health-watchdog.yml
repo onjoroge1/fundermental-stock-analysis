@@ -1,0 +1,56 @@
+name: Health Watchdog
+
+# Tue-Sat 13:15 UTC (09:15 ET in summer, 08:15 in winter): after the nightly
+# refresh and overnight research for the previous session have finished.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "15 13 * * 2-6"
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: health-watchdog
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      STOCK_MACHINE_API_BASE_URL: ${{ vars.STOCK_MACHINE_API_BASE_URL || 'https://fundermental-stock-analysis.vercel.app' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install httpx
+      - name: Run checks
+        run: python scripts/health_watchdog.py --json health.json --markdown health.md
+      - name: Open, update or close the alert issue
+        run: |
+          status=$(python -c "import json; print(json.load(open('health.json'))['status'])")
+          gh label create health-alert --color B60205 --description "Automated health watchdog" --force >/dev/null
+          open_issue=$(gh issue list --label health-alert --state open --json number --jq '.[0].number // empty')
+          if [ "$status" = "OK" ]; then
+            if [ -n "$open_issue" ]; then
+              gh issue comment "$open_issue" --body-file health.md
+              gh issue close "$open_issue" --comment "All checks pass again; closing."
+            fi
+          elif [ -n "$open_issue" ]; then
+            # Notify only when which checks fail (or their severity) changes.
+            previous=$(gh issue view "$open_issue" --json body --jq .body | grep -o 'watchdog-signature: [^ ]*' || true)
+            current=$(grep -o 'watchdog-signature: [^ ]*' health.md)
+            if [ "$previous" != "$current" ]; then
+              gh issue edit "$open_issue" --title "Health alert: $status" --body-file health.md
+              gh issue comment "$open_issue" --body-file health.md
+            fi
+          else
+            gh issue create --title "Health alert: $status" --label health-alert --body-file health.md
+          fi
+          cat health.md >> "$GITHUB_STEP_SUMMARY"
