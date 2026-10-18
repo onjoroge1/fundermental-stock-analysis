@@ -76,3 +76,33 @@ def test_replay_trades_toward_fair_value_and_times_with_price_action():
     assert result["hypotheses"]["H9"]["verdict"] == "INSUFFICIENT_COVERAGE"   # short fixture
     assert result["coverage"]["own_untimed_120"]["active_decisions"] >= result["coverage"]["own_timed_120"][
         "active_decisions"]
+
+
+GOLDEN_FIXTURE_DIGEST = "54806e4b83a458baf640ee8ab2a8fe0c39d586355a290c8429331c39a7bf17d7"
+
+
+def test_replay_output_is_unchanged_by_the_shared_decision_refactor():
+    # Recorded before decision_row/policy_side were extracted; any change here
+    # changes the replay the forward tracker is meant to confirm.
+    rows = fv.replay(universe(), spy=SPY, sessions=dr.month_end_sessions("2015-01-01", "2016-12-31"),
+                     decision_start="2015-03-01")
+    assert digest(rows) == GOLDEN_FIXTURE_DIGEST
+
+
+def test_single_session_decisions_match_the_replay():
+    # The forward tracker decides one session at a time from observe_session;
+    # its sector-rule side must equal the replay's for the same session.
+    u = universe()
+    session = "2016-03-31"
+    replayed = {r["ticker"]: r for r in fv.replay(u, spy=SPY, sessions=dr.month_end_sessions("2015-01-01", "2016-03-31"),
+                                                  decision_start=session)}
+    assert len(replayed) >= 9  # enough names for the comparison to mean something
+    observed = fv.observe_session(u, session)
+    gaps = fv.sector_gaps({t: (sector, pe) for t, (_, _, sector, pe) in observed.items()})
+    for ticker, (observation, detail, _, _) in observed.items():
+        made = fv.decision_row(ticker, session, u[ticker], observation=observation, detail=detail, own_gap=None,
+                               sector_gap=gaps.get(ticker), spy=SPY, regime=None)
+        if ticker in replayed:
+            assert made is not None
+            assert made[0]["sector_timed_120"] == replayed[ticker]["sector_timed_120"]
+            assert made[0]["sector_gap"] == replayed[ticker]["sector_gap"]

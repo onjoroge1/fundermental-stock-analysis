@@ -122,6 +122,44 @@ def sector_gaps(observations: dict) -> dict:
     return out
 
 
+def policy_side(row: dict, policy: str) -> str:
+    """LONG, SHORT or FLAT for one pre-registered policy on a decision row."""
+    field, timed, _ = POLICIES[policy]
+    side = _direction(row[field]) if row["solid"] else "FLAT"
+    t = row["technical_signal"]
+    if timed and side != "FLAT" and not (t is not None and (t > 0) == (side == "LONG") and t != 0):
+        side = "FLAT"
+    return side
+
+
+def observe_session(universe: dict, session: str) -> dict:
+    """ticker -> (observation, detail, sector, pe) at one decision session."""
+    out = {}
+    for ticker, data in sorted(universe.items()):
+        observation = data["observe"](session) or {}
+        detail = observation.get("detail") or {}
+        pe = detail.get("pe_ttm")
+        out[ticker] = (observation, detail, data.get("sector"), None if pe is None else float(pe))
+    return out
+
+
+def decision_row(ticker: str, session: str, data: dict, *, observation: dict, detail: dict,
+                 own_gap: float | None, sector_gap: float | None, spy: list[dict], regime: dict | None):
+    """One stock's frozen decision at a session (no outcome), shared by replay and forward tracking.
+
+    Returns (row, decision) or None when the stock has no usable bar or history at the session.
+    """
+    decision = dr.decide(ticker, session, prices=data["prices"], composite=observation.get("composite"),
+                         spy=spy, sector=data.get("sector_rows"), regime=regime)
+    if decision is None:
+        return None
+    row = {"ticker": ticker, "session": session, "solid": solid(detail),
+           "own_gap": own_gap, "sector_gap": sector_gap, "technical_signal": decision["technical_signal"]}
+    for name in POLICIES:
+        row[name] = policy_side(row, name)
+    return row, decision
+
+
 def replay(universe: dict, *, spy: list[dict], sessions: list[str], decision_start: str,
            regime_for=None) -> list[dict]:
     """universe: ticker -> {"prices", "sector_rows", "sector", "observe" (detail=True)}."""
@@ -148,24 +186,18 @@ def replay(universe: dict, *, spy: list[dict], sessions: list[str], decision_sta
         data = universe[ticker]
         stock_adj = dr._adjusted(data["prices"])
         for session, observation, detail, gap in rows:
-            decision = dr.decide(ticker, session, prices=data["prices"], composite=observation.get("composite"),
-                                 spy=spy, sector=data.get("sector_rows"),
-                                 regime=regime_for(ticker, session) if regime_for else None)
-            if decision is None:
+            made = decision_row(ticker, session, data, observation=observation, detail=detail, own_gap=gap,
+                                sector_gap=sector_by_session.get(session, {}).get(ticker), spy=spy,
+                                regime=regime_for(ticker, session) if regime_for else None)
+            if made is None:
                 continue
+            row, decision = made
             windows = {h: dr.rewards(session, decision, stock=stock_adj, spy=spy_adj, horizon=h) for h in HORIZONS}
             if any(w is None for w in windows.values()):
                 continue
-            row = {"ticker": ticker, "session": session, "solid": solid(detail),
-                   "own_gap": gap, "sector_gap": sector_by_session.get(session, {}).get(ticker),
-                   "technical_signal": decision["technical_signal"],
-                   "rewards": {str(h): w["rewards"] for h, w in windows.items()}}
-            for name, (field, timed, _) in POLICIES.items():
-                side = _direction(row[field]) if row["solid"] else "FLAT"
-                t = row["technical_signal"]
-                if timed and side != "FLAT" and not (t is not None and (t > 0) == (side == "LONG") and t != 0):
-                    side = "FLAT"
-                row[name] = side
+            row = {**{k: row[k] for k in ("ticker", "session", "solid", "own_gap", "sector_gap", "technical_signal")},
+                   "rewards": {str(h): w["rewards"] for h, w in windows.items()},
+                   **{name: row[name] for name in POLICIES}}
             out.append(row)
     return out
 
