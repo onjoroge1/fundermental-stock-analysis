@@ -301,3 +301,29 @@ def test_approved_learned_direction_routes_without_changing_the_frozen_test(pg, 
     assert result["state"]["heuristic_direction"] == "BULLISH"
     assert result["state"]["direction"] == "NEUTRAL" and result["state"]["direction_source"] == "LEARNED"
     assert {c["action"] for c in result["router"]["candidates"]} == {"NO_TRADE"}
+
+
+
+def test_decision_blocked_only_by_unverified_financials_learns_without_fundamentals(pg, monkeypatch):
+    now = datetime.now(timezone.utc)
+    day = latest_completed_session(now)
+    d, p, i = inputs(day)
+    d.update(observed_at=now.isoformat(), decided_at=now.isoformat(), status="BLOCKED",
+             blockers=["FINANCIAL_DEPENDENCIES_UNVERIFIED", "REQUIRED_DATA_NOT_VERIFIED"])
+    p.update(ticker="VZ", market_snapshot={"price_date": day},
+             fundamentals={"fundamental_scores": {"composite_score": 80}},
+             data_quality={"status": "WARN", "financial_integrity": {"status": "WITHHELD"}})
+    monkeypatch.setattr(orchestrator, "build_for_ticker",
+                        lambda *a, **k: {"features": {"momentum_63": 0.1, "realized_vol_20": 0.3}})
+    monkeypatch.setattr(orchestrator, "_regime", lambda *a, **k: {"status": "UNAVAILABLE"})
+    with pg() as conn:
+        conn.execute("INSERT INTO agent_lab_evidence(input_sha256,payload) VALUES (%s,%s)", ("a" * 64, Jsonb(p)))
+    result = orchestrator.evaluate_decision(d, mode="PAPER")
+    state = result["state"]
+    assert state["paper_eligible"] is False                       # still never paper-traded
+    assert state["learning_eligibility"] == "FUNDAMENTALS_WITHHELD"
+    assert state["signal_components"]["fundamental"] is None      # unverified figure withheld
+    eligible = {c["action"] for c in result["router"]["candidates"] if c["eligible"]}
+    assert eligible == {"NO_TRADE"}
+    assert result["paper_instruction"]["selected_action"] == "NO_TRADE"
+    assert result["paper_instruction"]["blocker"] == "INTELLIGENCE_STATE_BLOCKED"

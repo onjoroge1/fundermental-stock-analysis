@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from math import isfinite
 from .learning import record_counterfactual
+from . import eligibility
 from .. import db
 from ..regime import sector_etf
 from ..market_calendar import (
@@ -113,7 +114,7 @@ def learning_status(run: dict, completed: str) -> tuple[str, str | None]:
         if run.get("learning_contract") == "executed-paper.v3":
             return "EXCLUDED_PRIOR_LEARNING_CONTRACT", None
         return "EXCLUDED_LEGACY_HYPOTHETICAL", None
-    if not (run.get("state") or {}).get("paper_eligible"):
+    if not eligibility.is_learning_eligible(run.get("state") or {}):
         return "EXCLUDED_BLOCKED_STATE", None
     window = run.get("learning") or {}
     due, entry = window.get("due_session"), window.get("execution_session")

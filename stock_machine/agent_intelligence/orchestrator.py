@@ -11,6 +11,7 @@ from .learning import current_arms, current_offsets, pooled_state
 from .outcomes import CONTRACT as LEARNING_CONTRACT, learning_window
 from .direction import challenger as direction_challenger
 from . import direction_policy as policy_module
+from . import eligibility
 
 
 def _regime(conn, ticker: str, as_of: str):
@@ -113,6 +114,10 @@ def evaluate_decision(
                 set(state.get("blockers", []) + ["AGENT_DECISION_NOT_RECORDED"])
             )
             state["paper_eligible"] = False
+        # Blocked only by unverified financials: still a training sample, with
+        # the fundamental signal withheld (seen as missing). Paper stays blocked.
+        if eligibility.learning_eligibility(state, decision) == eligibility.FUNDAMENTALS_WITHHELD:
+            state = eligibility.withhold_fundamentals(state)
         option_context = {
             "status": "NOT_REQUESTED",
             "candidates": option_candidates or [],
