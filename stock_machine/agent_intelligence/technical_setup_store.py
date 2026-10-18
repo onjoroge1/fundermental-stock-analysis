@@ -27,6 +27,19 @@ INPUT = "TECH_SETUP_INPUT_V1"
 CHECK = "TECH_SETUP_CHECK_V1"
 
 
+# One or two stocks without a complete latest bar is a data gap the price
+# refresh repairs; more than this is systemic and fails the scheduled job.
+MAX_ISOLATED_GAP_TICKERS = 3
+
+
+def attention_summary(gap_tickers):
+    return {
+        "gap_tickers": list(gap_tickers),
+        "systemic": len(gap_tickers) > MAX_ISOLATED_GAP_TICKERS,
+        "max_isolated_gap_tickers": MAX_ISOLATED_GAP_TICKERS,
+    }
+
+
 def score_pending(cutoff):
     with db.connect() as conn:
         pending = conn.execute(
@@ -39,6 +52,7 @@ def score_pending(cutoff):
             (CHECK, SNAPSHOT, cutoff, OUTCOME),
         ).fetchall()
     scored = blocked = 0
+    blocked_tickers = set()
     for key, s in pending:
         with db.connect() as conn:
             conn.execute(
@@ -63,6 +77,7 @@ def score_pending(cutoff):
                     s["ticker"],
                 )
                 blocked += 1
+                blocked_tickers.add(s["ticker"])
                 continue
             ret = (
                 bars[s["due_session"]]["close"] / bars[s["entry_session"]]["close"] - 1
@@ -86,7 +101,8 @@ def score_pending(cutoff):
             }
             research_store.save(conn, OUTCOME, key, outcome, s["ticker"])
             scored += 1
-    return {"scored": scored, "blocked": blocked, "bounded_limit": 1000}
+    return {"scored": scored, "blocked": blocked, "blocked_tickers": sorted(blocked_tickers),
+            "bounded_limit": 1000}
 
 
 def run_daily(*, now=None):
@@ -257,11 +273,13 @@ def run_daily(*, now=None):
                             "replayed": False,
                         }
                     )
-            attention = outcomes["blocked"] or any(
-                r["status"] == "MISSING_CURRENT_COMPLETE_OHLCV" for r in results
+            gaps = sorted(
+                {r["ticker"] for r in results if r["status"] == "MISSING_CURRENT_COMPLETE_OHLCV"}
+                | set(outcomes.get("blocked_tickers", []))
             )
             receipt = {
-                "status": "ATTENTION" if attention else "OK",
+                "status": "ATTENTION" if gaps else "OK",
+                "attention": attention_summary(gaps),
                 "stage": "technical",
                 "as_of": cutoff,
                 "policy_hash": POLICY_HASH,

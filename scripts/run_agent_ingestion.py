@@ -2,18 +2,20 @@
 
 import json
 import os
-from stock_machine.scheduled_operations import run
+from stock_machine.scheduled_operations import INGESTION_REPAIR_CRON, run
 from scripts import daily_refresh
 
 
 def operation():
-    code = daily_refresh.main()
+    repair = os.getenv("REQUESTED_CRON") == INGESTION_REPAIR_CRON
+    code = daily_refresh.main(only_unready=repair)
     paths = sorted(daily_refresh.LOG_DIR.glob("*.json"))
     log = json.loads(paths[-1].read_text()) if paths else {}
     predictions = log.get("prediction_precompute") or {}
     benchmark = os.getenv("BENCHMARKS_OUTCOME", "not_checked")
     return {
         "status": "FAILED" if code or benchmark != "success" else "OK",
+        "repair": repair,
         "benchmark_status": benchmark,
         "exit_code": code,
         "ingested": log.get("tickers", 0),

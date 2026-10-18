@@ -6,6 +6,8 @@ on:
     # Both UTC triggers; the Eastern/session gate selects 17:30 across DST.
     - cron: "30 21 * * 1-5"
     - cron: "30 22 * * 1-5"
+    # Repair: re-runs a failed or missed ingestion for stocks not yet research-ready.
+    - cron: "30 1 * * 2-6"
 
 permissions:
   contents: read
@@ -45,8 +47,11 @@ jobs:
           python - <<'PYTHON'
           import json, os
           from stock_machine.scheduled_operations import schedule
+          from stock_machine.scheduled_operations import INGESTION_REPAIR_CRON, completed
           value = schedule('ingestion', workflow_cron=os.getenv('REQUESTED_CRON'),
                            manual=os.getenv('GITHUB_EVENT_NAME') == 'workflow_dispatch')
+          if value['due'] and os.getenv('REQUESTED_CRON') == INGESTION_REPAIR_CRON and completed(value['key']):
+              value = {**value, 'due': False, 'reason': 'SESSION_ALREADY_INGESTED'}
           print(json.dumps(value))
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write('run=' + str(value['due']).lower() + '\n')

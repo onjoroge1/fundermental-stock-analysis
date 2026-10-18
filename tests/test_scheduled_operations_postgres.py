@@ -123,3 +123,23 @@ def test_progress_only_counts_unscored_shadow_targets(pg, monkeypatch):
         {"horizon": 5, "pending": 1, "due": 1, "first_target_session": "2026-10-07"},
         {"horizon": 10, "pending": 1, "due": 0, "first_target_session": "2026-10-14"},
     ]
+
+
+def test_repair_targets_exactly_the_stocks_research_cannot_pick(pg):
+    session = "2026-10-07"
+    with pg() as conn:
+        conn.execute("INSERT INTO prices_daily(ticker,date,close,adj_close) VALUES ('VZ',%s,100,100)", (session,))
+        conn.execute(
+            """INSERT INTO dataset_snapshots(snapshot_id,ticker,dataset,content_hash,row_count,max_record_date,status)
+            VALUES ('fixture','VZ','prices','hash',1,%s,'PASS')""",
+            (session,),
+        )
+        assert "VZ" in automation.research_unready(conn, session)
+        conn.execute(
+            """INSERT INTO prediction_forecasts(forecast_id,ticker,as_of,model_version,status,payload)
+            VALUES ('forecast-fixture','VZ',%s,'fixture','OK',%s)""",
+            (session, Jsonb({})),
+        )
+        assert "VZ" not in automation.research_unready(conn, session)
+        assert automation.choose_agent_ticker(conn, session) == "VZ"
+

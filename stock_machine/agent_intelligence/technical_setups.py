@@ -1,9 +1,10 @@
 """Daily-bar technical candidates. Historical reconstruction is never live evidence."""
 
 from __future__ import annotations
-from math import exp, isfinite, sqrt
+from math import exp, sqrt
 from statistics import mean, pstdev
 from ..agents.contracts import digest
+from ..data_quality import BAR_FIELDS, complete_bar
 from ..market_calendar import session_dates, session_offset
 
 VERSION = "technical-setups.v1"
@@ -48,17 +49,9 @@ def normalized(rows, cutoff):
         day = str(r["date"])[:10]
         if day > cutoff:
             continue
-        vals = [
-            r.get(k) for k in ("open", "high", "low", "close", "adj_close", "volume")
-        ]
-        if any(
-            isinstance(v, bool) or not isinstance(v, (int, float)) or not isfinite(v)
-            for v in vals
-        ):
+        if not complete_bar(r):
             continue
-        o, h, l, c, a, v = map(float, vals)
-        if min(o, h, l, c, a) <= 0 or v < 0 or h < max(o, c) or l > min(o, c) or h < l:
-            continue
+        o, h, l, c, a, v = (float(r[k]) for k in BAR_FIELDS)
         factor = a / c
         result[day] = {
             "date": day,

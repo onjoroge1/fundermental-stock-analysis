@@ -124,7 +124,7 @@ def _report(entry: dict) -> None:
                       if k not in ("trace", "fields_present")}))
 
 
-def main() -> int:
+def main(*, only_unready: bool = False) -> int:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     started = datetime.now(timezone.utc)
     results, failures = [], 0
@@ -137,6 +137,14 @@ def main() -> int:
     conn = db.connect()
     try:
         tickers = [c["ticker"] for c in db.list_companies(conn)]
+        if only_unready:
+            # Repair pass: only stocks without this session's prices and forecast.
+            from stock_machine.automation import research_unready
+            from stock_machine.market_calendar import latest_completed_session
+
+            unready = set(research_unready(conn, latest_completed_session()))
+            tickers = [t for t in tickers if t in unready]
+            print(json.dumps({"event": "repair_pass", "tickers": tickers}))
     finally:
         conn.close()
 

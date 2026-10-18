@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Iterable
 
 from . import db
-from .data_quality import assess_dataset
+from .data_quality import BAR_FIELDS, assess_dataset, complete_bar
 import time
 
 from . import pipeline
@@ -54,6 +54,11 @@ def health(conn, *, max_age_hours: float = DEFAULT_MAX_AGE_HOURS,
         )
         latest_dates = {ticker: market_date for ticker, market_date in cur.fetchall()}
         cur.execute(
+            """SELECT DISTINCT ON (ticker) ticker, open, high, low, close, adj_close, volume
+               FROM prices_daily ORDER BY ticker, date DESC"""
+        )
+        latest_complete = {r[0]: complete_bar(dict(zip(BAR_FIELDS, r[1:]))) for r in cur.fetchall()}
+        cur.execute(
             """SELECT DISTINCT ON (ticker)
                       ticker, observed_at, max_record_date::text, status,
                       metrics, reasons, last_checked_at
@@ -86,6 +91,8 @@ def health(conn, *, max_age_hours: float = DEFAULT_MAX_AGE_HOURS,
             state = "BLOCKED"
         if state == "CURRENT" and snap.get("snapshot_market_date") != latest_market_date:
             state = "BLOCKED"
+        if state == "CURRENT" and not latest_complete.get(ticker, False):
+            state = "INCOMPLETE"  # stale for refresh purposes: re-fetched until complete
         rows.append({
             "ticker": ticker,
             "state": state,
@@ -114,6 +121,7 @@ def health(conn, *, max_age_hours: float = DEFAULT_MAX_AGE_HOURS,
         "current_count": sum(r["state"] == "CURRENT" for r in rows),
         "stale_count": sum(r["state"] == "STALE" for r in rows),
         "missing_count": sum(r["state"] == "MISSING" for r in rows),
+        "incomplete_count": sum(r["state"] == "INCOMPLETE" for r in rows),
         "latest_market_date": max(market_dates) if market_dates else None,
         "oldest_market_date": min(market_dates) if market_dates else None,
         "last_successful_price_fetch_at": max(observed) if observed else None,

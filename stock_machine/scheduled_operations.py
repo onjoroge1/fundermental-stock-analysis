@@ -1,11 +1,15 @@
 """Clock-gated agent operations with durable, owner-visible stage receipts."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from . import db
 from .market_calendar import EASTERN, latest_completed_session
 from .admin_panel import store
 
 STAGES = ("ingestion", "paper", "learning", "progress")
+# A later trigger that re-runs a failed or missed ingestion for the same session
+# (same receipt key, so it replays when the first run succeeded) and refreshes
+# only the stocks that are not yet research-ready.
+INGESTION_REPAIR_CRON = "30 1 * * 2-6"
 
 
 def schedule(stage, now=None, *, workflow_cron=None, manual=False):
@@ -24,6 +28,13 @@ def schedule(stage, now=None, *, workflow_cron=None, manual=False):
         due = local.weekday() < 5 and local.hour == 8 and local.minute >= 15
         reason = "DUE" if due else "OUTSIDE_PROGRESS_WINDOW"
         slot = "08:15"
+    elif stage == "ingestion" and workflow_cron == INGESTION_REPAIR_CRON:
+        # GitHub can start a schedule hours late, so the window runs past midnight.
+        same_evening = session == local.date().isoformat() and (local.hour, local.minute) >= (17, 30)
+        next_morning = session == (local.date() - timedelta(days=1)).isoformat() and local.hour < 6
+        due = same_evening or next_morning
+        reason = "REPAIR_DUE" if due else "OUTSIDE_REPAIR_WINDOW"
+        slot = "17:30"
     elif session != local.date().isoformat():
         due, reason = False, "NO_COMPLETED_SESSION_TODAY"
     elif stage == "ingestion":
@@ -153,6 +164,16 @@ def learning_operation():
         "promotion": "NOT_AUTHORIZED",
         "broker_submission": False,
     }
+
+
+def completed(key) -> bool:
+    """True when this stage key already has a successful receipt."""
+    with db.connect() as conn:
+        return conn.execute(
+            """SELECT 1 FROM operator_audit WHERE event='AGENT_STAGE_FINISHED'
+            AND details->>'key'=%s AND details->>'status' IN ('OK','ATTENTION','SKIPPED') LIMIT 1""",
+            (key,),
+        ).fetchone() is not None
 
 
 def run(stage, *, now=None, workflow_cron=None, manual=False, operation=None):

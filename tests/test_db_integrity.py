@@ -175,7 +175,7 @@ def test_health_api_reads_migrated_store_and_refresh_requires_authentication(con
     from stock_machine.webapp_automation import app
     schema = conn.execute("SELECT current_schema()").fetchone()[0]
     conn.execute("INSERT INTO companies(ticker,cik) VALUES ('APIHEALTH','test')")
-    conn.execute("INSERT INTO prices_daily(ticker,date,close,adj_close,volume) VALUES ('APIHEALTH','2026-09-04',100,100,10)")
+    conn.execute("INSERT INTO prices_daily(ticker,date,open,high,low,close,adj_close,volume) VALUES ('APIHEALTH','2026-09-04',100,100,100,100,100,10)")
     conn.commit()
     snapshot = assess_dataset("prices", [{"date": "2026-09-04", "close": 100, "volume": 10}])
     db.record_dataset_snapshots(conn, "APIHEALTH", [snapshot])
