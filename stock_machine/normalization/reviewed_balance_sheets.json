@@ -1214,5 +1214,219 @@
     "drafted_by": "debt-reconciliation-draft.v1",
     "note": "Owner approved on 2026-10-18 (review group: face balance sheet debt lines; finance leases included where the face lines include them). Not corroborated by a separate debt-note total; bound to same-accession normalized balance sheet totals.",
     "cash_and_equivalents": 15219000000
+  },
+  {
+    "ticker": "AMZN",
+    "cik": "0001018724",
+    "period_end": "2026-06-30",
+    "accession_number": "0001018724-26-000026",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:AMZN:2026-06-30:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000026/amzn-20260630.htm",
+    "source_sha256": "e2397820a55b6790b5e6f5e563a0ad0cbcaa8379702a68795fc6b34e4cf68d0f",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "long_term_debt_noncurrent": 128894000000
+    },
+    "binding_fields": {
+      "total_assets": 1095689000000,
+      "shareholders_equity": 551620000000,
+      "cash_and_equivalents": 78213000000
+    },
+    "total_debt": 128894000000,
+    "source_element_ids": [
+      "f-407"
+    ],
+    "review_flags_accepted": [
+      "FINANCE_LEASES_DISCLOSED_OUTSIDE_FACE_LINES"
+    ],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Owner approved on 2026-10-18. Face balance sheet debt lines; finance leases disclosed only in the notes are not added (AMZN, COST, CRM, GOOGL); for SOFI, bank funding lines (deposits) are not debt.",
+    "cash_and_equivalents": 78213000000
+  },
+  {
+    "ticker": "COST",
+    "cik": "0000909832",
+    "period_end": "2026-08-30",
+    "accession_number": "0000909832-26-000093",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:COST:2026-08-30:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/909832/000090983226000093/cost-20260830.htm",
+    "source_sha256": "2fc7ba3a101d0765bd80233ab30e2164a6da3346711c0e30d349779f66428233",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "long_term_debt_current": 2248000000,
+      "long_term_debt_noncurrent": 3914000000
+    },
+    "binding_fields": {
+      "total_assets": 89045000000,
+      "total_liabilities": 53242000000,
+      "shareholders_equity": 35803000000,
+      "cash_and_equivalents": 20207000000
+    },
+    "total_debt": 6162000000,
+    "source_element_ids": [
+      "f-133",
+      "f-139"
+    ],
+    "review_flags_accepted": [
+      "FINANCE_LEASES_DISCLOSED_OUTSIDE_FACE_LINES",
+      "NOT_CORROBORATED_BY_A_DEBT_NOTE_TOTAL"
+    ],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Owner approved on 2026-10-18. Face balance sheet debt lines; finance leases disclosed only in the notes are not added (AMZN, COST, CRM, GOOGL); for SOFI, bank funding lines (deposits) are not debt.",
+    "cash_and_equivalents": 20207000000
+  },
+  {
+    "ticker": "CRM",
+    "cik": "0001108524",
+    "period_end": "2026-07-31",
+    "accession_number": "0001108524-26-000190",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:CRM:2026-07-31:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1108524/000110852426000190/crm-20260731.htm",
+    "source_sha256": "8aa47489d43d2dc5f4a3d913b8799d1be9821bd5f4a3eced324594bcade94c2c",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "long_term_debt_noncurrent": 39288000000
+    },
+    "binding_fields": {
+      "total_assets": 109620000000,
+      "total_liabilities": 71242000000,
+      "shareholders_equity": 38378000000,
+      "cash_and_equivalents": 8310000000
+    },
+    "total_debt": 39288000000,
+    "source_element_ids": [
+      "f-69"
+    ],
+    "review_flags_accepted": [
+      "FINANCE_LEASES_DISCLOSED_OUTSIDE_FACE_LINES"
+    ],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Owner approved on 2026-10-18. Face balance sheet debt lines; finance leases disclosed only in the notes are not added (AMZN, COST, CRM, GOOGL); for SOFI, bank funding lines (deposits) are not debt.",
+    "cash_and_equivalents": 8310000000
+  },
+  {
+    "ticker": "GOOGL",
+    "cik": "0001652044",
+    "period_end": "2026-06-30",
+    "accession_number": "0001652044-26-000071",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:GOOGL:2026-06-30:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000071/goog-20260630.htm",
+    "source_sha256": "72980c23944813e47074e432ed0a02c3d39b7ea8e23bc63327f8f58219e634f3",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "long_term_debt_noncurrent": 98165000000
+    },
+    "binding_fields": {
+      "total_assets": 921983000000,
+      "total_liabilities": 281503000000,
+      "shareholders_equity": 640480000000,
+      "cash_and_equivalents": 55911000000
+    },
+    "total_debt": 98165000000,
+    "source_element_ids": [
+      "f-150"
+    ],
+    "review_flags_accepted": [
+      "FINANCE_LEASES_DISCLOSED_OUTSIDE_FACE_LINES",
+      "NOT_CORROBORATED_BY_A_DEBT_NOTE_TOTAL"
+    ],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Owner approved on 2026-10-18. Face balance sheet debt lines; finance leases disclosed only in the notes are not added (AMZN, COST, CRM, GOOGL); for SOFI, bank funding lines (deposits) are not debt.",
+    "cash_and_equivalents": 55911000000
+  },
+  {
+    "ticker": "SOFI",
+    "cik": "0001818874",
+    "period_end": "2026-06-30",
+    "accession_number": "0001818874-26-000054",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:SOFI:2026-06-30:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1818874/000181887426000054/sofi-20260630.htm",
+    "source_sha256": "682f5e00d2a29180b0bed839220866e6fba7c2ddcfbe07df7cd500ae932306e6",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "debt_longterm_and_shortterm_combined_amount": 3300544000
+    },
+    "binding_fields": {
+      "total_assets": 60947548000,
+      "total_liabilities": 49871321000,
+      "shareholders_equity": 11076227000,
+      "cash_and_equivalents": 3126237000
+    },
+    "total_debt": 3300544000,
+    "source_element_ids": [
+      "f-76"
+    ],
+    "review_flags_accepted": [
+      "BANK_BALANCE_SHEET_FUNDING_LINES_NOT_INCLUDED"
+    ],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Owner approved on 2026-10-18. Face balance sheet debt lines; finance leases disclosed only in the notes are not added (AMZN, COST, CRM, GOOGL); for SOFI, bank funding lines (deposits) are not debt.",
+    "cash_and_equivalents": 3126237000
+  },
+  {
+    "ticker": "CMG",
+    "cik": "0001058090",
+    "period_end": "2026-06-30",
+    "accession_number": "0001058090-26-000066",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:CMG:2026-06-30:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1058090/000105809026000066/cmg-20260630.htm",
+    "source_sha256": "20fc3cfc6f28c611e869c6638c917d812a5f3f494f56eb89ce556b1cb1df59d9",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {},
+    "binding_fields": {
+      "total_assets": 8864585000,
+      "total_liabilities": 6664794000,
+      "shareholders_equity": 2199791000,
+      "cash_and_equivalents": 228199000
+    },
+    "total_debt": 0,
+    "source_element_ids": [],
+    "review_flags_accepted": [
+      "ZERO_DEBT_PROPOSED"
+    ],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Owner approved zero-debt rule on 2026-10-18: no debt line on the face balance sheet and no debt-like obligation anywhere in this filing at period end (an undrawn revolving facility is capacity, not debt).",
+    "method": "NO_DEBT_DISCLOSED",
+    "cash_and_equivalents": 228199000
+  },
+  {
+    "ticker": "PLTR",
+    "cik": "0001321655",
+    "period_end": "2026-06-30",
+    "accession_number": "0001321655-26-000041",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:PLTR:2026-06-30:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1321655/000132165526000041/pltr-20260630.htm",
+    "source_sha256": "d4967783c7fa13c2d800f26a69c8e283c95df1f9a88c4659e97e9f6903f650e8",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {},
+    "binding_fields": {
+      "total_assets": 11678564000,
+      "total_liabilities": 1793680000,
+      "shareholders_equity": 9774194000,
+      "cash_and_equivalents": 2030047000
+    },
+    "total_debt": 0,
+    "source_element_ids": [],
+    "review_flags_accepted": [
+      "ZERO_DEBT_PROPOSED"
+    ],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Owner approved zero-debt rule on 2026-10-18: no debt line on the face balance sheet and no debt-like obligation anywhere in this filing at period end (an undrawn revolving facility is capacity, not debt).",
+    "method": "NO_DEBT_DISCLOSED",
+    "cash_and_equivalents": 2030047000
   }
 ]
