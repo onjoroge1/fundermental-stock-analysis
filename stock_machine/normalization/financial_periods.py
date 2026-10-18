@@ -17,7 +17,8 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from ..financial_integrity import reviewed_debt_sources, validate_reviewed_debt
+from ..financial_integrity import (reviewed_balance_fields, reviewed_debt_sources,
+                                   validate_reviewed_debt, validate_reviewed_field)
 from .xbrl_mapping import (FIELD_MAP, FLOW_FIELDS, NON_ADDITIVE_FIELDS,
                            units_for)
 
@@ -375,6 +376,7 @@ def build_periods(companyfacts: dict) -> tuple[list[dict], list[dict], list[dict
     source_hash = raw_provenance.get("source_content_sha256") or hashlib.sha256(json.dumps(companyfacts, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     cik = str(companyfacts.get("cik", "")).zfill(10)
     reviewed = reviewed_debt_sources()
+    reviewed_fields = reviewed_balance_fields()
     for p in quarterly + annual:
         provenance = {}
         for f in facts:
@@ -390,6 +392,22 @@ def build_periods(companyfacts: dict) -> tuple[list[dict], list[dict], list[dict
                     "unit": units_for(f["field"])[0], "value": f["value"],
                 }
         p["fields"]["_financial_provenance"] = provenance
+        # Reviewed liabilities/cash fill fields the issuer does not tag; they
+        # come first because a reviewed debt entry may bind to cash.
+        for evidence in reviewed_fields:
+            if evidence["cik"] == cik and evidence["period_end"] == p["period_end"]:
+                value = validate_reviewed_field(evidence, p["fields"], p["field_sources"])
+                if value is not None:
+                    field = evidence["field"]
+                    p["fields"][field] = value
+                    p["field_sources"][field] = evidence["accession_number"]
+                    provenance[field] = {
+                        "tag": "REVIEWED:" + evidence["method"], "accession_number": evidence["accession_number"],
+                        "period_end": p["period_end"], "source_id": evidence["source_id"],
+                        "source_url": evidence["source_url"],
+                        "source_content_sha256": evidence["source_sha256"], "unit": "USD", "value": value,
+                        "components": evidence["components"],
+                    }
         for evidence in reviewed:
             if evidence["cik"] == cik and evidence["period_end"] == p["period_end"]:
                 total, validated = validate_reviewed_debt(evidence, p["fields"], p["field_sources"])

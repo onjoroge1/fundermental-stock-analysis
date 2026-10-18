@@ -139,3 +139,114 @@ def test_face_debt_in_a_dimensional_context_blocks_the_proposal():
     assert proposal["status"] == dr.NO_PROPOSAL and proposal["total_debt"] is None
     assert "FACE_DEBT_LINES_IN_DIMENSIONAL_CONTEXTS" in proposal["flags"]
     assert proposal["dimensional_face_debt"][0]["value"] == 9_000_000_000
+
+
+# ---- missing total liabilities / cash ----
+
+NO_TOTAL = [
+    row("Cash and cash equivalents", fact("us-gaap:CashAndCashEquivalentsAtCarryingValue", 500)),
+    row("Total assets", fact("us-gaap:Assets", 10_000)),
+    row("Total current liabilities", fact("us-gaap:LiabilitiesCurrent", 2_000)),
+    row("Long-term debt", fact("us-gaap:LongTermDebtNoncurrent", 3_000)),
+    row("Deferred taxes", fact("us-gaap:DeferredIncomeTaxLiabilitiesNet", 400)),
+    row("Other liabilities", fact("us-gaap:OtherLiabilitiesNoncurrent", 600)),
+    row("Commitments and contingencies", ""),
+    row("Common stock", fact("us-gaap:CommonStockValue", 100)),
+    row("Total stockholders' equity", fact("us-gaap:StockholdersEquity", 4_000)),
+    row("Total liabilities and equity", fact("us-gaap:LiabilitiesAndStockholdersEquity", 10_000, ident="lse")),
+]
+
+
+def balance_period(**override):
+    fields = {"total_assets": 10_000e6, "shareholders_equity": 4_000e6, "current_liabilities": 2_000e6,
+              "cash_and_equivalents": 500e6, **override}
+    fields = {k: int(v) for k, v in fields.items() if v is not None}
+    return {"period_end": END, "fields": fields, "field_sources": {k: "A-1" for k in fields}}
+
+
+def test_liabilities_are_current_plus_face_lines_and_close_the_identity():
+    proposal = dr.propose_liabilities(facts(NO_TOTAL))
+    assert proposal["status"] == dr.DRAFT_CLEAN and proposal["value"] == 6_000_000_000
+    assert proposal["identity_residual"] == 0
+    assert [c["tag"].split(":")[1] for c in proposal["components"]] == [
+        "LiabilitiesCurrent", "LongTermDebtNoncurrent", "DeferredIncomeTaxLiabilitiesNet", "OtherLiabilitiesNoncurrent"]
+
+
+def test_a_face_subtotal_of_the_lines_above_is_not_double_counted():
+    face = NO_TOTAL[:6] + [row("Deferred credits and other", fact(
+        "us-gaap:DeferredCreditsAndOtherLiabilitiesNoncurrent", 1_000))] + NO_TOTAL[6:]
+    proposal = dr.propose_liabilities(facts(face))
+    assert proposal["value"] == 6_000_000_000 and proposal["status"] == dr.DRAFT_CLEAN
+    assert proposal["notes"] == ["FACE_SUBTOTAL_EXCLUDED:us-gaap:DeferredCreditsAndOtherLiabilitiesNoncurrent"]
+
+
+def test_a_missed_line_fails_the_identity_and_needs_review():
+    face = [r for r in NO_TOTAL if "Deferred taxes" not in r]
+    # Equity unchanged, so the face no longer closes: 10,000 - 5,600 - 4,000 = 400.
+    proposal = dr.propose_liabilities(facts(face))
+    assert proposal["status"] == dr.DRAFT_NEEDS_REVIEW
+    assert "FACE_IDENTITY_DOES_NOT_CLOSE" in proposal["flags"]
+
+
+def test_cash_line_is_chosen_by_label_and_combined_tags_are_flagged():
+    plain = dr.propose_cash(facts([row("Cash", fact("us-gaap:Cash", 700))] + NO_TOTAL[1:]))
+    assert plain["status"] == dr.DRAFT_CLEAN and plain["value"] == 700_000_000
+    with_sti = dr.propose_cash(facts([row("Cash and cash equivalents", fact(
+        "us-gaap:CashCashEquivalentsAndShortTermInvestments", 700))] + NO_TOTAL[1:]))
+    assert with_sti["flags"] == ["TAG_INCLUDES_SHORT_TERM_INVESTMENTS"]
+    restricted = dr.propose_cash(facts(
+        [row("Cash and cash equivalents", fact("us-gaap:CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents", 700)),
+         row("Restricted cash", fact("us-gaap:RestrictedCashCurrent", 50))] + NO_TOTAL[1:]))
+    assert restricted["flags"] == ["TAG_INCLUDES_RESTRICTED_CASH"]
+
+
+def liabilities_entry(**override):
+    found = facts(NO_TOTAL)
+    proposal = dr.propose_liabilities(found)
+    bound, flags = dr.balance_bindings(found, balance_period(), "A-1", "total_liabilities")
+    assert flags == []
+    draft = {"ticker": "ACME", "cik": CIK, "period_end": END, "accession_number": "A-1",
+             "source_url": "https://www.sec.gov/x.htm", "source_sha256": "0" * 64}
+    return {**dr.reviewed_field_entry(draft, proposal, "total_liabilities", bound,
+                                      reviewed_on="2026-10-18", note="test"), **override}
+
+
+def test_reviewed_liabilities_fill_only_a_missing_field_and_must_close():
+    p = balance_period()
+    assert fi.validate_reviewed_field(liabilities_entry(), p["fields"], p["field_sources"]) == 6_000_000_000
+    present = balance_period(total_liabilities=6_000e6)
+    assert fi.validate_reviewed_field(liabilities_entry(), present["fields"], present["field_sources"]) is None
+    moved = balance_period(shareholders_equity=3_900e6)  # binding no longer matches
+    assert fi.validate_reviewed_field(liabilities_entry(), moved["fields"], moved["field_sources"]) is None
+    wrong = liabilities_entry(value=5_000_000_000, components={"us-gaap:LiabilitiesCurrent": 5_000_000_000})
+    assert fi.validate_reviewed_field(wrong, p["fields"], p["field_sources"]) is None  # identity open
+    assert fi.validate_reviewed_field(liabilities_entry(status="DRAFT_CLEAN"), p["fields"], p["field_sources"]) is None
+
+
+def test_normalization_fills_reviewed_liabilities_and_integrity_then_verifies(monkeypatch):
+    from stock_machine.normalization import financial_periods as fp
+
+    def instant(val, accn="A-1"):
+        return {"units": {"USD": [{"val": val, "end": END, "filed": "2026-08-01", "form": "10-Q",
+                                   "fy": 2026, "fp": "Q2", "accn": accn}]}}
+
+    def flow(val):
+        return {"units": {"USD": [{"val": val, "start": "2026-04-01", "end": END, "filed": "2026-08-01",
+                                   "form": "10-Q", "fy": 2026, "fp": "Q2", "accn": "A-1"}]}}
+
+    companyfacts = {"cik": int(CIK), "facts": {"us-gaap": {
+        "Revenues": flow(5_000_000_000),
+        "Assets": instant(10_000_000_000), "StockholdersEquity": instant(4_000_000_000),
+        "LiabilitiesCurrent": instant(2_000_000_000),
+        "CashAndCashEquivalentsAtCarryingValue": instant(500_000_000),
+        "DebtAndCapitalLeaseObligations": instant(3_000_000_000),
+    }}}
+    quarters, _, _ = fp.build_periods(companyfacts)
+    assert "MISSING_BALANCE_FIELD:total_liabilities" in fi.balance_sheet_check(quarters[-1])["reasons"]
+    monkeypatch.setattr(fp, "reviewed_balance_fields", lambda: (liabilities_entry(),))
+    quarters, _, _ = fp.build_periods(companyfacts)
+    latest = quarters[-1]
+    assert latest["fields"]["total_liabilities"] == 6_000_000_000
+    assert latest["fields"]["_financial_provenance"]["total_liabilities"]["tag"] == (
+        "REVIEWED:CURRENT_PLUS_FACE_NONCURRENT_LIABILITY_LINES")
+    assert fi.balance_sheet_check(latest)["status"] == "VERIFIED"
