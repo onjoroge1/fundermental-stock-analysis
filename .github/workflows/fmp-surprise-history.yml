@@ -1,0 +1,43 @@
+name: FMP Surprise History
+
+# Manual: fetch FMP earnings-surprise history into an evidence artifact.
+# No database access; the live agent never reads it.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "probe (3 tickers, report only) or fetch (all covered tickers)"
+        type: choice
+        options: [probe, fetch]
+        default: probe
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    environment: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e .
+      - name: Fetch
+        run: |
+          if [ "${{ inputs.mode }}" = "probe" ]; then
+            python scripts/fetch_fmp_surprise_history.py --probe
+          else
+            python scripts/fetch_fmp_surprise_history.py --out data/vendor_history/fmp-earnings-surprises.json
+          fi
+      - uses: actions/upload-artifact@v4
+        if: inputs.mode == 'fetch'
+        with:
+          name: fmp-surprise-history-${{ github.run_id }}
+          path: data/vendor_history/
+          retention-days: 90
