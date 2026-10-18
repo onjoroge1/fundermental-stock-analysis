@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       suite:
-        description: "direction (heuristic) or signals (surprise, revisions, value gap)"
+        description: "direction (heuristic), signals (surprise, revisions, value gap) or fairvalue"
         type: choice
-        options: [direction, signals]
+        options: [direction, signals, fairvalue]
         default: direction
 
 permissions:

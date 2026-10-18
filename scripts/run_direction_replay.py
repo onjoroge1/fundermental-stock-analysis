@@ -1,10 +1,12 @@
 """Run the heuristic direction replay (read-only) and write its evidence.
 
-  python -m scripts.run_direction_replay [--suite direction|signals] [--tickers AAPL,MSFT]
+  python -m scripts.run_direction_replay [--suite direction|signals|fairvalue] [--tickers AAPL,MSFT]
 
 direction: the heuristic direction replay (protocol heuristic-direction-replay.v1).
 signals:   earnings surprise, estimate revisions, reverse-DCF value gap and the
-           value gap timed by technicals (protocol signal-replay.v1).
+           value gap timed by technicals (protocol signal-replay.v2).
+fairvalue: solid companies traded toward a P/E fair value over 60/120 sessions
+           (protocol fair-value-convergence.v1).
 
 Reads prices, filings and companies from DATABASE_URL in a read-only session;
 writes data/direction_replay/<run date>.json (protocol, result, every row) and
@@ -22,19 +24,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from stock_machine import db  # noqa: E402
 from stock_machine.agents.contracts import AGENT_UNIVERSE  # noqa: E402
-from stock_machine.backtest import direction_replay, signal_replay  # noqa: E402
+from stock_machine.backtest import direction_replay, fair_value_replay, signal_replay  # noqa: E402
 from stock_machine.market_calendar import latest_completed_session  # noqa: E402
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--tickers", help="comma-separated; default the agent universe")
-    parser.add_argument("--suite", choices=("direction", "signals"), default="direction")
+    parser.add_argument("--suite", choices=("direction", "signals", "fairvalue"), default="direction")
     args = parser.parse_args()
     tickers = [t.strip().upper() for t in args.tickers.split(",")] if args.tickers else sorted(AGENT_UNIVERSE)
     with db.connect() as conn:
         conn.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
-        module = signal_replay if args.suite == "signals" else direction_replay
+        module = {"signals": signal_replay, "fairvalue": fair_value_replay}.get(args.suite, direction_replay)
         out = module.run(conn, end=latest_completed_session(), tickers=tickers)
     directory = Path("data/direction_replay")
     directory.mkdir(parents=True, exist_ok=True)

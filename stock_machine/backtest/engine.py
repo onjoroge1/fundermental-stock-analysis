@@ -196,6 +196,9 @@ class TickerData:
                 "fcf_ttm": (ttm or {}).get("fields", {}).get("free_cash_flow") if ttm else None,
                 "revenue_cagr_3y_pct": _ttm_revenue_cagr_3y(qs),
                 "valuation_score": scores["components"].get("valuation"),
+                "pe_ttm": derived["valuation"].get("pe_ttm"),
+                "profitability_score": scores["components"].get("profitability"),
+                "financial_health_score": scores["components"].get("financial_health"),
             }} if detail else {}),
         }
 

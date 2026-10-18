@@ -18,9 +18,13 @@ Z_80 = 0.841621
 
 def t_quantile_975(df: int) -> float:
     """Two-sided 95% Student-t quantile (Cornish-Fisher; ~1e-4 for df >= 10)."""
+    return t_quantile(df, Z_975)
+
+
+def t_quantile(df: int, z: float) -> float:
+    """Student-t quantile for the normal quantile z (Cornish-Fisher expansion)."""
     if df < 1:
         raise ValueError("T_DEGREES_OF_FREEDOM_INVALID")
-    z = Z_975
     return (
         z
         + (z**3 + z) / (4 * df)
