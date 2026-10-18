@@ -94,3 +94,18 @@ def test_signal_run_reads_the_database(pg):
         out = sr.run(conn, end="2016-12-30", tickers=["VZ"])
     assert out["result"]["decisions"] == len(out["rows"]) > 0
     assert all(r[p] == "FLAT" for r in out["rows"] for p in sr.POLICIES)  # no filings or estimates stored
+
+
+def test_engine_detail_computes_3y_revenue_growth_from_quarters():
+    from datetime import date, timedelta
+
+    from stock_machine.backtest.engine import _ttm_revenue_cagr_3y
+
+    quarters, start = [], date(2012, 1, 1)
+    for i in range(16):
+        end = (date(start.year + (start.month + 2) // 12, (start.month + 2) % 12 + 1, 1) - timedelta(days=1))
+        quarters.append({"period_start": start.isoformat(), "period_end": end.isoformat(),
+                         "fields": {"revenue": 100.0 * 1.10 ** (i / 4)}})
+        start = end + timedelta(days=1)
+    assert _ttm_revenue_cagr_3y(quarters) == pytest.approx(10.0, abs=0.01)
+    assert _ttm_revenue_cagr_3y(quarters[:15]) is None

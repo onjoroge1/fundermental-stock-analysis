@@ -38,7 +38,10 @@ MIN_GAP_NAMES = 9  # terciles need at least three names each
 POLICIES = ("surprise", "revision", "value_gap", "value_timed")
 
 PROTOCOL = {
-    "protocol_id": "signal-replay.v1",
+    "protocol_id": "signal-replay.v2",
+    "supersedes": "v1 computed the value gap from a 3y revenue CAGR the engine never filled (annual periods "
+                  "are not passed), so no value-gap position was ever taken; no value-gap outcome was seen. "
+                  "Surprise and revision definitions are unchanged.",
     "base": dr.PROTOCOL["protocol_id"] + " sessions, window, reward, unit and interval",
     "base_sha256": dr.PROTOCOL_SHA256,
     "signals": {
@@ -46,7 +49,8 @@ PROTOCOL = {
                     f"days: LONG >= +{SURPRISE_THRESHOLD_PCT}%, SHORT <= -{SURPRISE_THRESHOLD_PCT}%",
         "revision": f"30-day consensus EPS revision: LONG >= +{REVISION_THRESHOLD_PCT}%, "
                     f"SHORT <= -{REVISION_THRESHOLD_PCT}%",
-        "value_gap": "revenue CAGR 3y minus reverse-DCF implied CAGR (TTM FCF, 9% discount, 2.5% terminal, "
+        "value_gap": "3y revenue CAGR (TTM revenue vs TTM revenue 12 quarters earlier, annualized) minus "
+                     "reverse-DCF implied CAGR (TTM FCF, 9% discount, 2.5% terminal, "
                      f"5 years); monthly terciles among names with a gap (>= {MIN_GAP_NAMES}): top LONG, "
                      "bottom SHORT",
         "value_timed": "value_gap direction, entered only when the technical component has the same sign",
