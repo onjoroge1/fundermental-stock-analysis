@@ -338,10 +338,13 @@ def test_admin_shadow_view_reads_the_learning_stage_summary_not_every_outcome(pg
         raise AssertionError("cumulative outcomes must not be re-read per page load")
     monkeypatch.setattr(shadow,"cumulative_rows",no_scan)
     with pg() as conn:
-        precomputed=shadow.latest_precomputed(conn)
-        assert precomputed["computed_at"]==summary["computed_at"]
-        conn.execute("ROLLBACK")
-        report=shadow.weekly_summary(conn,cumulative=precomputed)
+        # The admin path: one fresh transaction, saved summary read inside it.
+        report=shadow.weekly_summary(conn,precomputed=True)
+    with pg() as conn:
+        assert shadow.latest_precomputed(conn)["computed_at"]==summary["computed_at"]
+    with pg() as conn:
+        conn.execute("SELECT 1")   # a caller that already queried must not break it
+        shadow.weekly_summary(conn,precomputed=True)
     assert report["cumulative_source"]["source"]=="LEARNING_STAGE_RECEIPT"
     assert report["weights_promotion_test"]["status"]=="AWAITING_MATURED_OUTCOMES"
 
@@ -387,3 +390,15 @@ def test_learned_direction_needs_owner_approval_and_a_current_passing_test(pg):
     with pg() as conn:
         reverted=dp.set_policy(conn,"owner","HEURISTIC",2,"revert")
     assert reverted["effective"]["policy"]=="HEURISTIC" and reverted["effective"]["reason"]=="NOT_APPROVED"
+
+
+
+def test_admin_intelligence_summary_runs_end_to_end_on_the_real_schema(pg, monkeypatch):
+    # Admin tests stub every summary with fake connections; this one does not,
+    # so an ordering bug inside the real transaction (as in #114) fails here.
+    from stock_machine.admin_panel import operations, store
+    monkeypatch.setattr(store, "connect", db.connect)
+    result = operations.intelligence_summary()
+    assert result["schema_version"] == "agent-intelligence-admin.v2"
+    assert result["shadow_evaluation"]["cumulative_source"]["source"] == "LIVE_COMPUTATION"
+    assert result["direction_policy"]["policy"] == "HEURISTIC"
