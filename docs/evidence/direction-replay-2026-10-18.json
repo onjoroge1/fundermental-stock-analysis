@@ -1,0 +1,213 @@
+{
+ "run": "github actions run 39165116161",
+ "protocol": {
+  "protocol_id": "heuristic-direction-replay.v1",
+  "rule": "live state.assemble; fundamental composite PIT (TickerData.observe), technical (features.compute), regime (RegimeFeatureProvider) as of the decision session; news missing",
+  "decision_sessions": "last XNYS session of each calendar month",
+  "start": "2016-01-01",
+  "window": "entry at the next session close, exit 20 sessions later (adjusted closes)",
+  "reward": "risk-scaled-residual-paper-reward.v5: (direction x (stock return - beta x SPY return) - 20 bps) / ex-ante volatility over the window; FLAT = 0",
+  "beta": "beta_63_vs_spy at the decision session, clipped to [0.0, 3.0], default 1.0",
+  "unit": "calendar month of the decision: mean across stocks with a decision that month",
+  "interval": "Newey-West lag-1 standard error of the monthly means, Student t(n-1) 97.5% quantile",
+  "hypotheses": {
+   "H1": "heuristic beats abstention: mean monthly reward > 0 and its lower 95% bound > 0",
+   "H2": "heuristic beats the momentum baseline (technical component alone, same +/-0.25 threshold): mean paired monthly difference > 0 and lower bound > 0",
+   "H3": "the fundamental component adds value: heuristic minus heuristic without the fundamental signal, mean paired monthly difference > 0 and lower bound > 0"
+  },
+  "reported_not_tested": [
+   "2016-2020 and 2021-present subperiods",
+   "direction mix",
+   "hit rate"
+  ],
+  "use": "baseline for the forward direction test; never changes trading, the live protocol or promotion",
+  "caveats": [
+   "Universe is today's coverage list: survivorship-biased.",
+   "Fundamental scoring thresholds were hand-set in 2026 with knowledge of these histories.",
+   "No historical headlines: the news component is missing throughout.",
+   "The replay composite has no earnings-surprise (expectations) input.",
+   "Short positions carry no borrow cost; fills are at closes with fixed costs.",
+   "Adjusted closes are today's vintage."
+  ]
+ },
+ "result": {
+  "protocol_id": "heuristic-direction-replay.v1",
+  "protocol_sha256": "f93b3a68c58ed1d3157a94f97733760801e9d8faba94eb802380542545ede47e",
+  "decisions": 6555,
+  "stocks": 54,
+  "first_session": "2016-01-29",
+  "last_session": "2026-08-31",
+  "policies": {
+   "heuristic": {
+    "full": {
+     "months": 128,
+     "mean": -0.0017279505653391516,
+     "newey_west_se": 0.017548434032216276,
+     "lower_95": -0.03645313480220178,
+     "upper_95": 0.03299723367152348
+    },
+    "2016_2020": {
+     "months": 60,
+     "mean": 0.011491830253087407,
+     "newey_west_se": 0.028157988075309795,
+     "lower_95": -0.04485217047803407,
+     "upper_95": 0.06783583098420888
+    },
+    "2021_present": {
+     "months": 68,
+     "mean": -0.013392463052186115,
+     "newey_west_se": 0.021924019896527105,
+     "lower_95": -0.057152988533265524,
+     "upper_95": 0.03036806242889329
+    }
+   },
+   "no_fundamental": {
+    "full": {
+     "months": 128,
+     "mean": -0.0039925517539449295,
+     "newey_west_se": 0.01871978200186604,
+     "lower_95": -0.04103562224646373,
+     "upper_95": 0.03305051873857387
+    },
+    "2016_2020": {
+     "months": 60,
+     "mean": 0.021058445554595597,
+     "newey_west_se": 0.031157516863870915,
+     "lower_95": -0.04128759807119914,
+     "upper_95": 0.08340448918039034
+    },
+    "2021_present": {
+     "months": 68,
+     "mean": -0.02609637290853951,
+     "newey_west_se": 0.02138888328534846,
+     "lower_95": -0.06878876127699703,
+     "upper_95": 0.016596015459918
+    }
+   },
+   "momentum": {
+    "full": {
+     "months": 128,
+     "mean": -0.010135547794070863,
+     "newey_west_se": 0.020664604546202548,
+     "lower_95": -0.051027071147745615,
+     "upper_95": 0.030755975559603885
+    },
+    "2016_2020": {
+     "months": 60,
+     "mean": 0.00580098378194292,
+     "newey_west_se": 0.031505771001422114,
+     "lower_95": -0.05724191472312519,
+     "upper_95": 0.06884388228701104
+    },
+    "2021_present": {
+     "months": 68,
+     "mean": -0.02419719330231832,
+     "newey_west_se": 0.026808276557177525,
+     "lower_95": -0.07770673557243932,
+     "upper_95": 0.029312348967802677
+    }
+   }
+  },
+  "hypotheses": {
+   "H1_heuristic_vs_abstention": {
+    "full": {
+     "months": 128,
+     "mean": -0.0017279505653391516,
+     "newey_west_se": 0.017548434032216276,
+     "lower_95": -0.03645313480220178,
+     "upper_95": 0.03299723367152348
+    },
+    "2016_2020": {
+     "months": 60,
+     "mean": 0.011491830253087407,
+     "newey_west_se": 0.028157988075309795,
+     "lower_95": -0.04485217047803407,
+     "upper_95": 0.06783583098420888
+    },
+    "2021_present": {
+     "months": 68,
+     "mean": -0.013392463052186115,
+     "newey_west_se": 0.021924019896527105,
+     "lower_95": -0.057152988533265524,
+     "upper_95": 0.03036806242889329
+    },
+    "verdict": "NOT_SUPPORTED"
+   },
+   "H2_heuristic_minus_momentum": {
+    "full": {
+     "months": 128,
+     "mean": 0.00840759722873171,
+     "newey_west_se": 0.015051870163822671,
+     "lower_95": -0.021377337631468256,
+     "upper_95": 0.038192532088931676
+    },
+    "2016_2020": {
+     "months": 60,
+     "mean": 0.005690846471144485,
+     "newey_west_se": 0.022025379030896533,
+     "lower_95": -0.03838183261732439,
+     "upper_95": 0.04976352555961336
+    },
+    "2021_present": {
+     "months": 68,
+     "mean": 0.010804730250132202,
+     "newey_west_se": 0.020364849155117923,
+     "lower_95": -0.029843677504325452,
+     "upper_95": 0.05145313800458985
+    },
+    "verdict": "NOT_SUPPORTED"
+   },
+   "H3_heuristic_minus_no_fundamental": {
+    "full": {
+     "months": 128,
+     "mean": 0.0022646011886057766,
+     "newey_west_se": 0.01351502026968821,
+     "lower_95": -0.024479185064245665,
+     "upper_95": 0.029008387441457215
+    },
+    "2016_2020": {
+     "months": 60,
+     "mean": -0.009566615301508194,
+     "newey_west_se": 0.018777869102055426,
+     "lower_95": -0.047141042408494385,
+     "upper_95": 0.028007811805477997
+    },
+    "2021_present": {
+     "months": 68,
+     "mean": 0.012703909856353397,
+     "newey_west_se": 0.019088959796716733,
+     "lower_95": -0.02539781216059507,
+     "upper_95": 0.050805631873301865
+    },
+    "verdict": "NOT_SUPPORTED"
+   }
+  },
+  "direction_mix": {
+   "heuristic": {
+    "LONG": 3375,
+    "SHORT": 1147,
+    "FLAT": 2033
+   },
+   "no_fundamental": {
+    "LONG": 3425,
+    "SHORT": 1398,
+    "FLAT": 1732
+   },
+   "momentum": {
+    "LONG": 3180,
+    "SHORT": 2097,
+    "FLAT": 1278
+   }
+  },
+  "heuristic_hit_rate": 0.49624060150375937,
+  "use": "baseline for the forward direction test; never changes trading, the live protocol or promotion",
+  "caveats": [
+   "Universe is today's coverage list: survivorship-biased.",
+   "Fundamental scoring thresholds were hand-set in 2026 with knowledge of these histories.",
+   "No historical headlines: the news component is missing throughout.",
+   "The replay composite has no earnings-surprise (expectations) input.",
+   "Short positions carry no borrow cost; fills are at closes with fixed costs.",
+   "Adjusted closes are today's vintage."
+  ]
+ }
+}
