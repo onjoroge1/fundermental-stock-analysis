@@ -67,6 +67,18 @@ def quarterly_grid(start: str, end: str) -> list[str]:
     return out
 
 
+def _ttm_revenue_cagr_3y(quarters: list[dict]) -> float | None:
+    """Annualized growth of TTM revenue over 12 quarters (needs 16 quarters)."""
+    if len(quarters) < 16:
+        return None
+    now, then = metrics.build_ttm(quarters), metrics.build_ttm(quarters[:-12])
+    new = ((now or {}).get("fields") or {}).get("revenue")
+    old = ((then or {}).get("fields") or {}).get("revenue")
+    if not new or not old or new <= 0 or old <= 0:
+        return None
+    return round(((new / old) ** (1 / 3) - 1) * 100, 2)
+
+
 class TickerData:
     def __init__(self, conn, ticker: str):
         self.ticker = ticker
@@ -182,7 +194,7 @@ class TickerData:
             **({"detail": {
                 "market_cap": market_cap, "net_debt": nd,
                 "fcf_ttm": (ttm or {}).get("fields", {}).get("free_cash_flow") if ttm else None,
-                "revenue_cagr_3y_pct": derived["growth"].get("revenue_cagr_3y_pct"),
+                "revenue_cagr_3y_pct": _ttm_revenue_cagr_3y(qs),
                 "valuation_score": scores["components"].get("valuation"),
             }} if detail else {}),
         }
