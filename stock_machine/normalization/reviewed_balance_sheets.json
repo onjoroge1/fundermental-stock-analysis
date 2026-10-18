@@ -1428,5 +1428,194 @@
     "note": "Owner approved zero-debt rule on 2026-10-18: no debt line on the face balance sheet and no debt-like obligation anywhere in this filing at period end (an undrawn revolving facility is capacity, not debt).",
     "method": "NO_DEBT_DISCLOSED",
     "cash_and_equivalents": 2030047000
+  },
+  {
+    "ticker": "F",
+    "cik": "0000037996",
+    "period_end": "2026-03-31",
+    "accession_number": "0000037996-26-000086",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:F:2026-03-31:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/37996/000003799626000086/f-20260331.htm",
+    "source_sha256": "a6926003235cc975272c6b9dcba7e1ef2b90469f56fe1c98c29a04b3de273ea1",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "debt_current": 3268000000,
+      "long_term_debt_and_capital_lease_obligations": 16327000000
+    },
+    "binding_fields": {
+      "total_assets": 282434000000,
+      "total_liabilities": 244950000000,
+      "shareholders_equity": 37453000000,
+      "cash_and_equivalents": 17649000000
+    },
+    "total_debt": 19595000000,
+    "source_element_ids": [
+      "f-137",
+      "f-145"
+    ],
+    "review_flags_accepted": [
+      "OWNER_SELECTED_FACE_LINES"
+    ],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Owner decision 2026-10-18: automotive-only debt. Face balance sheet 'Company excluding Ford Credit' debt payable within one year and long-term debt; Ford Credit (captive finance) debt is excluded. Cash and equivalents remain consolidated.",
+    "method": "OWNER_SELECTED_FACE_LINES",
+    "cash_and_equivalents": 17649000000,
+    "selected_lines": [
+      {
+        "element_id": "f-137",
+        "tag": "us-gaap:DebtCurrent",
+        "label": "Company excluding Ford Credit",
+        "members": [
+          "us-gaap:StatementBusinessSegmentsAxis=f:CompanyExcludingFordCreditMember"
+        ],
+        "value": 3268000000
+      },
+      {
+        "element_id": "f-145",
+        "tag": "us-gaap:LongTermDebtAndCapitalLeaseObligations",
+        "label": "Company excluding Ford Credit",
+        "members": [
+          "us-gaap:StatementBusinessSegmentsAxis=f:CompanyExcludingFordCreditMember"
+        ],
+        "value": 16327000000
+      }
+    ]
+  },
+  {
+    "ticker": "GM",
+    "cik": "0001467858",
+    "period_end": "2026-06-30",
+    "accession_number": "0001467858-26-000051",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:GM:2026-06-30:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1467858/000146785826000051/gm-20260630.htm",
+    "source_sha256": "f1222e036968e09a61125cc7ef3f782e83c2e41da25ea6fa701990445423eacd",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "debt_current": 514000000,
+      "long_term_debt_and_capital_lease_obligations": 15465000000
+    },
+    "binding_fields": {
+      "total_assets": 282742000000,
+      "total_liabilities": 219101000000,
+      "shareholders_equity": 62000000000,
+      "cash_and_equivalents": 20134000000
+    },
+    "total_debt": 15979000000,
+    "source_element_ids": [
+      "f-186",
+      "f-194"
+    ],
+    "review_flags_accepted": [
+      "OWNER_SELECTED_FACE_LINES"
+    ],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Owner decision 2026-10-18: automotive-only debt. Face balance sheet Automotive short-term and long-term debt; GM Financial (captive finance) debt is excluded. Cash and equivalents remain consolidated.",
+    "method": "OWNER_SELECTED_FACE_LINES",
+    "cash_and_equivalents": 20134000000,
+    "selected_lines": [
+      {
+        "element_id": "f-186",
+        "tag": "us-gaap:DebtCurrent",
+        "label": "Automotive",
+        "members": [
+          "gm:BusinessGroupAxis=gm:AutomotiveMember"
+        ],
+        "value": 514000000
+      },
+      {
+        "element_id": "f-194",
+        "tag": "us-gaap:LongTermDebtAndCapitalLeaseObligations",
+        "label": "Automotive",
+        "members": [
+          "gm:BusinessGroupAxis=gm:AutomotiveMember"
+        ],
+        "value": 15465000000
+      }
+    ]
+  },
+  {
+    "ticker": "TMUS",
+    "cik": "0001283699",
+    "period_end": "2026-06-30",
+    "accession_number": "0001283699-26-000101",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:TMUS:2026-06-30:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1283699/000128369926000101/tmus-20260630.htm",
+    "source_sha256": "7ffdbf713a2962f4f8b0e7086f28b20aab54fdc6395ec6c335ed4e060d163c37",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "short_term_borrowings": 6117000000,
+      "finance_lease_liability_current": 1178000000,
+      "long_term_debt_noncurrent": 78504000000,
+      "long_term_debt_noncurrent_f-120": 0,
+      "finance_lease_liability_noncurrent": 1121000000
+    },
+    "binding_fields": {
+      "total_assets": 213553000000,
+      "total_liabilities": 157288000000,
+      "shareholders_equity": 56265000000,
+      "cash_and_equivalents": 2825000000
+    },
+    "total_debt": 86920000000,
+    "source_element_ids": [
+      "f-106",
+      "f-112",
+      "f-118",
+      "f-120",
+      "f-128"
+    ],
+    "review_flags_accepted": [
+      "OWNER_SELECTED_FACE_LINES"
+    ],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Owner decision 2026-10-18: total debt is short-term debt, long-term debt (non-related party), long-term debt to affiliates (related party, zero at this date) and financing lease liabilities, all from the face balance sheet. Tower obligations and operating leases are excluded.",
+    "method": "OWNER_SELECTED_FACE_LINES",
+    "cash_and_equivalents": 2825000000,
+    "selected_lines": [
+      {
+        "element_id": "f-106",
+        "tag": "us-gaap:ShortTermBorrowings",
+        "label": "Short-term debt",
+        "members": [],
+        "value": 6117000000
+      },
+      {
+        "element_id": "f-112",
+        "tag": "us-gaap:FinanceLeaseLiabilityCurrent",
+        "label": "Short-term financing lease liabilities",
+        "members": [],
+        "value": 1178000000
+      },
+      {
+        "element_id": "f-118",
+        "tag": "us-gaap:LongTermDebtNoncurrent",
+        "label": "Long-term debt",
+        "members": [
+          "us-gaap:RelatedPartyTransactionsByRelatedPartyAxis=us-gaap:NonrelatedPartyMember"
+        ],
+        "value": 78504000000
+      },
+      {
+        "element_id": "f-120",
+        "tag": "us-gaap:LongTermDebtNoncurrent",
+        "label": "Long-term debt to affiliates",
+        "members": [
+          "us-gaap:RelatedPartyTransactionsByRelatedPartyAxis=us-gaap:RelatedPartyMember"
+        ],
+        "value": 0
+      },
+      {
+        "element_id": "f-128",
+        "tag": "us-gaap:FinanceLeaseLiabilityNoncurrent",
+        "label": "Financing lease liabilities",
+        "members": [],
+        "value": 1121000000
+      }
+    ]
   }
 ]

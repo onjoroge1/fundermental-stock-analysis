@@ -88,9 +88,13 @@ class _InlineXbrl(HTMLParser):
                     "table": self._tables[-1] if self._tables else None, "text": []}
             self._open_facts.append(fact)
         elif tag == "xbrli:context":
-            self._context = {"id": a.get("id"), "instant": None, "entity": None, "dimensional": False}
+            self._context = {"id": a.get("id"), "instant": None, "entity": None, "dimensional": False,
+                             "members": []}
         elif tag in ("xbrldi:explicitmember", "xbrldi:typedmember") and self._context:
             self._context["dimensional"] = True
+            self._context["members"].append([a.get("dimension") or "", ""])
+            if tag == "xbrldi:explicitmember":
+                self._capture = (tag, [])
         elif tag in ("xbrli:instant", "xbrli:identifier") and self._context:
             self._capture = (tag, [])
         elif tag == "xbrli:unit":
@@ -126,7 +130,9 @@ class _InlineXbrl(HTMLParser):
                 self._row["facts"].append(fact)
         elif self._capture and tag == self._capture[0]:
             text = "".join(self._capture[1]).strip()
-            if tag == "xbrli:instant":
+            if tag == "xbrldi:explicitmember":
+                self._context["members"][-1][1] = text
+            elif tag == "xbrli:instant":
                 self._context["instant"] = text
             elif tag == "xbrli:identifier":
                 self._context["entity"] = text
@@ -180,7 +186,8 @@ def consolidated_facts(raw: str, *, cik: str, period_end: str, dimensional: bool
         out.append({"tag": fact["tag"], "value": value, "label": fact.get("label", ""),
                     "element_id": fact["element_id"], "context_id": fact["context_id"],
                     "table": fact["table"], "decimals": fact["decimals"],
-                    "rounding": rounding})
+                    "rounding": rounding,
+                    "members": [f"{d}={m}" for d, m in context.get("members", [])]})
     return out
 
 
@@ -304,9 +311,12 @@ def propose_zero_debt(facts: list[dict], dimensional: list[dict] = ()) -> dict:
 
 
 def _public(f: dict) -> dict:
-    return {"tag": f["tag"], "value": int(f["value"]), "label": f["label"],
-            "element_id": f["element_id"], "context_id": f["context_id"],
-            "declared_decimals": f["decimals"]}
+    out = {"tag": f["tag"], "value": int(f["value"]), "label": f["label"],
+           "element_id": f["element_id"], "context_id": f["context_id"],
+           "declared_decimals": f["decimals"]}
+    if f.get("members"):
+        out["members"] = f["members"]
+    return out
 
 
 def bindings(facts: list[dict], period: dict, accession: str) -> tuple[dict, list[str]]:

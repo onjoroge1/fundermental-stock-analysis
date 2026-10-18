@@ -238,6 +238,51 @@ def promote(args, sec: Sec) -> int:
     return 0
 
 
+def promote_custom(args, sec: Sec) -> int:
+    """Owner-selected face debt lines, e.g. one segment of a dimensional split.
+
+    Every element must be a debt fact at the latest normalized period end, for
+    this entity, in USD, on the face balance sheet. The entry is accepted only
+    if financial_integrity validates it against fresh normalization.
+    """
+    ticker = args.ticker.upper()
+    row = next(r for r in json.loads(EVIDENCE.read_text())["rows"] if r["ticker"] == ticker)
+    cik = row["cik"]
+    period = latest_quarter(sec, ticker, cik)
+    accession = period["field_sources"].get("total_assets")
+    url = filing_url(sec, ticker, cik, accession)
+    raw = sec.get(url, f"{ticker}.{accession}.htm")
+    text = raw.decode("utf-8", "replace")
+    plain = dr.consolidated_facts(text, cik=cik, period_end=period["period_end"])
+    every = plain + dr.consolidated_facts(text, cik=cik, period_end=period["period_end"], dimensional=True)
+    tables = dr.face_tables(plain)
+    by_id = {f["element_id"]: f for f in every}
+    chosen = []
+    for element in [e.strip() for e in args.element_ids.split(",") if e.strip()]:
+        f = by_id.get(element)
+        if not f or f["table"] not in tables or not dr.is_debt_tag(f["tag"]):
+            raise SystemExit(f"{ticker}: {element} is not a face balance sheet debt fact for {period['period_end']}")
+        chosen.append(f)
+    bound, binding_flags = dr.bindings(plain, period, accession)
+    proposal = {"components": [dr._public(f) for f in chosen], "flags": ["OWNER_SELECTED_FACE_LINES"],
+                "total_debt": int(sum(f["value"] for f in chosen)), "method": "OWNER_SELECTED_FACE_LINES"}
+    draft = {"ticker": ticker, "cik": cik, "period_end": period["period_end"], "accession_number": accession,
+             "source_url": url, "source_sha256": hashlib.sha256(raw).hexdigest(),
+             "proposal": proposal, "binding_fields": bound}
+    entry = dr.reviewed_entry(draft, reviewed_on=args.reviewed_on or date.today().isoformat(), note=args.note)
+    entry["selected_lines"] = [{"element_id": f["element_id"], "tag": f["tag"], "label": f["label"],
+                                "members": f["members"], "value": int(f["value"])} for f in chosen]
+    total, _ = fi.validate_reviewed_debt(entry, period["fields"], period["field_sources"])
+    if total is None:
+        raise SystemExit(f"{ticker}: financial_integrity rejects the entry ({binding_flags})")
+    reviewed = json.loads(REVIEWED.read_text())
+    if any(r["cik"] == cik and r["period_end"] == period["period_end"] for r in reviewed):
+        raise SystemExit(f"{ticker}: a reviewed entry for {period['period_end']} already exists")
+    REVIEWED.write_text(json.dumps(reviewed + [entry], indent=2) + "\n", encoding="utf-8")
+    print(json.dumps({"promoted": ticker, "total_debt": total, "lines": entry["selected_lines"]}))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -252,13 +297,20 @@ def main() -> int:
                    help="debt reviews, or missing total liabilities / cash")
     p.add_argument("--reviewed-on")
     p.add_argument("--note")
-    for s in (d, p):
+    c = sub.add_parser("custom", help="promote owner-selected face debt lines by element id")
+    c.add_argument("--ticker", required=True)
+    c.add_argument("--element-ids", required=True)
+    c.add_argument("--note", required=True)
+    c.add_argument("--reviewed-on")
+    for s in (d, p, c):
         s.add_argument("--cache-dir", type=Path, help="reuse fetched SEC responses")
     args = parser.parse_args()
     if "@" not in SEC_USER_AGENT:
         # www.sec.gov answers 403 without contact details (SEC fair-access policy).
         raise SystemExit("Set SEC_USER_AGENT to 'Name contact@your-domain' before fetching filings")
     sec = Sec(args.cache_dir)
+    if args.command == "custom":
+        return promote_custom(args, sec)
     if args.command == "promote":
         return promote_balance(args, sec) if args.kind == "balance" else promote(args, sec)
     rows = json.loads(EVIDENCE.read_text())["rows"]
