@@ -313,3 +313,13 @@ def test_zero_debt_evidence_reports_its_basis():
     assert evidence["status"] == "VERIFIED" and evidence["total_debt"] == 0
     assert evidence["basis"] == "REVIEWED_NO_DEBT_DISCLOSED"
     assert evidence["net_debt"] == -500_000_000
+
+
+def test_dimensional_facts_carry_their_axis_and_member():
+    # Owner-selected segment lines (e.g. Ford's "Company excluding Ford Credit")
+    # are recorded with the member that identifies them.
+    raw = filing(BASE + [row("Automotive debt", fact("us-gaap:LongTermDebtNoncurrent", 900, ctx="c-seg", ident="auto"))])
+    dimensional = dr.consolidated_facts(raw, cik=CIK, period_end=END, dimensional=True)
+    assert dimensional[0]["members"] == ["a=b"]
+    assert dr._public(dimensional[0])["members"] == ["a=b"]
+    assert "members" not in dr._public(dr.consolidated_facts(raw, cik=CIK, period_end=END)[0])
