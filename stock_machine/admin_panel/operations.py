@@ -174,8 +174,8 @@ def intelligence_summary():
     rows = []
     with store.connect() as conn:
         from ..agent_intelligence.shadow import weekly_summary
-        from ..agent_intelligence.shadow import latest_precomputed
-        shadow = weekly_summary(conn, cumulative=latest_precomputed(conn))
+        # First statement of the snapshot; it reads the saved summary itself.
+        shadow = weekly_summary(conn, precomputed=True)
         from ..agent_intelligence.direction import summary as direction_summary
         direction = direction_summary(conn)
         from ..agent_intelligence.direction_policy import effective as direction_effective
