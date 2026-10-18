@@ -52,10 +52,11 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
 | 30 | Both pre-registered tests pass too often with no real improvement: about 5–7% instead of 2.5%. Adjacent blocks are correlated (lag-1 ≈ +0.16) and the percentile bootstrap understates the spread by 22–26%. A Newey–West lag-1 + t(n−1) bound reaches about 3% from 24 blocks; nothing tried is calibrated at 12. | DONE (#115 on main) |
 | 31 | The direction test's protocol now names reward v5 and the sector-aware challenger, so its hash changed and evidence restarts. No 20-session window had matured yet, so nothing is lost; item 30's protocol decision is still open. | INFO |
 | 32 | `session_offset` built its calendar from the year before the origin, so look-backs of ~1 year from early January ran off its start. From early January 2027, shadow training history (−252) and the daily technical-setup job (−252) would have failed; the shadow capture failure would have been silent inside its savepoint. | DONE (#114 on main) |
-| 33 | Learning saw only ~5 of 54 stocks: 49 decisions a day were blocked, 44 of them only because total debt isn't reconciled to a filing (`TOTAL_DEBT_NOT_SOURCE_RECONCILED`; no total-debt tag, complete subtotals or reviewed reconciliation). The 5 eligible stocks are the original pilot names with reviewed debt. | PARTIAL, IN PR (`feat/learn-from-unverified-fundamentals`): decisions blocked only by unverified financials now train the learner with the fundamental signal withheld (seen as missing). Paper trading stays blocked for them, and the direction test keeps counting paper-eligible decisions only. Learnable decisions go from ~5 to ~40 a day. OPEN data work: reviewed debt reconciliations for the 44 issuers, redone each quarter. |
-| 34 | Admin intelligence view returned "Admin storage or operation unavailable": #114 ran a query before `weekly_summary`'s `SET TRANSACTION ISOLATION LEVEL`, which Postgres allows only first. | IN PR #119: fixed, with an end-to-end Postgres test of the real admin summary. |
+| 33 | Learning saw only ~5 of 54 stocks: 49 decisions a day were blocked, 44 of them only because total debt isn't reconciled to a filing (`TOTAL_DEBT_NOT_SOURCE_RECONCILED`; no total-debt tag, complete subtotals or reviewed reconciliation). The 5 eligible stocks are the original pilot names with reviewed debt. | PARTIAL: learning side MERGED (#120): decisions blocked only by unverified financials train the learner with the fundamental signal withheld; paper trading stays blocked; learnable decisions ~5 → ~40 a day. Debt data work IN PR (`feat/debt-reconciliation-drafts`): `scripts/draft_debt_reconciliations.py` drafts reviewed reconciliations from each filing's face balance sheet (corroborated against debt-note totals, bound to same-accession normalized totals); drafts never touch the gate until an owner promotes them. OPEN: run the full draft (needs `SEC_USER_AGENT` with a contact address), review, promote; redo each quarter. |
+| 34 | Admin intelligence view returned "Admin storage or operation unavailable": #114 ran a query before `weekly_summary`'s `SET TRANSACTION ISOLATION LEVEL`, which Postgres allows only first. | DONE (#119): fixed, with an end-to-end Postgres test of the real admin summary. |
 | 35 | Daily technical job reports ATTENTION (workflow failure) when a single stock's latest bar is incomplete (LOW Oct 15, DELL Oct 16) though everything else ran. | OPEN: consider warning instead of failing for one-stock bar gaps. |
 | 36 | Research queue reached only 29–30 of 54 stocks on Oct 14–15. | OPEN: investigate queue throughput. |
+| 37 | No alerting: failed refreshes, stale prices or collapsing learning coverage were visible only by opening the app. | IN PR #121: weekday health watchdog (prices, refresh/technical/option/events workflows, learnable-decision coverage) keeps one `health-alert` issue, updates it only when the set of problems changes, and closes it when healthy. |
 
 ## Change log
 
@@ -287,3 +288,14 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
   - The outcome scanner and learning step use it, and reward records carry `eligibility`.
   - `direction.matured_rows` keeps the protocol's paper-eligible unit.
   - Paper eligibility is untouched.
+- Debt reconciliation drafts (item 33, PR `feat/debt-reconciliation-drafts`):
+  - `stock_machine/debt_reconciliation.py` parses inline XBRL with the standard library: consolidated,
+    non-dimensional USD facts at the period-end instant. Face balance sheet debt lines are components;
+    operating leases, segment (dimensional) facts and face subtotals are excluded; a missing debt line
+    is never zero.
+  - Drafts are `DRAFT_CLEAN` only when every line is a us-gaap tag, a debt-note total corroborates the sum
+    and same-accession bindings exist. Anything else (issuer tags, finance leases, banks, no face debt
+    such as Ford's segment-split debt) is `DRAFT_NEEDS_REVIEW` or `NO_PROPOSAL`.
+  - `promote` re-fetches the filing (hash must match), re-normalizes, and appends only entries
+    `financial_integrity.validate_reviewed_debt` accepts. Sample: NVDA promoted in a dry run verifies
+    ($33.366B debt, $10.923B net); AAL, TSLA need review; F has no proposal.
