@@ -112,16 +112,17 @@ def decide(ticker: str, session: str, *, prices: list[dict], composite, spy: lis
     }
 
 
-def rewards(session: str, decision: dict, *, stock: dict, spy: dict) -> dict | None:
+def rewards(session: str, decision: dict, *, stock: dict, spy: dict,
+            horizon: int = HORIZON_SESSIONS) -> dict | None:
     """Reward v5 for LONG and SHORT over the frozen window (FLAT is 0)."""
     entry = session_offset(session, 1)
-    due = session_offset(entry, HORIZON_SESSIONS)
+    due = session_offset(entry, horizon)
     stock_r, spy_r = _window_return(stock, entry, due), _window_return(spy, entry, due)
     if stock_r is None or spy_r is None:
         return None
     beta = decision["features"].get("beta_63_vs_spy")
     beta = DEFAULT_BETA if beta is None else min(BETA_RANGE[1], max(BETA_RANGE[0], float(beta)))
-    scale = reward.risk_scale(decision["features"], HORIZON_SESSIONS)["risk_scale_pct"]
+    scale = reward.risk_scale(decision["features"], horizon)["risk_scale_pct"]
     out = {}
     for name, sign in (("LONG", 1), ("SHORT", -1)):
         out[name] = reward.compute(
