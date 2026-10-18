@@ -491,5 +491,81 @@
     "review_flags_accepted": [],
     "drafted_by": "debt-reconciliation-draft.v1",
     "note": "Read from the face balance sheet of this filing; bound to same-accession normalized totals."
+  },
+  {
+    "ticker": "AMZN",
+    "cik": "0001018724",
+    "period_end": "2026-06-30",
+    "accession_number": "0001018724-26-000026",
+    "status": "SOURCE_RECONCILED",
+    "field": "total_liabilities",
+    "value": 544069000000,
+    "method": "CURRENT_PLUS_FACE_NONCURRENT_LIABILITY_LINES",
+    "components": {
+      "us-gaap:LiabilitiesCurrent": 241274000000,
+      "amzn:LeaseLiabilityNoncurrent": 94338000000,
+      "us-gaap:LongTermDebtNoncurrent": 128894000000,
+      "us-gaap:OtherLiabilitiesNoncurrent": 79563000000
+    },
+    "source_element_ids": [
+      "f-403",
+      "f-405",
+      "f-407",
+      "f-409"
+    ],
+    "source_labels": [
+      "Total current liabilities",
+      "Long-term lease liabilities",
+      "Long-term debt",
+      "Other long-term liabilities"
+    ],
+    "rounding_bound": 3000000,
+    "binding_fields": {
+      "total_assets": 1095689000000,
+      "shareholders_equity": 551620000000,
+      "current_liabilities": 241274000000
+    },
+    "source_id": "SEC:AMZN:2026-06-30:REVIEWED_TOTAL_LIABILITIES",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000026/amzn-20260630.htm",
+    "source_sha256": "e2397820a55b6790b5e6f5e563a0ad0cbcaa8379702a68795fc6b34e4cf68d0f",
+    "reviewed_on": "2026-10-18",
+    "review_flags_accepted": [
+      "ISSUER_EXTENSION_TAGS:amzn:LeaseLiabilityNoncurrent"
+    ],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Owner accepted review flags on 2026-10-18. Read from the face balance sheet of this filing; bound to same-accession normalized totals."
+  },
+  {
+    "ticker": "TGT",
+    "cik": "0000027419",
+    "period_end": "2026-08-01",
+    "accession_number": "0000027419-26-000042",
+    "status": "SOURCE_RECONCILED",
+    "field": "cash_and_equivalents",
+    "value": 5411000000,
+    "method": "FACE_CASH_LINE",
+    "components": {
+      "us-gaap:CashCashEquivalentsAndShortTermInvestments": 5411000000
+    },
+    "source_element_ids": [
+      "f-110"
+    ],
+    "source_labels": [
+      "Cash and cash equivalents"
+    ],
+    "rounding_bound": 0,
+    "binding_fields": {
+      "total_assets": 61235000000,
+      "current_liabilities": 21180000000
+    },
+    "source_id": "SEC:TGT:2026-08-01:REVIEWED_CASH_AND_EQUIVALENTS",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/27419/000002741926000042/tgt-20260801.htm",
+    "source_sha256": "f92db27eaeff32911954259a9721398e63a79bc74cba5598f77337cd3f1c8312",
+    "reviewed_on": "2026-10-18",
+    "review_flags_accepted": [
+      "TAG_INCLUDES_SHORT_TERM_INVESTMENTS"
+    ],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Owner accepted review flags on 2026-10-18. Read from the face balance sheet of this filing; bound to same-accession normalized totals."
   }
 ]
