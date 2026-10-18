@@ -121,3 +121,21 @@ def test_bindings_skip_fields_from_another_filing_or_with_different_values():
     assert "NOT_NORMALIZED_FROM_THIS_FILING:total_assets" in flags
     assert "NOT_NORMALIZED_FROM_THIS_FILING:cash_and_equivalents" in flags
     assert "NORMALIZED_VALUE_DIFFERS_FROM_FACE:shareholders_equity" in flags
+
+
+def test_notes_and_loans_tags_are_debt():
+    # Oracle reports its non-current notes as LongTermNotesAndLoans.
+    assert dr.is_debt_tag("us-gaap:LongTermNotesAndLoans")
+    assert not dr.is_debt_tag("us-gaap:NotesAndLoansReceivableNetCurrent")
+
+
+def test_face_debt_in_a_dimensional_context_blocks_the_proposal():
+    # T-Mobile tags its long-term debt line by related party: summing only the
+    # consolidated lines would understate debt by most of the balance.
+    face = BASE + [row("Long-term debt", fact("us-gaap:LongTermDebtNoncurrent", 9_000, ctx="c-seg", ident="dim"))]
+    raw = filing(face)
+    proposal = dr.propose(dr.consolidated_facts(raw, cik=CIK, period_end=END),
+                          dr.consolidated_facts(raw, cik=CIK, period_end=END, dimensional=True))
+    assert proposal["status"] == dr.NO_PROPOSAL and proposal["total_debt"] is None
+    assert "FACE_DEBT_LINES_IN_DIMENSIONAL_CONTEXTS" in proposal["flags"]
+    assert proposal["dimensional_face_debt"][0]["value"] == 9_000_000_000
