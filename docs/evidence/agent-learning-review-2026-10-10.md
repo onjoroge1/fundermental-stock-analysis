@@ -59,7 +59,7 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
 | 37 | No alerting: failed refreshes, stale prices or collapsing learning coverage were visible only by opening the app. | DONE (#121): weekday health watchdog (prices, refresh/technical/option/events workflows, learnable-decision coverage) keeps one `health-alert` issue, updates it only when the set of problems changes, and closes it when healthy. |
 | 38 | 11 issuers have no normalized `total_liabilities` (AMD, AMZN, CMCSA, DIS, HPQ, INTC, LUV, MCD, NKE, T, WMT): they don't tag `us-gaap:Liabilities`, so financial integrity stays withheld even with debt verified. | DONE (#126 and `data/accept-amzn-tgt-balance-fields`): reviewed total liabilities from the face balance sheet, accepted only when the face identity closes within declared rounding, for all 11 (AMZN accepted by the owner with its issuer lease tag). Redo each quarter with the draft tool. |
 | 39 | Cash and EPS mapping gaps: AAL (`Cash`), SBUX and TGT have no normalized cash and equivalents; INTU and two others lack latest-quarter diluted EPS (data quality WARN). | DONE (#126 and `data/accept-amzn-tgt-balance-fields`): cash from the face line labelled cash for AAL, SBUX and TGT (TGT accepted by the owner although its tag includes short-term investments); Q4 diluted EPS for COST, INTU and MU from their earnings releases. |
-| 40 | Ford's Q2 2026 10-Q (filed 2026-07-29, accession 0000037996-26-000156) is missing from SEC companyfacts, so Ford's latest normalized quarter is March and its financials stay `NEWER_FINANCIAL_FILING_NOT_NORMALIZED`. | OPEN: add a fallback that normalizes a filing's own inline XBRL when companyfacts lags its submissions, with provenance; or wait for SEC to backfill. |
+| 40 | Ford's Q2 2026 10-Q (filed 2026-07-29, accession 0000037996-26-000156) is missing from SEC companyfacts, so Ford's latest normalized quarter is March and its financials stay `NEWER_FINANCIAL_FILING_NOT_NORMALIZED`. | IN PR (`feat/filing-xbrl-fallback`): SEC ingest now normalizes the newest 10-Q/10-K filings that companyfacts lacks from their own inline XBRL (consolidated us-gaap facts only, never replacing companyfacts, provenance citing the filing URL and hash). Ford's 2026-06-30 quarter normalizes (balance identity residual 0) and its automotive-only June debt ($23.619B) is promoted. |
 
 ## Change log
 
@@ -338,3 +338,9 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
   - F: $19.595B, Company excluding Ford Credit. GM: $15.979B, Automotive. TMUS: $86.920B (short-term, long-term
     non-related and related party, financing leases).
   - All three pass the balance check; F remains withheld for item 40.
+- Filing XBRL fallback (item 40, `feat/filing-xbrl-fallback`):
+  - The parser moved to `ingestion/inline_xbrl.py`; it now also handles durations, per-share units and dei fiscal
+    focus.
+  - `ingestion/filing_xbrl.py` has `lagging_filings`, `filing_facts`, `merge` and `supplement_lagging_filings`. It runs
+    in `sec.ingest` before the cover-share supplement, and the draft tool's `latest_quarter` uses it too.
+  - Ford reviewed debt for 2026-06-30 is promoted (automotive only).

@@ -32,6 +32,7 @@ import httpx  # noqa: E402
 from stock_machine import debt_reconciliation as dr  # noqa: E402
 from stock_machine import financial_integrity as fi  # noqa: E402
 from stock_machine.config import SEC_USER_AGENT  # noqa: E402
+from stock_machine.ingestion.filing_xbrl import supplement_lagging_filings  # noqa: E402
 from stock_machine.normalization.financial_periods import build_periods  # noqa: E402
 
 EVIDENCE = ROOT / "docs/evidence/latest-filing-balance-reconciliation-2026-09-16.json"
@@ -59,9 +60,19 @@ class Sec:
         return response.content
 
 
+def _dashed(accession: str) -> str:
+    return f"{accession[:10]}-{accession[10:12]}-{accession[12:]}"
+
+
 def latest_quarter(sec: Sec, ticker: str, cik: str) -> dict | None:
+    """The pipeline's latest quarter: companyfacts plus any lagging filing."""
     raw = sec.get(f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json", f"{ticker}.companyfacts.json")
-    quarterly, _, _ = build_periods(json.loads(raw))
+    companyfacts = json.loads(raw)
+    submissions = json.loads(sec.get(f"https://data.sec.gov/submissions/CIK{cik}.json", f"{ticker}.submissions.json"))
+    supplement_lagging_filings(
+        ticker, cik, submissions, companyfacts,
+        fetch=lambda url: sec.get(url, f"{ticker}.{_dashed(url.rsplit('/', 2)[-2])}.htm"))
+    quarterly, _, _ = build_periods(companyfacts)
     return quarterly[-1] if quarterly else None
 
 
