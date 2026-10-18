@@ -1,0 +1,154 @@
+{
+ "run": "github actions run 39173191491",
+ "protocol": {
+  "protocol_id": "signal-replay.v2",
+  "supersedes": "v1 computed the value gap from a 3y revenue CAGR the engine never filled (annual periods are not passed), so no value-gap position was ever taken; no value-gap outcome was seen. Surprise and revision definitions are unchanged.",
+  "base": "heuristic-direction-replay.v1 sessions, window, reward, unit and interval",
+  "base_sha256": "f93b3a68c58ed1d3157a94f97733760801e9d8faba94eb802380542545ede47e",
+  "signals": {
+   "surprise": "latest known EPS surprise (strict availability), event within 92 days: LONG >= +2.0%, SHORT <= -2.0%",
+   "revision": "30-day consensus EPS revision: LONG >= +1.0%, SHORT <= -1.0%",
+   "value_gap": "3y revenue CAGR (TTM revenue vs TTM revenue 12 quarters earlier, annualized) minus reverse-DCF implied CAGR (TTM FCF, 9% discount, 2.5% terminal, 5 years); monthly terciles among names with a gap (>= 9): top LONG, bottom SHORT",
+   "value_timed": "value_gap direction, entered only when the technical component has the same sign"
+  },
+  "hypotheses": {
+   "H4": "surprise beats abstention",
+   "H5": "revision beats abstention",
+   "H6": "value_gap beats abstention",
+   "H7": "value_timed beats abstention",
+   "H8": "value_timed beats value_gap (technical timing adds value)"
+  },
+  "test": "mean monthly reward (or paired difference) > 0 and its lower 95% bound > 0",
+  "coverage": "at least 24 months with an active position, else INSUFFICIENT_COVERAGE",
+  "not_testable": "fair value delivered through options: no historical option surfaces exist (capture is forward-only)",
+  "use": "baseline for the forward direction test; never changes trading, the live protocol or promotion",
+  "caveats": [
+   "Universe is today's coverage list: survivorship-biased.",
+   "Fundamental scoring thresholds were hand-set in 2026 with knowledge of these histories.",
+   "No historical headlines: the news component is missing throughout.",
+   "The replay composite has no earnings-surprise (expectations) input.",
+   "Short positions carry no borrow cost; fills are at closes with fixed costs.",
+   "Adjusted closes are today's vintage.",
+   "Surprise and consensus history exist only where this system stored them with their observation time; nothing is backfilled from current estimates.",
+   "Reverse-DCF conventions (9%, 2.5%, 5 years) are documented choices, not fitted."
+  ]
+ },
+ "result": {
+  "protocol_id": "signal-replay.v2",
+  "protocol_sha256": "bf8644c023d90d713f89d5d3631f7ad00093e88baec1c5d0f2c58f3a493e9242",
+  "decisions": 6555,
+  "stocks": 54,
+  "months": 128,
+  "first_session": "2016-01-29",
+  "last_session": "2026-08-31",
+  "hypotheses": {
+   "H4_surprise": {
+    "months": 128,
+    "mean": 0.0,
+    "newey_west_se": 0.0,
+    "lower_95": 0.0,
+    "upper_95": 0.0,
+    "active_months": 0,
+    "verdict": "INSUFFICIENT_COVERAGE"
+   },
+   "H5_revision": {
+    "months": 128,
+    "mean": -0.0007436142939814815,
+    "newey_west_se": 0.0007435914216349531,
+    "lower_95": -0.002215047532173576,
+    "upper_95": 0.0007278189442106131,
+    "active_months": 1,
+    "verdict": "INSUFFICIENT_COVERAGE"
+   },
+   "H6_value_gap": {
+    "months": 128,
+    "mean": -0.018402042857797316,
+    "newey_west_se": 0.008269214605214908,
+    "lower_95": -0.034765326335575386,
+    "upper_95": -0.0020387593800192463,
+    "active_months": 128,
+    "verdict": "NOT_SUPPORTED"
+   },
+   "H7_value_timed": {
+    "months": 128,
+    "mean": -0.004942684427853148,
+    "newey_west_se": 0.005404174823548924,
+    "lower_95": -0.015636571190138247,
+    "upper_95": 0.005751202334431953,
+    "active_months": 127,
+    "verdict": "NOT_SUPPORTED"
+   },
+   "H8_value_timed_minus_value_gap": {
+    "months": 128,
+    "mean": 0.013459358429944168,
+    "newey_west_se": 0.006631080754089286,
+    "lower_95": 0.00033764623314462734,
+    "upper_95": 0.02658107062674371,
+    "active_months": 127,
+    "verdict": "SUPPORTED"
+   }
+  },
+  "coverage": {
+   "surprise": {
+    "active_decisions": 0,
+    "active_months": 0,
+    "first_active": null,
+    "mean_reward_when_active": null,
+    "hit_rate_when_active": null,
+    "mix": {
+     "LONG": 0,
+     "SHORT": 0,
+     "FLAT": 6555
+    }
+   },
+   "revision": {
+    "active_decisions": 16,
+    "active_months": 1,
+    "first_active": "2026-08-31",
+    "mean_reward_when_active": -0.321241375,
+    "hit_rate_when_active": 0.375,
+    "mix": {
+     "LONG": 11,
+     "SHORT": 5,
+     "FLAT": 6539
+    }
+   },
+   "value_gap": {
+    "active_decisions": 1738,
+    "active_months": 128,
+    "first_active": "2016-01-29",
+    "mean_reward_when_active": -0.07106975949367089,
+    "hit_rate_when_active": 0.47295742232451093,
+    "mix": {
+     "LONG": 869,
+     "SHORT": 869,
+     "FLAT": 4817
+    }
+   },
+   "value_timed": {
+    "active_decisions": 758,
+    "active_months": 127,
+    "first_active": "2016-01-29",
+    "mean_reward_when_active": -0.048259188654353566,
+    "hit_rate_when_active": 0.46701846965699206,
+    "mix": {
+     "LONG": 459,
+     "SHORT": 299,
+     "FLAT": 5797
+    }
+   }
+  },
+  "not_testable": "fair value delivered through options: no historical option surfaces exist (capture is forward-only)",
+  "use": "baseline for the forward direction test; never changes trading, the live protocol or promotion",
+  "caveats": [
+   "Universe is today's coverage list: survivorship-biased.",
+   "Fundamental scoring thresholds were hand-set in 2026 with knowledge of these histories.",
+   "No historical headlines: the news component is missing throughout.",
+   "The replay composite has no earnings-surprise (expectations) input.",
+   "Short positions carry no borrow cost; fills are at closes with fixed costs.",
+   "Adjusted closes are today's vintage.",
+   "Surprise and consensus history exist only where this system stored them with their observation time; nothing is backfilled from current estimates.",
+   "Reverse-DCF conventions (9%, 2.5%, 5 years) are documented choices, not fitted."
+  ]
+ }
+}
