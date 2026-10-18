@@ -3,11 +3,15 @@
   draft    For each covered issuer whose total debt is withheld, normalize its
            SEC companyfacts exactly as the pipeline does, fetch the pinned
            filing, and propose debt components from its face balance sheet.
-           Writes a review packet (JSON + Markdown). Changes nothing else.
+           Issuers that do not tag total liabilities or cash also get a
+           proposal for that field (face lines; liabilities must close the
+           face identity). Writes a review packet (JSON + Markdown).
   promote  Append approved drafts to normalization/reviewed_balance_sheets.json
            after re-fetching the filing (hash must match) and re-normalizing
            (financial_integrity must accept the entry). Promotion is the
            review decision; DRAFT_NEEDS_REVIEW drafts need --accept-flags.
+           --kind balance promotes the liabilities/cash proposals into
+           normalization/reviewed_balance_fields.json instead.
 
 Read-only against production; no database access, no trades.
 """
@@ -32,6 +36,7 @@ from stock_machine.normalization.financial_periods import build_periods  # noqa:
 
 EVIDENCE = ROOT / "docs/evidence/latest-filing-balance-reconciliation-2026-09-16.json"
 REVIEWED = ROOT / "stock_machine/normalization/reviewed_balance_sheets.json"
+REVIEWED_FIELDS = ROOT / "stock_machine/normalization/reviewed_balance_fields.json"
 
 
 class Sec:
@@ -69,6 +74,19 @@ def filing_url(sec: Sec, ticker: str, cik: str, accession: str) -> str | None:
     return None
 
 
+BALANCE_FIELDS = {"total_liabilities": "MISSING_BALANCE_FIELD:total_liabilities",
+                  "cash_and_equivalents": "CASH_AND_EQUIVALENTS_MISSING_OR_INVALID"}
+
+
+def balance_draft(facts, period, accession, field) -> dict:
+    proposal = (dr.propose_liabilities if field == "total_liabilities" else dr.propose_cash)(facts)
+    bound, flags = dr.balance_bindings(facts, period, accession, field)
+    status = proposal["status"]
+    if flags and status == dr.DRAFT_CLEAN:
+        status = dr.DRAFT_NEEDS_REVIEW
+    return {"field": field, **proposal, "status": status, "binding_fields": bound, "binding_flags": flags}
+
+
 def draft_one(sec: Sec, ticker: str, cik: str) -> dict:
     out = {"ticker": ticker, "cik": cik, "drafted_by": dr.VERSION}
     period = latest_quarter(sec, ticker, cik)
@@ -77,7 +95,9 @@ def draft_one(sec: Sec, ticker: str, cik: str) -> dict:
     check = fi.balance_sheet_check(period)
     out.update(period_end=period["period_end"], integrity_reasons=check["reasons"],
                debt_basis=check["debt"]["basis"])
-    if check["debt"]["total_debt"] is not None:
+    missing = [f for f, reason in BALANCE_FIELDS.items() if reason in check["reasons"]]
+    debt_verified = check["debt"]["total_debt"] is not None
+    if debt_verified and not missing:
         return {**out, "status": "DEBT_ALREADY_VERIFIED"}
     accession = (period.get("field_sources") or {}).get("total_assets") or period.get("accession_number")
     url = filing_url(sec, ticker, cik, accession) if accession else None
@@ -86,6 +106,10 @@ def draft_one(sec: Sec, ticker: str, cik: str) -> dict:
     raw = sec.get(url, f"{ticker}.{accession}.htm")
     text = raw.decode("utf-8", "replace")
     facts = dr.consolidated_facts(text, cik=cik, period_end=period["period_end"])
+    out.update(accession_number=accession, source_url=url, source_sha256=hashlib.sha256(raw).hexdigest(),
+               balance_fields=[balance_draft(facts, period, accession, f) for f in missing])
+    if debt_verified:
+        return {**out, "status": "DEBT_ALREADY_VERIFIED"}
     dimensional = dr.consolidated_facts(text, cik=cik, period_end=period["period_end"], dimensional=True)
     proposal = dr.propose(facts, dimensional)
     bound, binding_flags = dr.bindings(facts, period, accession)
@@ -114,6 +138,13 @@ def markdown(drafts: list[dict]) -> str:
              "Status counts: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())), ""]
     for d in sorted(drafts, key=lambda d: (d["status"], d["ticker"])):
         lines.append(f"## {d['ticker']} — {d['status']}")
+        for b in d.get("balance_fields") or []:
+            lines.append(f"Missing **{b['field']}** — {b['status']}: proposed {money(b['value'])}"
+                         + (f" (identity residual {b['identity_residual']:,}, bound {b['rounding_bound']:,})"
+                            if "identity_residual" in b else ""))
+            lines += [f"  - {c['label'] or '(no row label)'} — `{c['tag']}` {money(c['value'])}" for c in b["components"]]
+            if b["flags"] + b["binding_flags"]:
+                lines.append("  Flags: " + ", ".join(f"`{f}`" for f in b["flags"] + b["binding_flags"]))
         if "proposal" not in d:
             lines += [f"Period {d.get('period_end', '—')}; reasons: {', '.join(d.get('integrity_reasons') or []) or '—'}", ""]
             continue
@@ -137,6 +168,41 @@ def markdown(drafts: list[dict]) -> str:
             lines.append("Still withheld after debt for: " + ", ".join(d["still_withheld_after_debt_for"]))
         lines.append("")
     return "\n".join(lines)
+
+
+def promote_balance(args, sec: Sec) -> int:
+    packet = json.loads(Path(args.drafts).read_text())
+    by_ticker = {d["ticker"]: d for d in packet["drafts"]}
+    reviewed = json.loads(REVIEWED_FIELDS.read_text())
+    existing = {(r["cik"], r["period_end"], r["field"]) for r in reviewed}
+    added = []
+    for ticker in [t.strip().upper() for t in args.tickers.split(",") if t.strip()]:
+        d = by_ticker.get(ticker) or {}
+        drafts = [b for b in d.get("balance_fields") or [] if b["status"] in (dr.DRAFT_CLEAN, dr.DRAFT_NEEDS_REVIEW)]
+        if not drafts:
+            raise SystemExit(f"{ticker}: no promotable balance field draft")
+        raw = sec.get(d["source_url"], f"{ticker}.{d['accession_number']}.htm")
+        if hashlib.sha256(raw).hexdigest() != d["source_sha256"]:
+            raise SystemExit(f"{ticker}: SOURCE_CONTENT_CHANGED")
+        period = latest_quarter(sec, ticker, d["cik"])
+        if period["period_end"] != d["period_end"]:
+            raise SystemExit(f"{ticker}: a newer quarter has been normalized; redraft")
+        for b in drafts:
+            if b["status"] == dr.DRAFT_NEEDS_REVIEW and not args.accept_flags:
+                raise SystemExit(f"{ticker} {b['field']}: draft has flags {b['flags'] + b['binding_flags']}; "
+                                 "re-run with --accept-flags after reviewing them")
+            if (d["cik"], d["period_end"], b["field"]) in existing:
+                raise SystemExit(f"{ticker}: a reviewed {b['field']} for {d['period_end']} already exists")
+            entry = dr.reviewed_field_entry(
+                d, b, b["field"], b["binding_fields"], reviewed_on=args.reviewed_on or date.today().isoformat(),
+                note=args.note or "Read from the face balance sheet of this filing; bound to same-accession "
+                "normalized totals.")
+            if fi.validate_reviewed_field(entry, period["fields"], period["field_sources"]) is None:
+                raise SystemExit(f"{ticker} {b['field']}: financial_integrity rejects the entry")
+            added.append(entry)
+    REVIEWED_FIELDS.write_text(json.dumps(reviewed + added, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps({"promoted": [(e["ticker"], e["field"]) for e in added]}))
+    return 0
 
 
 def promote(args, sec: Sec) -> int:
@@ -180,6 +246,8 @@ def main() -> int:
     p.add_argument("--drafts", required=True)
     p.add_argument("--tickers", required=True)
     p.add_argument("--accept-flags", action="store_true")
+    p.add_argument("--kind", choices=("debt", "balance"), default="debt",
+                   help="debt reviews, or missing total liabilities / cash")
     p.add_argument("--reviewed-on")
     p.add_argument("--note")
     for s in (d, p):
@@ -190,7 +258,7 @@ def main() -> int:
         raise SystemExit("Set SEC_USER_AGENT to 'Name contact@your-domain' before fetching filings")
     sec = Sec(args.cache_dir)
     if args.command == "promote":
-        return promote(args, sec)
+        return promote_balance(args, sec) if args.kind == "balance" else promote(args, sec)
     rows = json.loads(EVIDENCE.read_text())["rows"]
     wanted = {t.strip().upper() for t in args.tickers.split(",")} if args.tickers else None
     drafts = []

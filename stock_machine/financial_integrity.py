@@ -24,6 +24,67 @@ def reviewed_debt_sources() -> tuple[dict, ...]:
     return tuple(rows)
 
 
+@lru_cache(maxsize=1)
+def reviewed_balance_fields() -> tuple[dict, ...]:
+    """Reviewed total liabilities and cash for issuers that do not tag them."""
+    path = Path(__file__).parent / "normalization" / "reviewed_balance_fields.json"
+    rows = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(rows, list):
+        raise ValueError("reviewed balance field evidence must be a list")
+    return tuple(rows)
+
+
+REVIEWED_FIELD_BINDINGS = {
+    "total_liabilities": ("total_assets", "shareholders_equity", "current_liabilities"),
+    "cash_and_equivalents": ("total_assets", "current_liabilities"),
+}
+
+
+def validate_reviewed_field(reviewed: dict, fields: dict, sources: dict):
+    """Value of a reviewed missing balance field, or None.
+
+    Fills only a field normalization did not produce. Components must sum to
+    the value; the review must bind same-accession normalized totals. For total
+    liabilities the accounting identity must close within the filing's declared
+    rounding, so a wrong line selection is rejected rather than absorbed.
+    """
+    field = reviewed.get("field")
+    accession = reviewed.get("accession_number")
+    value = number(reviewed.get("value"))
+    components = reviewed.get("components") or {}
+    bindings = reviewed.get("binding_fields") or {}
+    if (reviewed.get("status") != "SOURCE_RECONCILED" or field not in REVIEWED_FIELD_BINDINGS
+            or not accession or not reviewed.get("source_url") or not reviewed.get("source_id")
+            or value is None or value < 0 or fields.get(field) is not None or not components
+            or any(number(v) is None for v in components.values())
+            or abs(sum(components.values()) - value) > 1
+            or set(bindings) != set(REVIEWED_FIELD_BINDINGS[field])
+            or not _matches_bound_fields(fields, sources, accession, bindings)):
+        return None
+    if field == "total_liabilities":
+        bound = number(reviewed.get("rounding_bound"))
+        residual = _identity_residual({**fields, "total_liabilities": value})
+        if bound is None or residual is None or abs(residual) > bound + 1:
+            return None
+    return value
+
+
+def _equity_extras(fields: dict) -> list[str]:
+    extras = ("noncontrolling_interest", "temporary_equity", "redeemable_noncontrolling_interest")
+    # An including-NCI equity total already includes noncontrolling equity.
+    eq_tag = ((fields.get("_financial_provenance") or {}).get("shareholders_equity") or {}).get("tag")
+    if eq_tag == "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest":
+        extras = ("temporary_equity", "redeemable_noncontrolling_interest")
+    return [f for f in extras if number(fields.get(f)) is not None]
+
+
+def _identity_residual(fields: dict):
+    values = [number(fields.get(f)) for f in ("total_assets", "total_liabilities", "shareholders_equity")]
+    if None in values:
+        return None
+    return values[0] - values[1] - values[2] - sum(fields[f] for f in _equity_extras(fields))
+
+
 def _matching_review(period: dict, fields: dict, sources: dict) -> dict:
     embedded = fields.get("_reviewed_debt")
     if isinstance(embedded, dict) and embedded:
@@ -162,16 +223,11 @@ def balance_sheet_check(period: dict | None) -> dict:
     reasons = ["MISSING_BALANCE_FIELD:" + f for f in missing]
     if not missing:
         basis = {sources[f] for f in required}
-        extras = ("noncontrolling_interest", "temporary_equity", "redeemable_noncontrolling_interest")
-        # An including-NCI equity total already includes noncontrolling equity.
-        eq_tag = ((fields.get("_financial_provenance") or {}).get("shareholders_equity") or {}).get("tag")
-        if eq_tag == "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest":
-            extras = ("temporary_equity", "redeemable_noncontrolling_interest")
-        included = [f for f in extras if number(fields.get(f)) is not None]
+        included = _equity_extras(fields)
         basis.update(sources.get(f) for f in included)
         if len(basis) != 1 or None in basis:
             reasons.append("BALANCE_SOURCE_ACCESSIONS_DIFFER")
-        residual = fields["total_assets"] - fields["total_liabilities"] - fields["shareholders_equity"] - sum(fields[f] for f in included)
+        residual = _identity_residual(fields)
         if fields["total_assets"] <= 0 or abs(residual) > .01 * fields["total_assets"]:
             reasons.append("BALANCE_IDENTITY_FAILED")
     debt = debt_evidence(p)

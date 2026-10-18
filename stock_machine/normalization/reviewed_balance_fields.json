@@ -1,0 +1,495 @@
+[
+  {
+    "ticker": "AAL",
+    "cik": "0000006201",
+    "period_end": "2026-06-30",
+    "accession_number": "0000006201-26-000052",
+    "status": "SOURCE_RECONCILED",
+    "field": "cash_and_equivalents",
+    "value": 1028000000,
+    "method": "FACE_CASH_LINE",
+    "components": {
+      "us-gaap:Cash": 1028000000
+    },
+    "source_element_ids": [
+      "f-177"
+    ],
+    "source_labels": [
+      "Cash"
+    ],
+    "rounding_bound": 0,
+    "binding_fields": {
+      "total_assets": 64233000000,
+      "current_liabilities": 26756000000
+    },
+    "source_id": "SEC:AAL:2026-06-30:REVIEWED_CASH_AND_EQUIVALENTS",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/6201/000000620126000052/aal-20260630.htm",
+    "source_sha256": "3a337e05b64d46ca98e85d620c63464a8cd050096e7659ccffe0da5a0ba0dad3",
+    "reviewed_on": "2026-10-18",
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Read from the face balance sheet of this filing; bound to same-accession normalized totals."
+  },
+  {
+    "ticker": "AMD",
+    "cik": "0000002488",
+    "period_end": "2026-06-27",
+    "accession_number": "0000002488-26-000123",
+    "status": "SOURCE_RECONCILED",
+    "field": "total_liabilities",
+    "value": 17240000000,
+    "method": "CURRENT_PLUS_FACE_NONCURRENT_LIABILITY_LINES",
+    "components": {
+      "us-gaap:LiabilitiesCurrent": 12081000000,
+      "us-gaap:LongTermDebtNoncurrent": 2351000000,
+      "us-gaap:OperatingLeaseLiabilityNoncurrent": 1050000000,
+      "us-gaap:DeferredIncomeTaxLiabilitiesNet": 300000000,
+      "us-gaap:OtherLiabilitiesNoncurrent": 1458000000
+    },
+    "source_element_ids": [
+      "f-182",
+      "f-184",
+      "f-186",
+      "f-188",
+      "f-190"
+    ],
+    "source_labels": [
+      "Total current liabilities",
+      "Long-term debt, net",
+      "Long-term operating lease liabilities",
+      "Deferred tax liabilities",
+      "Other long-term liabilities"
+    ],
+    "rounding_bound": 3500000,
+    "binding_fields": {
+      "total_assets": 84464000000,
+      "shareholders_equity": 67224000000,
+      "current_liabilities": 12081000000
+    },
+    "source_id": "SEC:AMD:2026-06-27:REVIEWED_TOTAL_LIABILITIES",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/2488/000000248826000123/amd-20260627.htm",
+    "source_sha256": "55fc078f2434d497404a7fe590a543ccc13e6ef2cfebd8cbfd343b98c44f16e0",
+    "reviewed_on": "2026-10-18",
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Read from the face balance sheet of this filing; bound to same-accession normalized totals."
+  },
+  {
+    "ticker": "CMCSA",
+    "cik": "0001166691",
+    "period_end": "2026-06-30",
+    "accession_number": "0001628280-26-049360",
+    "status": "SOURCE_RECONCILED",
+    "field": "total_liabilities",
+    "value": 167593000000,
+    "method": "CURRENT_PLUS_FACE_NONCURRENT_LIABILITY_LINES",
+    "components": {
+      "us-gaap:LiabilitiesCurrent": 33093000000,
+      "us-gaap:LongTermDebtAndCapitalLeaseObligations": 84264000000,
+      "us-gaap:DeferredIncomeTaxLiabilitiesNet": 28940000000,
+      "us-gaap:OtherLiabilitiesNoncurrent": 21296000000
+    },
+    "source_element_ids": [
+      "f-287",
+      "f-289",
+      "f-291",
+      "f-293"
+    ],
+    "source_labels": [
+      "Total current liabilities",
+      "Noncurrent portion of debt",
+      "Deferred income taxes",
+      "Other noncurrent liabilities"
+    ],
+    "rounding_bound": 3500000,
+    "binding_fields": {
+      "total_assets": 257548000000,
+      "shareholders_equity": 89763000000,
+      "current_liabilities": 33093000000
+    },
+    "source_id": "SEC:CMCSA:2026-06-30:REVIEWED_TOTAL_LIABILITIES",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1166691/000162828026049360/cmcsa-20260630.htm",
+    "source_sha256": "bf98fe6adba8ab78342fe36d6e338f8f4729b9c5f2ca496505d4d54911ab962d",
+    "reviewed_on": "2026-10-18",
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Read from the face balance sheet of this filing; bound to same-accession normalized totals."
+  },
+  {
+    "ticker": "DIS",
+    "cik": "0001744489",
+    "period_end": "2026-06-27",
+    "accession_number": "0001744489-26-000057",
+    "status": "SOURCE_RECONCILED",
+    "field": "total_liabilities",
+    "value": 87898000000,
+    "method": "CURRENT_PLUS_FACE_NONCURRENT_LIABILITY_LINES",
+    "components": {
+      "us-gaap:LiabilitiesCurrent": 35105000000,
+      "us-gaap:LongTermDebtNoncurrent": 37414000000,
+      "us-gaap:DeferredTaxAndOtherLiabilitiesNoncurrent": 5219000000,
+      "us-gaap:OtherLiabilitiesNoncurrent": 10160000000
+    },
+    "source_element_ids": [
+      "f-188",
+      "f-190",
+      "f-192",
+      "f-194"
+    ],
+    "source_labels": [
+      "Total current liabilities",
+      "Borrowings",
+      "Deferred income taxes",
+      "Other long-term liabilities"
+    ],
+    "rounding_bound": 3000000,
+    "binding_fields": {
+      "total_assets": 204740000000,
+      "shareholders_equity": 110032000000,
+      "current_liabilities": 35105000000
+    },
+    "source_id": "SEC:DIS:2026-06-27:REVIEWED_TOTAL_LIABILITIES",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1744489/000174448926000057/dis-20260627.htm",
+    "source_sha256": "9859291ecc8f86cc4388aadcec6b487b5f061dfb7fbc7fb8fde583b6a94100fa",
+    "reviewed_on": "2026-10-18",
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Read from the face balance sheet of this filing; bound to same-accession normalized totals."
+  },
+  {
+    "ticker": "HPQ",
+    "cik": "0000047217",
+    "period_end": "2026-07-31",
+    "accession_number": "0000047217-26-000051",
+    "status": "SOURCE_RECONCILED",
+    "field": "total_liabilities",
+    "value": 45793000000,
+    "method": "CURRENT_PLUS_FACE_NONCURRENT_LIABILITY_LINES",
+    "components": {
+      "us-gaap:LiabilitiesCurrent": 33963000000,
+      "us-gaap:LongTermDebtNoncurrent": 7868000000,
+      "us-gaap:OtherLiabilitiesNoncurrent": 3962000000
+    },
+    "source_element_ids": [
+      "f-200",
+      "f-202",
+      "f-204"
+    ],
+    "source_labels": [
+      "Total current liabilities",
+      "Long-term debt",
+      "Other non-current liabilities"
+    ],
+    "rounding_bound": 2500000,
+    "binding_fields": {
+      "total_assets": 45701000000,
+      "shareholders_equity": -92000000,
+      "current_liabilities": 33963000000
+    },
+    "source_id": "SEC:HPQ:2026-07-31:REVIEWED_TOTAL_LIABILITIES",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/47217/000004721726000051/hpq-20260731.htm",
+    "source_sha256": "cc63df34d32069a1fbfeeedc422f6dfc014554d808c5916c1c0decb3223667db",
+    "reviewed_on": "2026-10-18",
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Read from the face balance sheet of this filing; bound to same-accession normalized totals."
+  },
+  {
+    "ticker": "INTC",
+    "cik": "0000050863",
+    "period_end": "2026-06-27",
+    "accession_number": "0000050863-26-000157",
+    "status": "SOURCE_RECONCILED",
+    "field": "total_liabilities",
+    "value": 99296000000,
+    "method": "CURRENT_PLUS_FACE_NONCURRENT_LIABILITY_LINES",
+    "components": {
+      "us-gaap:LiabilitiesCurrent": 35670000000,
+      "us-gaap:LongTermDebtNoncurrent": 48549000000,
+      "us-gaap:OtherLiabilitiesNoncurrent": 15077000000
+    },
+    "source_element_ids": [
+      "f-172",
+      "f-174",
+      "f-176"
+    ],
+    "source_labels": [
+      "Total current liabilities",
+      "Debt",
+      "Other long-term liabilities"
+    ],
+    "rounding_bound": 2500000,
+    "binding_fields": {
+      "total_assets": 202439000000,
+      "shareholders_equity": 87542000000,
+      "current_liabilities": 35670000000
+    },
+    "source_id": "SEC:INTC:2026-06-27:REVIEWED_TOTAL_LIABILITIES",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/50863/000005086326000157/intc-20260627.htm",
+    "source_sha256": "5ed80a9ca935f65342bd0763155b9e816ae42bf5c9b2e71338e2c9da2c0db490",
+    "reviewed_on": "2026-10-18",
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Read from the face balance sheet of this filing; bound to same-accession normalized totals."
+  },
+  {
+    "ticker": "LUV",
+    "cik": "0000092380",
+    "period_end": "2026-06-30",
+    "accession_number": "0000092380-26-000077",
+    "status": "SOURCE_RECONCILED",
+    "field": "total_liabilities",
+    "value": 23040000000,
+    "method": "CURRENT_PLUS_FACE_NONCURRENT_LIABILITY_LINES",
+    "components": {
+      "us-gaap:LiabilitiesCurrent": 13268000000,
+      "us-gaap:LongTermDebtAndCapitalLeaseObligations": 3790000000,
+      "us-gaap:ContractWithCustomerLiabilityNoncurrent": 1674000000,
+      "us-gaap:DeferredIncomeTaxLiabilitiesNet": 2421000000,
+      "us-gaap:OperatingLeaseLiabilityNoncurrent": 660000000,
+      "us-gaap:OtherLiabilitiesNoncurrent": 1227000000
+    },
+    "source_element_ids": [
+      "f-72",
+      "f-74",
+      "f-76",
+      "f-78",
+      "f-80",
+      "f-82"
+    ],
+    "source_labels": [
+      "Total current liabilities",
+      "Long-term debt less current maturities",
+      "Air traffic liability - noncurrent",
+      "Deferred income taxes",
+      "Noncurrent operating lease liabilities",
+      "Other noncurrent liabilities"
+    ],
+    "rounding_bound": 4000000,
+    "binding_fields": {
+      "total_assets": 30122000000,
+      "shareholders_equity": 7082000000,
+      "current_liabilities": 13268000000
+    },
+    "source_id": "SEC:LUV:2026-06-30:REVIEWED_TOTAL_LIABILITIES",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/92380/000009238026000077/luv-20260630.htm",
+    "source_sha256": "da2dd2101f3ad658c2285afa1385fc2bcdb74a591d7ea1aa1438ece762507ff2",
+    "reviewed_on": "2026-10-18",
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Read from the face balance sheet of this filing; bound to same-accession normalized totals."
+  },
+  {
+    "ticker": "MCD",
+    "cik": "0000063908",
+    "period_end": "2026-06-30",
+    "accession_number": "0000063908-26-000073",
+    "status": "SOURCE_RECONCILED",
+    "field": "total_liabilities",
+    "value": 60941000000,
+    "method": "CURRENT_PLUS_FACE_NONCURRENT_LIABILITY_LINES",
+    "components": {
+      "us-gaap:LiabilitiesCurrent": 4018000000,
+      "us-gaap:LongTermDebtNoncurrent": 39863000000,
+      "us-gaap:OperatingLeaseLiabilityNoncurrent": 14039000000,
+      "us-gaap:AccruedIncomeTaxesNoncurrent": 176000000,
+      "us-gaap:DeferredRevenueNoncurrent": 946000000,
+      "us-gaap:OtherLiabilitiesNoncurrent": 677000000,
+      "us-gaap:DeferredIncomeTaxLiabilitiesNet": 1222000000
+    },
+    "source_element_ids": [
+      "f-71",
+      "f-73",
+      "f-75",
+      "f-77",
+      "f-79",
+      "f-81",
+      "f-83"
+    ],
+    "source_labels": [
+      "Total current liabilities",
+      "Long-term debt",
+      "Long-term lease liability",
+      "Long-term income taxes",
+      "Deferred revenues - initial franchise fees",
+      "Other long-term liabilities",
+      "Deferred income taxes"
+    ],
+    "rounding_bound": 4500000,
+    "binding_fields": {
+      "total_assets": 59920000000,
+      "shareholders_equity": -1023000000,
+      "current_liabilities": 4018000000
+    },
+    "source_id": "SEC:MCD:2026-06-30:REVIEWED_TOTAL_LIABILITIES",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/63908/000006390826000073/mcd-20260630.htm",
+    "source_sha256": "3ebfcb069c6d034499d40739c02f04727292400319e2604aed28a8d3b937dfe1",
+    "reviewed_on": "2026-10-18",
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Read from the face balance sheet of this filing; bound to same-accession normalized totals."
+  },
+  {
+    "ticker": "NKE",
+    "cik": "0000320187",
+    "period_end": "2026-08-31",
+    "accession_number": "0000320187-26-000193",
+    "status": "SOURCE_RECONCILED",
+    "field": "total_liabilities",
+    "value": 22574000000,
+    "method": "CURRENT_PLUS_FACE_NONCURRENT_LIABILITY_LINES",
+    "components": {
+      "us-gaap:LiabilitiesCurrent": 11409000000,
+      "us-gaap:LongTermDebtNoncurrent": 5893000000,
+      "us-gaap:OperatingLeaseLiabilityNoncurrent": 2706000000,
+      "us-gaap:DeferredIncomeTaxesAndOtherLiabilitiesNoncurrent": 2566000000
+    },
+    "source_element_ids": [
+      "f-107",
+      "f-109",
+      "f-111",
+      "f-113"
+    ],
+    "source_labels": [
+      "Total current liabilities",
+      "Long-term debt",
+      "Operating lease liabilities",
+      "Deferred income taxes and other liabilities"
+    ],
+    "rounding_bound": 3500000,
+    "binding_fields": {
+      "total_assets": 37794000000,
+      "shareholders_equity": 15220000000,
+      "current_liabilities": 11409000000
+    },
+    "source_id": "SEC:NKE:2026-08-31:REVIEWED_TOTAL_LIABILITIES",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/320187/000032018726000193/nke-20260831.htm",
+    "source_sha256": "5bbb6c55f1060ec8efd796d2ba34ffbd3d2443dc11faa1a40209ecc9cae348f1",
+    "reviewed_on": "2026-10-18",
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Read from the face balance sheet of this filing; bound to same-accession normalized totals."
+  },
+  {
+    "ticker": "SBUX",
+    "cik": "0000829224",
+    "period_end": "2026-06-28",
+    "accession_number": "0000829224-26-000130",
+    "status": "SOURCE_RECONCILED",
+    "field": "cash_and_equivalents",
+    "value": 3449800000,
+    "method": "FACE_CASH_LINE",
+    "components": {
+      "us-gaap:CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents": 3449800000
+    },
+    "source_element_ids": [
+      "f-187"
+    ],
+    "source_labels": [
+      "Cash and cash equivalents"
+    ],
+    "rounding_bound": 0,
+    "binding_fields": {
+      "total_assets": 28294700000,
+      "current_liabilities": 9916900000
+    },
+    "source_id": "SEC:SBUX:2026-06-28:REVIEWED_CASH_AND_EQUIVALENTS",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/829224/000082922426000130/sbux-20260628.htm",
+    "source_sha256": "413a20fbb3cef2b97e922c481dfa2454370cf8f3d097378d95ebd7895e6588eb",
+    "reviewed_on": "2026-10-18",
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Read from the face balance sheet of this filing; bound to same-accession normalized totals."
+  },
+  {
+    "ticker": "T",
+    "cik": "0000732717",
+    "period_end": "2026-06-30",
+    "accession_number": "0000732717-26-000297",
+    "status": "SOURCE_RECONCILED",
+    "field": "total_liabilities",
+    "value": 299920000000,
+    "method": "CURRENT_PLUS_FACE_NONCURRENT_LIABILITY_LINES",
+    "components": {
+      "us-gaap:LiabilitiesCurrent": 53382000000,
+      "us-gaap:LongTermDebtAndCapitalLeaseObligations": 134631000000,
+      "us-gaap:DeferredIncomeTaxLiabilitiesNet": 60401000000,
+      "us-gaap:PostemploymentBenefitsLiabilityNoncurrent": 8267000000,
+      "us-gaap:OperatingLeaseLiabilityNoncurrent": 18934000000,
+      "us-gaap:OtherLiabilitiesNoncurrent": 24305000000
+    },
+    "source_element_ids": [
+      "f-352",
+      "f-354",
+      "f-356",
+      "f-358",
+      "f-360",
+      "f-362"
+    ],
+    "source_labels": [
+      "Total current liabilities",
+      "Long-Term Debt",
+      "Noncurrent deferred tax liabilities",
+      "Postemployment benefit obligation",
+      "Operating lease liabilities",
+      "Other noncurrent liabilities"
+    ],
+    "rounding_bound": 4500000,
+    "binding_fields": {
+      "total_assets": 428359000000,
+      "shareholders_equity": 126434000000,
+      "current_liabilities": 53382000000
+    },
+    "source_id": "SEC:T:2026-06-30:REVIEWED_TOTAL_LIABILITIES",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/732717/000073271726000297/t-20260630.htm",
+    "source_sha256": "6a225662d91bb6cd2a6682fdb1299c75e65b33d10f74567bdb4c834163808570",
+    "reviewed_on": "2026-10-18",
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Read from the face balance sheet of this filing; bound to same-accession normalized totals."
+  },
+  {
+    "ticker": "WMT",
+    "cik": "0000104169",
+    "period_end": "2026-07-31",
+    "accession_number": "0000104169-26-000154",
+    "status": "SOURCE_RECONCILED",
+    "field": "total_liabilities",
+    "value": 189115000000,
+    "method": "CURRENT_PLUS_FACE_NONCURRENT_LIABILITY_LINES",
+    "components": {
+      "us-gaap:LiabilitiesCurrent": 115630000000,
+      "us-gaap:LongTermDebtNoncurrent": 36462000000,
+      "us-gaap:OperatingLeaseLiabilityNoncurrent": 14798000000,
+      "us-gaap:FinanceLeaseLiabilityNoncurrent": 5952000000,
+      "us-gaap:DeferredIncomeTaxesAndOtherLiabilitiesNoncurrent": 16273000000
+    },
+    "source_element_ids": [
+      "f-231",
+      "f-234",
+      "f-237",
+      "f-240",
+      "f-243"
+    ],
+    "source_labels": [
+      "Total current liabilities",
+      "Long-term debt",
+      "Long-term operating lease obligations",
+      "Long-term finance lease obligations",
+      "Deferred income taxes and other"
+    ],
+    "rounding_bound": 4000000,
+    "binding_fields": {
+      "total_assets": 293914000000,
+      "shareholders_equity": 98238000000,
+      "current_liabilities": 115630000000
+    },
+    "source_id": "SEC:WMT:2026-07-31:REVIEWED_TOTAL_LIABILITIES",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/104169/000010416926000154/wmt-20260731.htm",
+    "source_sha256": "93e8a40fcd2ad2d9b9502aabc82d035c770c39277d0d4cb4c3c4a297263ca083",
+    "reviewed_on": "2026-10-18",
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Read from the face balance sheet of this filing; bound to same-accession normalized totals."
+  }
+]

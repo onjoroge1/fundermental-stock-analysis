@@ -17,7 +17,11 @@ def test_all_reviewed_quarters_recover_exact_values_and_keep_latest_dependency()
         p = period(r); events = []
         supplement_quarters(r['cik'], [p], events)
         assert p['fields']['diluted_eps'] == r['value']
-        assert p['available_at'] == '2026-09-03'
+        # A release published after the quarter's filing day moves availability
+        # to the day after publication; it never moves it earlier.
+        from datetime import date, timedelta
+        released = (date.fromisoformat(r['published_date']) + timedelta(days=1)).isoformat()
+        assert p['available_at'] == max('2026-09-03', released)
         assert p['derived']  # additive fields remain derived; EPS is sourced
         assert eps_provenance(p)['diluted_eps']['source_sha256'] == r['source_sha256']
         assert len(events) == 1

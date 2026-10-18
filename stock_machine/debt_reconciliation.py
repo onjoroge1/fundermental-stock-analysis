@@ -323,3 +323,160 @@ def reviewed_entry(draft: dict, *, reviewed_on: str, note: str) -> dict:
     if "cash_and_equivalents" in draft["binding_fields"]:
         entry["cash_and_equivalents"] = draft["binding_fields"]["cash_and_equivalents"]
     return entry
+
+
+# ---- Missing balance fields: total liabilities and cash ----------------------
+# Issuers that never tag a total-liabilities line list current liabilities and
+# then each non-current line. The proposal is that sum, read in document order
+# between the current subtotal and the first equity line, and it is accepted
+# only when the face statement's own identity closes within declared rounding:
+# total liabilities and equity - lines - equity - temporary equity == 0. The
+# identity checks the line selection; it never supplies the number.
+_EQUITY_START = re.compile(
+    r"^(CommitmentsAndContingencies|TemporaryEquity|RedeemableNoncontrolling|Redeemable|PreferredStock|"
+    r"CommonStock|AdditionalPaidInCapital|RetainedEarnings|AccumulatedOtherComprehensive|"
+    r"TreasuryStock|StockholdersEquity|MinorityInterest|NoncontrollingInterest|MembersEquity|"
+    r"PartnersCapital|LimitedPartners)")
+_LIABILITY_LINE = re.compile(
+    r"Liabilit|Debt|Lease|Obligation|Deferred|Payable|Accrued|Borrowing|Notes|Tax|Pension|"
+    r"Revenue|Credits|Loans")
+CASH_TAGS = ("Cash", "CashAndCashEquivalentsAtCarryingValue",
+             "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+             "CashCashEquivalentsAndShortTermInvestments")
+_CASH_LABEL = re.compile(r"^cash( and cash equivalents| and equivalents)?$", re.I)
+
+
+def _face(facts: list[dict]) -> list[dict]:
+    tables = face_tables(facts)
+    return [f for f in facts if f["table"] in tables]
+
+
+def _first(face: list[dict], name: str) -> dict | None:
+    return next((f for f in face if local(f["tag"]) == name), None)
+
+
+def propose_liabilities(facts: list[dict]) -> dict:
+    face = _face(facts)
+    flags = []
+    current = _first(face, "LiabilitiesCurrent")
+    total_le = _first(face, "LiabilitiesAndStockholdersEquity")
+    if current is None or total_le is None:
+        return {"status": NO_PROPOSAL, "value": None, "components": [],
+                "flags": ["FACE_CURRENT_LIABILITIES_OR_TOTAL_NOT_FOUND"]}
+    noncurrent = _first(face, "LiabilitiesNoncurrent")
+    if noncurrent is not None:
+        lines = [current, noncurrent]
+    else:
+        lines, seen = [current], {current["tag"]}
+        for f in face[face.index(current) + 1:]:
+            name = local(f["tag"])
+            if _EQUITY_START.match(name) or name == "LiabilitiesAndStockholdersEquity":
+                break
+            if f["value"] == 0 or f["tag"] in seen:
+                continue
+            seen.add(f["tag"])
+            lines.append(f)
+            if not _LIABILITY_LINE.search(name):
+                flags.append("UNEXPECTED_LIABILITY_LINE:" + f["tag"])
+    # A non-current line equal to the run of lines just above it is their
+    # subtotal (e.g. AT&T's "deferred credits and other non-current liabilities").
+    notes = []
+    j = 2
+    while j < len(lines):
+        run = Decimal(0)
+        for i in range(j - 1, 0, -1):
+            run += lines[i]["value"]
+            if j - i >= 2 and abs(run - lines[j]["value"]) <= sum(
+                    (f["rounding"] for f in lines[i:j + 1]), Decimal(0)):
+                notes.append("FACE_SUBTOTAL_EXCLUDED:" + lines[j]["tag"])
+                del lines[j]
+                break
+        else:
+            j += 1
+    extensions = sorted({f["tag"] for f in lines if not f["tag"].startswith("us-gaap:")})
+    if extensions:
+        flags.append("ISSUER_EXTENSION_TAGS:" + ",".join(extensions))
+    including = _first(face, "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")
+    equity = [including] if including else [f for f in (
+        _first(face, "StockholdersEquity"), _first(face, "MinorityInterest")) if f]
+    temporary = [f for f in face if local(f["tag"]).startswith(
+        ("TemporaryEquityCarryingAmount", "RedeemableNoncontrollingInterestEquity"))]
+    used = lines + equity + temporary + [total_le]
+    value = sum((f["value"] for f in lines), Decimal(0))
+    residual = total_le["value"] - value - sum((f["value"] for f in equity + temporary), Decimal(0))
+    bound = sum((f["rounding"] for f in used), Decimal(0))
+    if not equity:
+        flags.append("FACE_EQUITY_TOTAL_NOT_FOUND")
+    elif abs(residual) > bound:
+        flags.append("FACE_IDENTITY_DOES_NOT_CLOSE")
+    return {"status": DRAFT_CLEAN if not flags else DRAFT_NEEDS_REVIEW, "value": int(value),
+            "method": ("CURRENT_PLUS_NONCURRENT_SUBTOTALS" if noncurrent is not None
+                       else "CURRENT_PLUS_FACE_NONCURRENT_LIABILITY_LINES"),
+            "components": [_public(f) for f in lines], "identity_residual": int(residual),
+            "rounding_bound": int(bound), "flags": flags, "notes": notes}
+
+
+def propose_cash(facts: list[dict]) -> dict:
+    """The face line labelled cash (and cash equivalents), whatever its tag."""
+    face = _face(facts)
+    candidates = _unique([f for f in face if local(f["tag"]) in CASH_TAGS
+                          and _CASH_LABEL.match(f["label"].strip())])
+    if len(candidates) != 1:
+        return {"status": NO_PROPOSAL, "value": None, "components": [],
+                "flags": ["FACE_CASH_LINE_NOT_UNIQUE:" + str(len(candidates))]}
+    line, flags = candidates[0], []
+    name = local(line["tag"])
+    # Separately disclosed restricted cash (not the combined cash tag itself).
+    restricted = [f for f in facts if "RestrictedCash" in local(f["tag"])
+                  and not local(f["tag"]).startswith("Cash") and f["value"]]
+    notes = []
+    if name == "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents":
+        if restricted:
+            flags.append("TAG_INCLUDES_RESTRICTED_CASH")
+        else:
+            notes.append("COMBINED_TAG_NO_RESTRICTED_CASH_DISCLOSED")
+    if name == "CashCashEquivalentsAndShortTermInvestments":
+        flags.append("TAG_INCLUDES_SHORT_TERM_INVESTMENTS")
+    return {"status": DRAFT_CLEAN if not flags else DRAFT_NEEDS_REVIEW, "value": int(line["value"]),
+            "method": "FACE_CASH_LINE", "components": [_public(line)], "flags": flags, "notes": notes}
+
+
+BALANCE_BINDINGS = {
+    "total_liabilities": ("total_assets", "shareholders_equity", "current_liabilities"),
+    "cash_and_equivalents": ("total_assets", "current_liabilities"),
+}
+_FACE_TAG = {"total_assets": ("Assets",), "current_liabilities": ("LiabilitiesCurrent",),
+             "shareholders_equity": BINDING_TAGS["shareholders_equity"]}
+
+
+def balance_bindings(facts: list[dict], period: dict, accession: str, field: str) -> tuple[dict, list[str]]:
+    fields, sources = period.get("fields") or {}, period.get("field_sources") or {}
+    face = {local(f["tag"]): f["value"] for f in _face(facts)}
+    bound, flags = {}, []
+    for name in BALANCE_BINDINGS[field]:
+        value = fields.get(name)
+        if value is None or sources.get(name) != accession:
+            flags.append("NOT_NORMALIZED_FROM_THIS_FILING:" + name)
+        elif Decimal(str(value)) in [face.get(t) for t in _FACE_TAG[name]]:
+            bound[name] = value
+        else:
+            flags.append("NORMALIZED_VALUE_DIFFERS_FROM_FACE:" + name)
+    return bound, flags
+
+
+def reviewed_field_entry(draft: dict, proposal: dict, field: str, binding: dict, *,
+                         reviewed_on: str, note: str) -> dict:
+    return {
+        "ticker": draft["ticker"], "cik": draft["cik"], "period_end": draft["period_end"],
+        "accession_number": draft["accession_number"], "status": "SOURCE_RECONCILED",
+        "field": field, "value": proposal["value"], "method": proposal["method"],
+        "components": {c["tag"]: c["value"] for c in proposal["components"]},
+        "source_element_ids": [c["element_id"] for c in proposal["components"]],
+        "source_labels": [c["label"] for c in proposal["components"]],
+        "rounding_bound": proposal.get("rounding_bound", 0),
+        "binding_fields": binding,
+        "source_id": f"SEC:{draft['ticker']}:{draft['period_end']}:REVIEWED_{field.upper()}",
+        "source_url": draft["source_url"], "source_sha256": draft["source_sha256"],
+        "reviewed_on": reviewed_on, "review_flags_accepted": proposal["flags"],
+        "drafted_by": VERSION, "note": note,
+    }
