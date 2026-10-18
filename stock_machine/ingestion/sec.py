@@ -59,12 +59,20 @@ def fetch_companyfacts(ticker: str, cik: str) -> dict:
     return payload
 
 
+def _save_filing(ticker: str, accession: str, raw: bytes, url: str) -> None:
+    save_raw("sec", [ticker.upper(), "periodic_filing", accession],
+             {"url": url, "html": raw.decode("utf-8", "replace")}, url)
+
+
 def ingest(ticker: str) -> dict:
     """Full SEC pull for one ticker. Returns dict with cik/title/submissions/facts."""
     cik, title = resolve_cik(ticker)
     submissions = fetch_submissions(ticker, cik)
     facts = fetch_companyfacts(ticker, cik)
+    from .filing_xbrl import supplement_lagging_filings
     from .cover_shares import supplement_companyfacts
-    cover_events = supplement_companyfacts(ticker, cik, submissions, facts)
+    # Before cover shares: a lagging filing can carry the latest share facts too.
+    filing_events = supplement_lagging_filings(ticker, cik, submissions, facts, save=_save_filing)
+    cover_events = filing_events + supplement_companyfacts(ticker, cik, submissions, facts)
     return {"ticker": ticker.upper(), "cik": cik, "title": title,
             "submissions": submissions, "companyfacts": facts, "cover_events": cover_events}

@@ -13,8 +13,9 @@ read by financial_integrity, and promotion re-validates them there.
 from __future__ import annotations
 
 import re
-from decimal import Decimal, InvalidOperation
-from html.parser import HTMLParser
+from decimal import Decimal
+
+from .ingestion.inline_xbrl import InlineXbrl as _InlineXbrl, fact_value as _value
 
 VERSION = "debt-reconciliation-draft.v1"
 DRAFT_CLEAN = "DRAFT_CLEAN"
@@ -46,7 +47,6 @@ BINDING_TAGS = {
                             "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"),
     "cash_and_equivalents": ("CashAndCashEquivalentsAtCarryingValue",),
 }
-_DASHES = {"", "-", "—", "–"}
 
 
 def local(tag: str) -> str:
@@ -58,112 +58,6 @@ def is_debt_tag(tag: str) -> bool:
     return bool(_DEBT.search(name)) and not _NOT_DEBT.search(name)
 
 
-class _InlineXbrl(HTMLParser):
-    """Collect numeric facts, contexts, units and table/row placement."""
-
-    def __init__(self):
-        super().__init__(convert_charrefs=True)
-        self.facts, self.contexts, self.units = [], {}, {}
-        self._tables, self._table_count = [], 0
-        self._row = None
-        self._cell = None
-        self._open_facts = []
-        self._context = self._unit = None
-        self._capture = None
-
-    def handle_starttag(self, tag, attrs):
-        a = dict(attrs)
-        if tag == "table":
-            self._table_count += 1
-            self._tables.append(self._table_count)
-        elif tag == "tr":
-            self._row = {"cells": [], "facts": []}
-        elif tag in ("td", "th") and self._row is not None:
-            self._cell = []
-        elif tag == "ix:nonfraction":
-            fact = {"tag": a.get("name", ""), "context_id": a.get("contextref"),
-                    "unit_id": a.get("unitref"), "scale": a.get("scale", "0"),
-                    "decimals": a.get("decimals"), "sign": a.get("sign"),
-                    "format": a.get("format") or "", "element_id": a.get("id"),
-                    "table": self._tables[-1] if self._tables else None, "text": []}
-            self._open_facts.append(fact)
-        elif tag == "xbrli:context":
-            self._context = {"id": a.get("id"), "instant": None, "entity": None, "dimensional": False,
-                             "members": []}
-        elif tag in ("xbrldi:explicitmember", "xbrldi:typedmember") and self._context:
-            self._context["dimensional"] = True
-            self._context["members"].append([a.get("dimension") or "", ""])
-            if tag == "xbrldi:explicitmember":
-                self._capture = (tag, [])
-        elif tag in ("xbrli:instant", "xbrli:identifier") and self._context:
-            self._capture = (tag, [])
-        elif tag == "xbrli:unit":
-            self._unit = {"id": a.get("id"), "measures": []}
-        elif tag == "xbrli:measure" and self._unit:
-            self._capture = (tag, [])
-
-    def handle_data(self, data):
-        for fact in self._open_facts:
-            fact["text"].append(data)
-        if self._cell is not None:
-            self._cell.append(data)
-        if self._capture:
-            self._capture[1].append(data)
-
-    def handle_endtag(self, tag):
-        if tag == "table" and self._tables:
-            self._tables.pop()
-        elif tag in ("td", "th") and self._cell is not None and self._row is not None:
-            self._row["cells"].append(" ".join("".join(self._cell).split()))
-            self._cell = None
-        elif tag == "tr" and self._row is not None:
-            label = next((c for c in self._row["cells"] if c and not _numeric(c)), "")
-            for fact in self._row["facts"]:
-                fact["label"] = label
-            self._row = None
-        elif tag == "ix:nonfraction" and self._open_facts:
-            fact = self._open_facts.pop()
-            fact["text"] = "".join(fact["text"]).strip()
-            fact["label"] = ""
-            self.facts.append(fact)
-            if self._row is not None:
-                self._row["facts"].append(fact)
-        elif self._capture and tag == self._capture[0]:
-            text = "".join(self._capture[1]).strip()
-            if tag == "xbrldi:explicitmember":
-                self._context["members"][-1][1] = text
-            elif tag == "xbrli:instant":
-                self._context["instant"] = text
-            elif tag == "xbrli:identifier":
-                self._context["entity"] = text
-            else:
-                self._unit["measures"].append(text)
-            self._capture = None
-        elif tag == "xbrli:context" and self._context:
-            self.contexts[self._context["id"]] = self._context
-            self._context = None
-        elif tag == "xbrli:unit" and self._unit:
-            self.units[self._unit["id"]] = self._unit
-            self._unit = None
-
-
-def _numeric(text: str) -> bool:
-    return bool(re.fullmatch(r"[\s$()%,.\-—–0-9]+", text))
-
-
-def _value(fact: dict) -> Decimal | None:
-    text = fact["text"].replace(",", "").replace(" ", "").replace("\xa0", "")
-    if text in _DASHES or fact["format"].endswith(("zerodash", "fixed-zero")):
-        value = Decimal(0)
-    else:
-        try:
-            value = Decimal(text)
-        except InvalidOperation:
-            return None
-    value *= Decimal(10) ** int(fact["scale"] or 0)
-    return -value if fact["sign"] == "-" else value
-
-
 def consolidated_facts(raw: str, *, cik: str, period_end: str, dimensional: bool = False) -> list[dict]:
     """Non-dimensional USD facts at the period-end instant for this entity
     (with dimensional=True, the dimensional ones instead)."""
@@ -173,7 +67,7 @@ def consolidated_facts(raw: str, *, cik: str, period_end: str, dimensional: bool
     for fact in parser.facts:
         context = parser.contexts.get(fact["context_id"]) or {}
         unit = parser.units.get(fact["unit_id"]) or {}
-        measures = [m.split(":")[-1] for m in unit.get("measures", [])]
+        measures = [m.split(":")[-1] for m in unit.get("measures", [])] if not unit.get("numerator") else []
         entity = context.get("entity") or ""
         if (context.get("instant") != period_end or bool(context.get("dimensional")) != dimensional
                 or not entity.isdigit() or int(entity) != int(cik) or measures != ["USD"]):

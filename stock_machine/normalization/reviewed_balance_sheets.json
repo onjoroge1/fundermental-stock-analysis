@@ -1617,5 +1617,59 @@
         "value": 1121000000
       }
     ]
+  },
+  {
+    "ticker": "F",
+    "cik": "0000037996",
+    "period_end": "2026-06-30",
+    "accession_number": "0000037996-26-000156",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:F:2026-06-30:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/37996/000003799626000156/f-20260630.htm",
+    "source_sha256": "0d22fca50e95614b3643433d4547c3aac4fc33e765e0982fb8473e732ef0728c",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "debt_current": 4381000000,
+      "long_term_debt_and_capital_lease_obligations": 19238000000
+    },
+    "binding_fields": {
+      "total_assets": 285531000000,
+      "total_liabilities": 249776000000,
+      "shareholders_equity": 35719000000,
+      "cash_and_equivalents": 18603000000
+    },
+    "total_debt": 23619000000,
+    "source_element_ids": [
+      "f-195",
+      "f-203"
+    ],
+    "review_flags_accepted": [
+      "OWNER_SELECTED_FACE_LINES"
+    ],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Owner decision 2026-10-18: automotive-only debt. Face balance sheet 'Company excluding Ford Credit' debt payable within one year and long-term debt; Ford Credit (captive finance) debt is excluded. Cash and equivalents remain consolidated. Period normalized from the 10-Q's own inline XBRL (companyfacts lagged).",
+    "method": "OWNER_SELECTED_FACE_LINES",
+    "cash_and_equivalents": 18603000000,
+    "selected_lines": [
+      {
+        "element_id": "f-195",
+        "tag": "us-gaap:DebtCurrent",
+        "label": "Company excluding Ford Credit",
+        "members": [
+          "us-gaap:StatementBusinessSegmentsAxis=f:CompanyExcludingFordCreditMember"
+        ],
+        "value": 4381000000
+      },
+      {
+        "element_id": "f-203",
+        "tag": "us-gaap:LongTermDebtAndCapitalLeaseObligations",
+        "label": "Company excluding Ford Credit",
+        "members": [
+          "us-gaap:StatementBusinessSegmentsAxis=f:CompanyExcludingFordCreditMember"
+        ],
+        "value": 19238000000
+      }
+    ]
   }
 ]

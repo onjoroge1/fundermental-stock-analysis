@@ -377,6 +377,8 @@ def build_periods(companyfacts: dict) -> tuple[list[dict], list[dict], list[dict
     cik = str(companyfacts.get("cik", "")).zfill(10)
     reviewed = reviewed_debt_sources()
     reviewed_fields = reviewed_balance_fields()
+    # Facts merged from a lagging filing's own XBRL cite that filing.
+    filing_sources = {r["accession"]: r for r in companyfacts.get("_filing_supplements") or []}
     for p in quarterly + annual:
         provenance = {}
         for f in facts:
@@ -387,8 +389,10 @@ def build_periods(companyfacts: dict) -> tuple[list[dict], list[dict], list[dict
                     "tag": f["tag"], "accession_number": f["accn"], "filed_at": f["filed"],
                     "period_end": f["end"], "period_start": f["start"],
                     "source_id": "SEC:ACCESSION:" + str(f["accn"]),
-                    "source_url": raw_provenance.get("source_url") or f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
-                    "source_content_sha256": source_hash,
+                    "source_url": (filing_sources[f["accn"]]["source_url"] if f["accn"] in filing_sources
+                                   else raw_provenance.get("source_url") or f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"),
+                    "source_content_sha256": (filing_sources[f["accn"]]["source_content_sha256"]
+                                              if f["accn"] in filing_sources else source_hash),
                     "unit": units_for(f["field"])[0], "value": f["value"],
                 }
         p["fields"]["_financial_provenance"] = provenance
