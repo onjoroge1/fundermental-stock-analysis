@@ -12,6 +12,9 @@ from functools import lru_cache
 from pathlib import Path
 
 VERSION = "financial-integrity.v1"
+ZERO_DEBT_METHOD = "NO_DEBT_DISCLOSED"
+DEBT_FIELDS = ("short_term_debt", "commercial_paper", "long_term_debt", "reported_total_debt",
+               "debt_current_total", "debt_noncurrent_total")
 
 
 @lru_cache(maxsize=1)
@@ -132,6 +135,18 @@ def validate_reviewed_debt(reviewed: dict, fields: dict, sources: dict) -> tuple
     normalized = reviewed.get("components") or {}
     source_reviewed = reviewed.get("reviewed_components") or {}
     bindings = reviewed.get("binding_fields") or {}
+    if reviewed.get("method") == ZERO_DEBT_METHOD:
+        # Zero is accepted only as a reviewed finding, bound to this filing,
+        # and never against a normalized debt fact.
+        if (total != 0 or normalized or source_reviewed or not bindings
+                or any((number(fields.get(f)) or 0) > 0 for f in DEBT_FIELDS)
+                or not _matches_bound_fields(fields, sources, accession, bindings)):
+            return None, {}
+        reviewed_cash = number(reviewed.get("cash_and_equivalents"))
+        if reviewed_cash is not None and (number(fields.get("cash_and_equivalents")) != reviewed_cash
+                                          or sources.get("cash_and_equivalents") != accession):
+            return None, {}
+        return 0, reviewed
     arithmetic = source_reviewed or normalized
     if (not arithmetic
             or any(number(v) is None or number(v) < 0 for v in arithmetic.values())
@@ -184,7 +199,9 @@ def debt_evidence(period: dict | None) -> dict:
         else:
             reviewed_total, reviewed = _reviewed_total(p, fields, sources)
             if reviewed_total is not None:
-                total, basis = reviewed_total, "REVIEWED_ISSUER_BALANCE_SHEET_TOTAL"
+                total, basis = reviewed_total, (
+                    "REVIEWED_NO_DEBT_DISCLOSED" if reviewed.get("method") == ZERO_DEBT_METHOD
+                    else "REVIEWED_ISSUER_BALANCE_SHEET_TOTAL")
                 source_ids = [reviewed["source_id"]]
                 debt_accession = reviewed["accession_number"]
             else:

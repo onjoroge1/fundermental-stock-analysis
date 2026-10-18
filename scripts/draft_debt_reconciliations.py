@@ -112,6 +112,8 @@ def draft_one(sec: Sec, ticker: str, cik: str) -> dict:
         return {**out, "status": "DEBT_ALREADY_VERIFIED"}
     dimensional = dr.consolidated_facts(text, cik=cik, period_end=period["period_end"], dimensional=True)
     proposal = dr.propose(facts, dimensional)
+    if proposal["flags"] == ["NO_DEBT_LINES_ON_FACE_BALANCE_SHEET"]:
+        proposal = dr.propose_zero_debt(facts, dimensional)
     bound, binding_flags = dr.bindings(facts, period, accession)
     if not bound:
         binding_flags.append("NO_SAME_ACCESSION_BINDING")

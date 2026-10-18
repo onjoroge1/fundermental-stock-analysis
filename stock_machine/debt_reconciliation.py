@@ -275,6 +275,34 @@ def propose(facts: list[dict], dimensional: list[dict] = ()) -> dict:
     }
 
 
+# Facts that mention borrowing without being an obligation: undrawn capacity.
+_NOT_AN_OBLIGATION = re.compile(r"Capacity|Available|Maximum|Remaining|Unused|Covenant")
+from .financial_integrity import ZERO_DEBT_METHOD  # noqa: E402
+
+
+def propose_zero_debt(facts: list[dict], dimensional: list[dict] = ()) -> dict:
+    """Zero debt, only when the filing discloses no obligation at all.
+
+    No debt line on the face balance sheet is not enough: any debt-like fact at
+    the period end anywhere in the filing (notes, dimensional breakdowns,
+    finance leases, drawn credit lines) blocks the proposal. Undrawn facility
+    capacity and debt securities held as assets are not obligations.
+    """
+    candidates = [f for f in list(facts) + list(dimensional)
+                  if is_debt_tag(f["tag"]) and f["value"] and not _NOT_AN_OBLIGATION.search(local(f["tag"]))]
+    excluded = _unique([f for f in list(facts) + list(dimensional)
+                        if is_debt_tag(f["tag"]) and f["value"] and _NOT_AN_OBLIGATION.search(local(f["tag"]))])
+    if candidates:
+        return {"status": NO_PROPOSAL, "total_debt": None, "components": [], "corroborated_by": [],
+                "note_totals_seen": [], "dimensional_face_debt": [],
+                "debt_facts_outside_face": [_public(f) for f in _unique(candidates)][:20],
+                "flags": ["NO_DEBT_LINES_ON_FACE_BALANCE_SHEET", "DEBT_FACTS_DISCLOSED_ELSEWHERE"]}
+    return {"status": DRAFT_NEEDS_REVIEW, "total_debt": 0, "method": ZERO_DEBT_METHOD, "components": [],
+            "corroborated_by": [], "note_totals_seen": [], "dimensional_face_debt": [],
+            "excluded_non_obligations": [_public(f) for f in excluded],
+            "flags": ["ZERO_DEBT_PROPOSED"]}
+
+
 def _public(f: dict) -> dict:
     return {"tag": f["tag"], "value": int(f["value"]), "label": f["label"],
             "element_id": f["element_id"], "context_id": f["context_id"],
@@ -308,6 +336,7 @@ def reviewed_entry(draft: dict, *, reviewed_on: str, note: str) -> dict:
     for c in draft["proposal"]["components"]:
         key = re.sub(r"(?<!^)(?=[A-Z])", "_", local(c["tag"])).lower()
         keys[key if key not in keys else key + "_" + c["element_id"]] = c["value"]
+    method = draft["proposal"].get("method")
     entry = {
         "ticker": draft["ticker"], "cik": draft["cik"], "period_end": draft["period_end"],
         "accession_number": draft["accession_number"], "status": "SOURCE_RECONCILED",
@@ -320,6 +349,8 @@ def reviewed_entry(draft: dict, *, reviewed_on: str, note: str) -> dict:
         "review_flags_accepted": draft["proposal"]["flags"],
         "drafted_by": VERSION, "note": note,
     }
+    if method:
+        entry["method"] = method
     if "cash_and_equivalents" in draft["binding_fields"]:
         entry["cash_and_equivalents"] = draft["binding_fields"]["cash_and_equivalents"]
     return entry

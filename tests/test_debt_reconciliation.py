@@ -250,3 +250,66 @@ def test_normalization_fills_reviewed_liabilities_and_integrity_then_verifies(mo
     assert latest["fields"]["_financial_provenance"]["total_liabilities"]["tag"] == (
         "REVIEWED:CURRENT_PLUS_FACE_NONCURRENT_LIABILITY_LINES")
     assert fi.balance_sheet_check(latest)["status"] == "VERIFIED"
+
+
+# ---- zero debt ----
+
+DEBT_FREE = [r for r in BASE if "debt" not in r]
+
+
+def zero_draft(face, notes=()):
+    raw = filing(face, notes)
+    found = dr.consolidated_facts(raw, cik=CIK, period_end=END)
+    dimensional = dr.consolidated_facts(raw, cik=CIK, period_end=END, dimensional=True)
+    return found, dr.propose_zero_debt(found, dimensional)
+
+
+def test_zero_is_proposed_only_when_no_obligation_is_disclosed_anywhere():
+    _, proposal = zero_draft(DEBT_FREE, [row("Revolver capacity", fact(
+        "us-gaap:LineOfCreditFacilityMaximumBorrowingCapacity", 500, ctx="c-seg", ident="cap"))])
+    assert proposal["status"] == dr.DRAFT_NEEDS_REVIEW and proposal["total_debt"] == 0
+    assert proposal["method"] == fi.ZERO_DEBT_METHOD and proposal["flags"] == ["ZERO_DEBT_PROPOSED"]
+    assert [c["tag"] for c in proposal["excluded_non_obligations"]] == [
+        "us-gaap:LineOfCreditFacilityMaximumBorrowingCapacity"]
+
+
+def test_finance_leases_drawn_lines_or_segment_debt_block_zero():
+    for tag, ctx in (("us-gaap:FinanceLeaseLiability", "c-1"), ("us-gaap:LineOfCredit", "c-1"),
+                     ("us-gaap:LongTermDebt", "c-seg")):
+        _, proposal = zero_draft(DEBT_FREE, [row("In the notes", fact(tag, 50, ctx=ctx, ident="n"))])
+        assert proposal["status"] == dr.NO_PROPOSAL and proposal["total_debt"] is None, tag
+        assert "DEBT_FACTS_DISCLOSED_ELSEWHERE" in proposal["flags"]
+
+
+def zero_entry():
+    found, proposal = zero_draft(DEBT_FREE)
+    bound, _ = dr.bindings(found, period(), "A-1")
+    draft = {"ticker": "ACME", "cik": CIK, "period_end": END, "accession_number": "A-1",
+             "source_url": "https://www.sec.gov/x.htm", "source_sha256": "0" * 64,
+             "proposal": proposal, "binding_fields": bound}
+    return dr.reviewed_entry(draft, reviewed_on="2026-10-18", note="test")
+
+
+def test_reviewed_zero_debt_verifies_only_when_bound_and_uncontradicted():
+    entry = zero_entry()
+    p = period()
+    assert fi.validate_reviewed_debt(entry, p["fields"], p["field_sources"])[0] == 0
+    # A normalized debt fact contradicts the review.
+    debt = period(long_term_debt=1e6)
+    assert fi.validate_reviewed_debt(entry, debt["fields"], debt["field_sources"])[0] is None
+    other = period(accession="A-2")
+    assert fi.validate_reviewed_debt(entry, other["fields"], other["field_sources"])[0] is None
+    assert fi.validate_reviewed_debt({**entry, "binding_fields": {}}, p["fields"], p["field_sources"])[0] is None
+    assert fi.validate_reviewed_debt({**entry, "total_debt": 5}, p["fields"], p["field_sources"])[0] is None
+    # Without the reviewed method, an empty review is still never zero.
+    plain = {k: v for k, v in entry.items() if k != "method"}
+    assert fi.validate_reviewed_debt(plain, p["fields"], p["field_sources"])[0] is None
+
+
+def test_zero_debt_evidence_reports_its_basis():
+    entry = zero_entry()
+    p = {**period(), "fields": {**period()["fields"], "_reviewed_debt": entry}}
+    evidence = fi.debt_evidence(p)
+    assert evidence["status"] == "VERIFIED" and evidence["total_debt"] == 0
+    assert evidence["basis"] == "REVIEWED_NO_DEBT_DISCLOSED"
+    assert evidence["net_debt"] == -500_000_000
