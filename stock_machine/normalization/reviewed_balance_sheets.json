@@ -111,5 +111,303 @@
     "total_debt": 165231000000,
     "cash_and_equivalents": 1752000000,
     "note": "Issuer disclosed total reconciles with same-accession SEC current debt and noncurrent debt/lease facts. This is disclosed total debt, not adjusted net unsecured debt. Applies only to this period and accession."
+  },
+  {
+    "ticker": "ABNB",
+    "cik": "0001559720",
+    "period_end": "2026-06-30",
+    "accession_number": "0001559720-26-000027",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:ABNB:2026-06-30:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1559720/000155972026000027/abnb-20260630.htm",
+    "source_sha256": "77a3dff0f6e16613791ad7a0267830b0e9a075342897c2d4d045a398a999179a",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "long_term_debt_noncurrent": 2476000000
+    },
+    "binding_fields": {
+      "total_assets": 28754000000,
+      "total_liabilities": 20955000000,
+      "shareholders_equity": 7799000000,
+      "cash_and_equivalents": 6821000000
+    },
+    "total_debt": 2476000000,
+    "source_element_ids": [
+      "f-62"
+    ],
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Debt lines read from the face balance sheet of this filing; bound to same-accession normalized balance sheet totals.",
+    "cash_and_equivalents": 6821000000
+  },
+  {
+    "ticker": "AMD",
+    "cik": "0000002488",
+    "period_end": "2026-06-27",
+    "accession_number": "0000002488-26-000123",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:AMD:2026-06-27:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/2488/000000248826000123/amd-20260627.htm",
+    "source_sha256": "55fc078f2434d497404a7fe590a543ccc13e6ef2cfebd8cbfd343b98c44f16e0",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "long_term_debt_current": 875000000,
+      "long_term_debt_noncurrent": 2351000000
+    },
+    "binding_fields": {
+      "total_assets": 84464000000,
+      "shareholders_equity": 67224000000,
+      "cash_and_equivalents": 5086000000
+    },
+    "total_debt": 3226000000,
+    "source_element_ids": [
+      "f-178",
+      "f-184"
+    ],
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Debt lines read from the face balance sheet of this filing; bound to same-accession normalized balance sheet totals.",
+    "cash_and_equivalents": 5086000000
+  },
+  {
+    "ticker": "DELL",
+    "cik": "0001571996",
+    "period_end": "2026-07-31",
+    "accession_number": "0001571996-26-000046",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:DELL:2026-07-31:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1571996/000157199626000046/dell-20260731.htm",
+    "source_sha256": "3caa1555a994beacab17c4b13bb9ee4e79971d17b6cd27f86f16c6e4d809f692",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "debt_current": 8481000000,
+      "long_term_debt_noncurrent": 25985000000
+    },
+    "binding_fields": {
+      "total_assets": 127393000000,
+      "total_liabilities": 128820000000,
+      "shareholders_equity": -1427000000,
+      "cash_and_equivalents": 11569000000
+    },
+    "total_debt": 34466000000,
+    "source_element_ids": [
+      "f-64",
+      "f-74"
+    ],
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Debt lines read from the face balance sheet of this filing; bound to same-accession normalized balance sheet totals.",
+    "cash_and_equivalents": 11569000000
+  },
+  {
+    "ticker": "INTU",
+    "cik": "0000896878",
+    "period_end": "2026-07-31",
+    "accession_number": "0000896878-26-000037",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:INTU:2026-07-31:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/896878/000089687826000037/intu-20260731.htm",
+    "source_sha256": "133872355a5894af88919157ed2352a4456d69489b7708b82d44caa98c717e33",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "long_term_debt_current": 1249000000,
+      "long_term_debt_noncurrent": 6420000000
+    },
+    "binding_fields": {
+      "total_assets": 36786000000,
+      "total_liabilities": 17794000000,
+      "shareholders_equity": 18992000000,
+      "cash_and_equivalents": 4705000000
+    },
+    "total_debt": 7669000000,
+    "source_element_ids": [
+      "f-179",
+      "f-195"
+    ],
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Debt lines read from the face balance sheet of this filing; bound to same-accession normalized balance sheet totals.",
+    "cash_and_equivalents": 4705000000
+  },
+  {
+    "ticker": "KLAC",
+    "cik": "0000319201",
+    "period_end": "2026-06-30",
+    "accession_number": "0000319201-26-000027",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:KLAC:2026-06-30:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/319201/000031920126000027/klac-20260630.htm",
+    "source_sha256": "356a3a86a40d4e3a6e2eb9c8d1aca1c0f68ab9c0cd8572e5f33c3d576081ccae",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "long_term_debt": 5887415000
+    },
+    "binding_fields": {
+      "total_assets": 17951535000,
+      "total_liabilities": 11601715000,
+      "shareholders_equity": 6349820000,
+      "cash_and_equivalents": 1649842000
+    },
+    "total_debt": 5887415000,
+    "source_element_ids": [
+      "f-86"
+    ],
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Debt lines read from the face balance sheet of this filing; bound to same-accession normalized balance sheet totals.",
+    "cash_and_equivalents": 1649842000
+  },
+  {
+    "ticker": "MCD",
+    "cik": "0000063908",
+    "period_end": "2026-06-30",
+    "accession_number": "0000063908-26-000073",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:MCD:2026-06-30:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/63908/000006390826000073/mcd-20260630.htm",
+    "source_sha256": "3ebfcb069c6d034499d40739c02f04727292400319e2604aed28a8d3b937dfe1",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "long_term_debt_noncurrent": 39863000000
+    },
+    "binding_fields": {
+      "total_assets": 59920000000,
+      "shareholders_equity": -1023000000,
+      "cash_and_equivalents": 822000000
+    },
+    "total_debt": 39863000000,
+    "source_element_ids": [
+      "f-73"
+    ],
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Debt lines read from the face balance sheet of this filing; bound to same-accession normalized balance sheet totals.",
+    "cash_and_equivalents": 822000000
+  },
+  {
+    "ticker": "META",
+    "cik": "0001326801",
+    "period_end": "2026-06-30",
+    "accession_number": "0001628280-26-050705",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:META:2026-06-30:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1326801/000162828026050705/meta-20260630.htm",
+    "source_sha256": "e53ed82aa66e4e93938fe5d8202c96b9f5ac770e7a1719c19ff6cf9d4e2b9319",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "long_term_debt_noncurrent": 83664000000
+    },
+    "binding_fields": {
+      "total_assets": 449956000000,
+      "total_liabilities": 188735000000,
+      "shareholders_equity": 261221000000,
+      "cash_and_equivalents": 15462000000
+    },
+    "total_debt": 83664000000,
+    "source_element_ids": [
+      "f-63"
+    ],
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Debt lines read from the face balance sheet of this filing; bound to same-accession normalized balance sheet totals.",
+    "cash_and_equivalents": 15462000000
+  },
+  {
+    "ticker": "NVDA",
+    "cik": "0001045810",
+    "period_end": "2026-07-26",
+    "accession_number": "0001045810-26-000075",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:NVDA:2026-07-26:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000075/nvda-20260726.htm",
+    "source_sha256": "814a459771b760a37c88ecdce57b8cd559768afad74fd8ad6f6464d7b6a8c46e",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "debt_current": 1000000000,
+      "long_term_debt_noncurrent": 32366000000
+    },
+    "binding_fields": {
+      "total_assets": 320272000000,
+      "total_liabilities": 91288000000,
+      "shareholders_equity": 228984000000,
+      "cash_and_equivalents": 22443000000
+    },
+    "total_debt": 33366000000,
+    "source_element_ids": [
+      "f-144",
+      "f-148"
+    ],
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Debt lines read from the face balance sheet of this filing; bound to same-accession normalized balance sheet totals.",
+    "cash_and_equivalents": 22443000000
+  },
+  {
+    "ticker": "SBUX",
+    "cik": "0000829224",
+    "period_end": "2026-06-28",
+    "accession_number": "0000829224-26-000130",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:SBUX:2026-06-28:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/829224/000082922426000130/sbux-20260628.htm",
+    "source_sha256": "413a20fbb3cef2b97e922c481dfa2454370cf8f3d097378d95ebd7895e6588eb",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "long_term_debt_current": 1498400000,
+      "long_term_debt_noncurrent": 11780200000
+    },
+    "binding_fields": {
+      "total_assets": 28294700000,
+      "total_liabilities": 35961800000,
+      "shareholders_equity": -7674300000
+    },
+    "total_debt": 13278600000,
+    "source_element_ids": [
+      "f-227",
+      "f-231"
+    ],
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Debt lines read from the face balance sheet of this filing; bound to same-accession normalized balance sheet totals."
+  },
+  {
+    "ticker": "TXN",
+    "cik": "0000097476",
+    "period_end": "2026-06-30",
+    "accession_number": "0000097476-26-000152",
+    "status": "SOURCE_RECONCILED",
+    "source_id": "SEC:TXN:2026-06-30:REVIEWED_DEBT",
+    "source_url": "https://www.sec.gov/Archives/edgar/data/97476/000009747626000152/txn-20260630.htm",
+    "source_sha256": "3a60e152b160533ceb848e9f970c1f8c8358cd3efab78e7ad6e8a2e2710266fc",
+    "reviewed_on": "2026-10-18",
+    "units": "USD",
+    "reviewed_components": {
+      "long_term_debt_current": 1149000000,
+      "long_term_debt_noncurrent": 12903000000
+    },
+    "binding_fields": {
+      "total_assets": 35882000000,
+      "total_liabilities": 17875000000,
+      "shareholders_equity": 18007000000,
+      "cash_and_equivalents": 3660000000
+    },
+    "total_debt": 14052000000,
+    "source_element_ids": [
+      "f-180",
+      "f-192"
+    ],
+    "review_flags_accepted": [],
+    "drafted_by": "debt-reconciliation-draft.v1",
+    "note": "Debt lines read from the face balance sheet of this filing; bound to same-accession normalized balance sheet totals.",
+    "cash_and_equivalents": 3660000000
   }
 ]
