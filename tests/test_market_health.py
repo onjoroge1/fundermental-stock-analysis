@@ -18,7 +18,11 @@ class _Cursor:
         return False
 
     def execute(self, sql, params=None):
-        if "max(date)" in sql:
+        if "ORDER BY ticker, date DESC" in sql:
+            bars = getattr(self, "bars", None)
+            self._rows = bars if bars is not None else [
+                (t, 10.0, 11.0, 9.0, 10.5, 10.5, 1000.0) for t, _ in self.latest_rows]
+        elif "max(date)" in sql:
             self._rows = self.latest_rows
         elif "DISTINCT ON (ticker)" in sql:
             self._rows = self.snapshot_rows
@@ -203,3 +207,28 @@ def test_retries_are_bounded_and_skip_non_provider_errors(monkeypatch):
     conn, calls, slept = _transient_setup(monkeypatch, 99, KeyError("bad data"))
     market_health.refresh_prices(conn, ["AAPL"])
     assert calls["AAPL"] == 1 and slept == []
+
+
+def test_current_but_incomplete_latest_bar_is_refreshed(monkeypatch):
+    # A provider published the session before its fields were final: the
+    # stock has today's date but no usable bar, so it must be re-fetched.
+    now = datetime(2026, 9, 2, 20, tzinfo=timezone.utc)
+    monkeypatch.setattr(market_health, "_now_utc", lambda: now)
+    monkeypatch.setattr(market_health.db, "list_companies",
+                        lambda conn: [{"ticker": "AAPL"}, {"ticker": "DELL"}])
+    snap = lambda t: (t, now - timedelta(hours=1), "2026-09-02", "PASS", {}, [], now - timedelta(hours=1))
+    conn = _Conn([("AAPL", "2026-09-02"), ("DELL", "2026-09-02")], [snap("AAPL"), snap("DELL")])
+    original = conn.cursor
+
+    def cursor():
+        c = original()
+        c.bars = [("AAPL", 10.0, 11.0, 9.0, 10.5, 10.5, 1000.0),
+                  ("DELL", 10.0, 9.5, 9.0, 10.5, 10.5, None)]
+        return c
+
+    conn.cursor = cursor
+    result = market_health.health(conn, max_age_hours=18)
+    assert result["stale_tickers"] == ["DELL"]
+    assert result["incomplete_count"] == 1
+    assert result["tickers"][1]["state"] == "INCOMPLETE"
+

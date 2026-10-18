@@ -28,6 +28,26 @@ def test_ingestion_clock_dst_holidays_and_early_close(instant, cron, due):
 
 
 @pytest.mark.parametrize(
+    "instant,due",
+    [
+        ("2026-10-08T01:30:00+00:00", True),   # 21:30 EDT, session day
+        ("2026-10-08T04:45:00+00:00", True),   # GitHub started it late: 00:45 next morning
+        ("2026-10-08T11:00:00+00:00", False),  # 07:00 next morning: too late
+        ("2026-10-07T20:30:00+00:00", False),  # before the 17:30 ingestion slot
+        ("2026-10-10T01:30:00+00:00", True),   # Friday's session, Friday evening
+        ("2026-11-27T02:30:00+00:00", False),  # Thanksgiving: no session that day
+    ],
+)
+def test_ingestion_repair_window_tolerates_late_starts(instant, due):
+    plan = ops.schedule("ingestion", at(instant), workflow_cron=ops.INGESTION_REPAIR_CRON)
+    assert plan["due"] is due
+    if due:  # same receipt key as the main run, so a success replays
+        main = ops.schedule("ingestion", at("2026-10-07T21:30:00+00:00"), workflow_cron="30 21 * * 1-5")
+        assert main["key"] == "agent-stage:ingestion:2026-10-07:17:30"
+        assert plan["key"] == f"agent-stage:ingestion:{plan['session']}:17:30"
+
+
+@pytest.mark.parametrize(
     "instant,stage,due",
     [
         ("2026-10-07T22:10:00+00:00", "learning", True),

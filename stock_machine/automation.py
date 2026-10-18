@@ -43,6 +43,30 @@ def choose_agent_ticker(conn, session: str) -> str | None:
     return row[0] if row else None
 
 
+def research_unready(conn, session: str) -> list[str]:
+    """Covered stocks that choose_agent_ticker cannot pick for this session:
+    no stored bar, passing price snapshot or OK forecast for the session."""
+    from .agents.contracts import AGENT_UNIVERSE
+
+    rows = conn.execute(
+        """SELECT c.ticker FROM companies c
+        LEFT JOIN LATERAL (SELECT max(date)::text AS market_date FROM prices_daily
+            WHERE ticker=c.ticker AND date<=%s) p ON true
+        LEFT JOIN LATERAL (SELECT max_record_date::text AS market_date,status
+            FROM dataset_snapshots WHERE ticker=c.ticker AND dataset='prices'
+            ORDER BY last_checked_at DESC,observed_at DESC LIMIT 1) s ON true
+        LEFT JOIN LATERAL (SELECT as_of::text AS market_date,status FROM prediction_forecasts
+            WHERE ticker=c.ticker ORDER BY as_of DESC,generated_at DESC LIMIT 1) f ON true
+        WHERE c.ticker=ANY(%s) AND NOT (
+            p.market_date IS NOT DISTINCT FROM %s
+            AND s.market_date IS NOT DISTINCT FROM %s AND s.status IS NOT DISTINCT FROM 'PASS'
+            AND f.market_date IS NOT DISTINCT FROM %s AND f.status IS NOT DISTINCT FROM 'OK')
+        ORDER BY c.ticker""",
+        (session, list(AGENT_UNIVERSE), session, session, session),
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
 def _indexed_at(row: dict) -> str:
     return str(row.get("indexed_at") or "")
 

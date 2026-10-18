@@ -6,6 +6,11 @@ import pytest
 from stock_machine.ingestion.prices_tws import _parse_bar_date, merge_series
 
 
+def bar(close):
+    """A complete bar: the latest session must carry every OHLCV field."""
+    return {"open": close, "high": close, "low": close, "close": close, "adj_close": close, "volume": 10}
+
+
 @pytest.fixture(autouse=True)
 def fixed_session(monkeypatch):
     monkeypatch.setattr("stock_machine.pipeline.latest_completed_session", lambda: "2026-01-02")
@@ -45,7 +50,7 @@ def test_auto_falls_back_to_yahoo_and_records_the_downgrade(monkeypatch):
     monkeypatch.setattr("stock_machine.ingestion.prices_tws.fetch_daily",
                         broker_down)
     monkeypatch.setattr(pipeline.price_ing, "fetch_daily",
-                        lambda t: ([{"date": "2026-01-02", "close": 1.0, "volume": 10}],
+                        lambda t: ([{"date": "2026-01-02", **bar(1.0)}],
                                    [{"date": "2026-01-02",
                                      "action_type": "split", "value": 4.0}]))
     rows, actions, source, events = pipeline._fetch_prices("AAPL")
@@ -79,7 +84,7 @@ def test_yahoo_forced_skips_the_broker_entirely(monkeypatch):
     monkeypatch.setattr("stock_machine.ingestion.prices_tws.fetch_daily",
                         must_not_run)
     monkeypatch.setattr(pipeline.price_ing, "fetch_daily",
-                        lambda t: ([{"date": "2026-01-02", "close": 1.0, "volume": 10}], []))
+                        lambda t: ([{"date": "2026-01-02", **bar(1.0)}], []))
     _, _, source, events = pipeline._fetch_prices("AAPL")
     assert source == "yahoo" and events == []
 
@@ -94,7 +99,7 @@ def test_cloud_source_falls_back_from_yahoo_to_fmp(monkeypatch):
     )
     monkeypatch.setattr(
         "stock_machine.ingestion.prices_fmp.fetch_daily",
-        lambda ticker: ([{"date": "2026-01-02", "close": 1.0, "adj_close": 1.0, "volume": 10}], []),
+        lambda ticker: ([{"date": "2026-01-02", **bar(1.0)}], []),
     )
     rows, actions, source, events = pipeline._fetch_prices("AAPL")
     assert rows and actions == [] and source == "fmp"
@@ -119,7 +124,7 @@ def test_stale_successful_yahoo_response_uses_fmp(monkeypatch):
     monkeypatch.setattr(pipeline.price_ing, "fetch_daily", lambda t: (
         [{"date": "2025-12-31", "close": 100, "adj_close": 100, "volume": 10}], []))
     monkeypatch.setattr("stock_machine.ingestion.prices_fmp.fetch_daily", lambda t: (
-        [{"date": "2026-01-02", "close": 101, "adj_close": 101, "volume": 10}], []))
+        [{"date": "2026-01-02", **bar(101)}], []))
     rows, _, source, events = pipeline._fetch_prices("AAPL")
     assert source == "fmp" and rows[-1]["date"] == "2026-01-02"
     assert "PRICE_LATEST_COMPLETED_SESSION_MISSING" in events[-1]["detail"]

@@ -21,6 +21,18 @@ ALL_DATASETS = (
     "fundamentals", "prices", "filings", "shares", "consensus",
     "earnings_surprises", "corporate_actions",
 )
+BAR_FIELDS = ("open", "high", "low", "close", "adj_close", "volume")
+
+
+def complete_bar(row: dict) -> bool:
+    """A daily bar with finite, positive, internally consistent OHLC, adjusted
+    close and volume. Providers sometimes publish the latest session before
+    every field is final; such a bar is incomplete, never a zero."""
+    vals = [row.get(k) for k in BAR_FIELDS]
+    if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not isfinite(v) for v in vals):
+        return False
+    o, h, l, c, a, v = map(float, vals)
+    return not (min(o, h, l, c, a) <= 0 or v < 0 or h < max(o, c) or l > min(o, c) or h < l)
 
 
 def content_hash(rows: Iterable[dict]) -> str:

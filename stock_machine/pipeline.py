@@ -9,7 +9,7 @@ from .ingestion import estimates as est_ing
 from .ingestion import prices as price_ing
 from .ingestion import sec as sec_ing
 from .normalization import financial_periods as fp
-from .data_quality import assess_dataset
+from .data_quality import assess_dataset, complete_bar
 from .market_calendar import latest_completed_session
 
 
@@ -31,6 +31,7 @@ _RETRYABLE_MARKERS = (
     "FmpPriceError",
     "FMP_PRICE_HTTP",
     "PRICE_LATEST_COMPLETED_SESSION_MISSING",
+    "PRICE_LATEST_BAR_INCOMPLETE",
 )
 
 
@@ -45,6 +46,10 @@ def _completed_prices(rows):
     completed = [r for r in rows if r["date"] <= cutoff]
     if not completed or max(r["date"] for r in completed) != cutoff:
         raise ValueError("PRICE_LATEST_COMPLETED_SESSION_MISSING")
+    # A provider can publish the session before every field is final; storing
+    # it would leave that stock without a usable latest bar until replaced.
+    if not complete_bar(next(r for r in completed if r["date"] == cutoff)):
+        raise ValueError("PRICE_LATEST_BAR_INCOMPLETE")
     snapshot = assess_dataset("prices", completed)
     if snapshot["status"] == "FAIL":
         raise ValueError("PRICE_DATA_QUALITY_FAILED")

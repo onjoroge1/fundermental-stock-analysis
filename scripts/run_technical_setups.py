@@ -11,6 +11,11 @@ def main():
     directory.mkdir(parents=True, exist_ok=True)
     (directory / (result["as_of"] + ".json")).write_text(json.dumps(result, indent=2))
     print(json.dumps(result))
+    if result["status"] == "ATTENTION" and not result["attention"]["systemic"]:
+        # Isolated single-stock bar gaps are reported in the receipt, not as a failed run.
+        print("::warning::technical setups skipped " + ", ".join(result["attention"]["gap_tickers"])
+              + ": no complete latest bar")
+        return 0
     return 1 if result["status"] not in ("OK", "SKIPPED") else 0
 
 
