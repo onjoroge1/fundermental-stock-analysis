@@ -1,0 +1,216 @@
+{
+ "run": "github actions run 39176619517",
+ "protocol": {
+  "protocol_id": "fair-value-convergence.v1",
+  "base_sha256": "f93b3a68c58ed1d3157a94f97733760801e9d8faba94eb802380542545ede47e",
+  "fair_value": {
+   "own_history": "median P/E of the stock's previous 36-60 month-end observations (from 2012-01-01), gap = median / current P/E - 1",
+   "sector": "median current P/E of sector peers with positive earnings (>= 4), else the universe median (>= 9); gap = median / current P/E - 1"
+  },
+  "solid_company": "profitability and financial-health scores >= 50 and positive TTM earnings",
+  "trade": "LONG if gap >= +20%, SHORT if gap <= -20%; timed variants only when the technical component has the same sign",
+  "windows": [
+   60,
+   120
+  ],
+  "reward": "risk-scaled-residual-paper-reward.v5 over the window; FLAT = 0",
+  "unit": "calendar month of the decision (2016-01 onward)",
+  "interval": "Newey-West lag ceil(window/21) on monthly means; t(n-1) at a two-sided 99.5% quantile (Bonferroni over the five hypotheses)",
+  "hypotheses": {
+   "H9": "own-history fair value, solid companies, timed, 120 sessions beats abstention (primary)",
+   "H10": "the same, untimed",
+   "H11": "the same, timed, 60 sessions",
+   "H12": "sector fair value, solid companies, timed, 120 sessions",
+   "H13": "timing adds value: H9 policy minus H10 policy"
+  },
+  "coverage": "at least 24 active months, else INSUFFICIENT_COVERAGE",
+  "holdout": "decisions after 2026-08 form a confirmatory forward sample; this run uses 2016-01..2026-08",
+  "not_testable": [
+   "news timing (no historical headlines)",
+   "option expression (no historical surfaces)"
+  ],
+  "use": "baseline for the forward direction test; never changes trading, the live protocol or promotion",
+  "caveats": [
+   "Universe is today's coverage list: survivorship-biased.",
+   "Fundamental scoring thresholds were hand-set in 2026 with knowledge of these histories.",
+   "No historical headlines: the news component is missing throughout.",
+   "The replay composite has no earnings-surprise (expectations) input.",
+   "Short positions carry no borrow cost; fills are at closes with fixed costs.",
+   "Adjusted closes are today's vintage.",
+   "P/E fair values ignore growth differences; sector labels are today's.",
+   "Monthly decisions with 60/120-session windows overlap; the HAC lag accounts for it."
+  ]
+ },
+ "result": {
+  "protocol_id": "fair-value-convergence.v1",
+  "protocol_sha256": "4b151cdfc7777f8adbc73eafbd51a6f98ead5c601b6788b4faf47b727ce0bda3",
+  "decisions": 6285,
+  "stocks": 54,
+  "months": 123,
+  "solid_share": 0.2771678599840891,
+  "first_session": "2016-01-29",
+  "last_session": "2026-03-31",
+  "hypotheses": {
+   "H9": {
+    "months": 123,
+    "mean": -0.005609545913760656,
+    "newey_west_se": 0.00463474317325582,
+    "lower": -0.0177374119465014,
+    "upper": 0.006518320118980087,
+    "active_months": 93,
+    "verdict": "NOT_SUPPORTED"
+   },
+   "H10": {
+    "months": 123,
+    "mean": -0.011657956004443946,
+    "newey_west_se": 0.011370717073252287,
+    "lower": -0.041412039069143244,
+    "upper": 0.01809612706025535,
+    "active_months": 109,
+    "verdict": "NOT_SUPPORTED"
+   },
+   "H11": {
+    "months": 123,
+    "mean": -0.005765916561089879,
+    "newey_west_se": 0.0034876633123186243,
+    "lower": -0.014892185663373627,
+    "upper": 0.0033603525411938697,
+    "active_months": 93,
+    "verdict": "NOT_SUPPORTED"
+   },
+   "H12": {
+    "months": 123,
+    "mean": 0.007457908285741989,
+    "newey_west_se": 0.00787270404779402,
+    "lower": -0.013142823284026828,
+    "upper": 0.028058639855510804,
+    "active_months": 120,
+    "verdict": "NOT_SUPPORTED"
+   },
+   "H13": {
+    "months": 123,
+    "mean": 0.0060484100906832905,
+    "newey_west_se": 0.008772795014828812,
+    "lower": -0.01690761545275561,
+    "upper": 0.029004435634122194,
+    "active_months": 93,
+    "verdict": "NOT_SUPPORTED"
+   }
+  },
+  "subperiods": {
+   "own_timed_120": {
+    "2016_2020": {
+     "months": 60,
+     "mean": -0.013444726635254102,
+     "newey_west_se": 0.005634525684501838,
+     "lower": -0.02844246714799027,
+     "upper": 0.001553013877482065
+    },
+    "2021_present": {
+     "months": 63,
+     "mean": 0.00185253096385215,
+     "newey_west_se": 0.006322351990249855,
+     "lower": -0.014948976624845242,
+     "upper": 0.018654038552549542
+    }
+   },
+   "own_untimed_120": {
+    "2016_2020": {
+     "months": 60,
+     "mean": -0.017707589445261438,
+     "newey_west_se": 0.010646975306201173,
+     "lower": -0.04604725489875784,
+     "upper": 0.010632076008234966
+    },
+    "2021_present": {
+     "months": 63,
+     "mean": -0.0058964003465225255,
+     "newey_west_se": 0.019605885520295747,
+     "lower": -0.05799859820902453,
+     "upper": 0.04620579751597949
+    }
+   },
+   "own_timed_60": {
+    "2016_2020": {
+     "months": 60,
+     "mean": -0.009792402458750167,
+     "newey_west_se": 0.004878799553207412,
+     "lower": -0.022778583338876397,
+     "upper": 0.003193778421376062
+    },
+    "2021_present": {
+     "months": 63,
+     "mean": -0.0019311680871277003,
+     "newey_west_se": 0.004837291007551212,
+     "lower": -0.014786159662643801,
+     "upper": 0.010923823488388402
+    }
+   },
+   "sector_timed_120": {
+    "2016_2020": {
+     "months": 60,
+     "mean": 0.0008160504679155351,
+     "newey_west_se": 0.008465979379589391,
+     "lower": -0.02171833290893167,
+     "upper": 0.02335043384476274
+    },
+    "2021_present": {
+     "months": 63,
+     "mean": 0.013783487159862422,
+     "newey_west_se": 0.01277652008942002,
+     "lower": -0.020169826349190043,
+     "upper": 0.04773680066891489
+    }
+   }
+  },
+  "coverage": {
+   "own_timed_120": {
+    "active_decisions": 196,
+    "active_months": 93,
+    "mean_reward_when_active": -0.16725514285714285,
+    "hit_rate_when_active": 0.41836734693877553,
+    "long": 111,
+    "short": 85
+   },
+   "own_untimed_120": {
+    "active_decisions": 595,
+    "active_months": 109,
+    "mean_reward_when_active": -0.12166799159663866,
+    "hit_rate_when_active": 0.45714285714285713,
+    "long": 271,
+    "short": 324
+   },
+   "own_timed_60": {
+    "active_decisions": 196,
+    "active_months": 93,
+    "mean_reward_when_active": -0.17866411224489798,
+    "hit_rate_when_active": 0.42346938775510207,
+    "long": 111,
+    "short": 85
+   },
+   "sector_timed_120": {
+    "active_decisions": 448,
+    "active_months": 120,
+    "mean_reward_when_active": 0.10910063839285715,
+    "hit_rate_when_active": 0.5491071428571429,
+    "long": 299,
+    "short": 149
+   }
+  },
+  "not_testable": [
+   "news timing (no historical headlines)",
+   "option expression (no historical surfaces)"
+  ],
+  "use": "baseline for the forward direction test; never changes trading, the live protocol or promotion",
+  "caveats": [
+   "Universe is today's coverage list: survivorship-biased.",
+   "Fundamental scoring thresholds were hand-set in 2026 with knowledge of these histories.",
+   "No historical headlines: the news component is missing throughout.",
+   "The replay composite has no earnings-surprise (expectations) input.",
+   "Short positions carry no borrow cost; fills are at closes with fixed costs.",
+   "Adjusted closes are today's vintage.",
+   "P/E fair values ignore growth differences; sector labels are today's.",
+   "Monthly decisions with 60/120-session windows overlap; the HAC lag accounts for it."
+  ]
+ }
+}
