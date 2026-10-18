@@ -904,8 +904,17 @@ def metric_mean(metrics, field):
     return sum(values) / len(values) if values else None
 
 
-def weekly_summary(conn, *, end=None, cumulative=None):
-    conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+def weekly_summary(conn, *, end=None, cumulative=None, precomputed=False):
+    """Owner view. precomputed=True reads the learning stage's saved cumulative
+    summary inside this same snapshot, after the isolation level is set."""
+    from psycopg import pq
+
+    # Isolation can only be set by a transaction's first statement; a caller
+    # that already queried keeps its own transaction instead of failing.
+    if conn.info.transaction_status == pq.TransactionStatus.IDLE:
+        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+    if precomputed and cumulative is None:
+        cumulative = latest_precomputed(conn)
     end = end or latest_completed_session()
     start = session_offset(end, -5)
     rows = conn.execute(
