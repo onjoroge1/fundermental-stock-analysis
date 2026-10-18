@@ -84,8 +84,10 @@ def draft_one(sec: Sec, ticker: str, cik: str) -> dict:
     if not url:
         return {**out, "accession_number": accession, "status": "FILING_NOT_FOUND"}
     raw = sec.get(url, f"{ticker}.{accession}.htm")
-    facts = dr.consolidated_facts(raw.decode("utf-8", "replace"), cik=cik, period_end=period["period_end"])
-    proposal = dr.propose(facts)
+    text = raw.decode("utf-8", "replace")
+    facts = dr.consolidated_facts(text, cik=cik, period_end=period["period_end"])
+    dimensional = dr.consolidated_facts(text, cik=cik, period_end=period["period_end"], dimensional=True)
+    proposal = dr.propose(facts, dimensional)
     bound, binding_flags = dr.bindings(facts, period, accession)
     if not bound:
         binding_flags.append("NO_SAME_ACCESSION_BINDING")
@@ -120,6 +122,9 @@ def markdown(drafts: list[dict]) -> str:
                   f"Proposed total debt **{money(p['total_debt'])}**", ""]
         lines += [f"- {c['label'] or '(no row label)'} — `{c['tag']}` {money(c['value'])} ({c['element_id']})"
                   for c in p["components"]]
+        if p.get("dimensional_face_debt"):
+            lines.append("Face debt in dimensional contexts (not summed): " + ", ".join(
+                f"{c['label'] or c['tag']} {money(c['value'])}" for c in p["dimensional_face_debt"]))
         if p["corroborated_by"]:
             lines.append("Corroborated by: " + ", ".join(f"`{c['tag']}` {money(c['value'])}" for c in p["corroborated_by"]))
         elif p["note_totals_seen"]:

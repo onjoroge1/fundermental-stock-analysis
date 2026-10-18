@@ -23,7 +23,7 @@ NO_PROPOSAL = "NO_PROPOSAL"
 
 # Local tag names that denote borrowings or finance-lease obligations.
 _DEBT = re.compile(
-    r"Debt|Borrowing|CommercialPaper|NotesPayable|LoansPayable|FinanceLease|"
+    r"Debt|Borrowing|CommercialPaper|NotesPayable|LoansPayable|NotesAndLoans|FinanceLease|"
     r"CapitalLease|ConvertibleNotes|SeniorNotes|LineOfCredit|Bonds")
 # Words that make a matching name something other than an obligation balance.
 _NOT_DEBT = re.compile(
@@ -158,8 +158,9 @@ def _value(fact: dict) -> Decimal | None:
     return -value if fact["sign"] == "-" else value
 
 
-def consolidated_facts(raw: str, *, cik: str, period_end: str) -> list[dict]:
-    """Non-dimensional USD facts at the period-end instant for this entity."""
+def consolidated_facts(raw: str, *, cik: str, period_end: str, dimensional: bool = False) -> list[dict]:
+    """Non-dimensional USD facts at the period-end instant for this entity
+    (with dimensional=True, the dimensional ones instead)."""
     parser = _InlineXbrl()
     parser.feed(raw)
     out = []
@@ -168,7 +169,7 @@ def consolidated_facts(raw: str, *, cik: str, period_end: str) -> list[dict]:
         unit = parser.units.get(fact["unit_id"]) or {}
         measures = [m.split(":")[-1] for m in unit.get("measures", [])]
         entity = context.get("entity") or ""
-        if (context.get("instant") != period_end or context.get("dimensional")
+        if (context.get("instant") != period_end or bool(context.get("dimensional")) != dimensional
                 or not entity.isdigit() or int(entity) != int(cik) or measures != ["USD"]):
             continue
         value = _value(fact)
@@ -207,13 +208,21 @@ def _unique(facts):
     return out
 
 
-def propose(facts: list[dict]) -> dict:
-    """Proposed components, corroboration and review flags (pure)."""
+def propose(facts: list[dict], dimensional: list[dict] = ()) -> dict:
+    """Proposed components, corroboration and review flags (pure).
+
+    `dimensional` are the period's dimensional facts. A face debt line reported
+    only in a dimensional context (e.g. split by related party or segment)
+    cannot be summed from consolidated lines, so the draft is not promotable.
+    """
     tables = face_tables(facts)
     face = [f for f in facts if f["table"] in tables]
     flags = []
     if not tables:
         flags.append("FACE_BALANCE_SHEET_NOT_FOUND")
+    split = _unique([f for f in dimensional if f["table"] in tables and is_debt_tag(f["tag"]) and f["value"]])
+    if split:
+        flags.append("FACE_DEBT_LINES_IN_DIMENSIONAL_CONTEXTS")
     lines = _unique([f for f in face if is_debt_tag(f["tag"]) and f["value"] != 0])
     if any(local(f["tag"]) in BANK_TAGS for f in face):
         flags.append("BANK_BALANCE_SHEET_FUNDING_LINES_NOT_INCLUDED")
@@ -240,10 +249,10 @@ def propose(facts: list[dict]) -> dict:
                      and local(f["tag"]) in NOTE_TOTALS])
     corroborating = [f for f in notes if lines and abs(f["value"] - total) <= tolerance + f["rounding"]]
     leases = [f for f in facts if local(f["tag"]) in FINANCE_LEASE_NOTE_TAGS and f["value"] > 0]
-    split = {local(f["tag"]): f for f in facts if local(f["tag"]) in (
+    lease_parts = {local(f["tag"]): f for f in facts if local(f["tag"]) in (
         "FinanceLeaseLiabilityCurrent", "FinanceLeaseLiabilityNoncurrent")}
-    if not leases and len(split) == 2:
-        a, b = split.values()
+    if not leases and len(lease_parts) == 2:
+        a, b = lease_parts.values()
         leases = [{**a, "tag": "us-gaap:FinanceLeaseLiabilityCurrent+Noncurrent",
                    "value": a["value"] + b["value"], "rounding": a["rounding"] + b["rounding"]}]
     if lines and not corroborating and leases and "FINANCE_LEASES_INCLUDED" in flags:
@@ -254,12 +263,14 @@ def propose(facts: list[dict]) -> dict:
                          if abs(f["value"] + lease["value"] - total) <= tolerance + f["rounding"] + lease["rounding"]]
     if lines and not corroborating:
         flags.append("NOT_CORROBORATED_BY_A_DEBT_NOTE_TOTAL")
-    status = NO_PROPOSAL if not lines else DRAFT_CLEAN if not flags else DRAFT_NEEDS_REVIEW
+    status = (NO_PROPOSAL if not lines or split
+              else DRAFT_CLEAN if not flags else DRAFT_NEEDS_REVIEW)
     return {
-        "status": status, "total_debt": int(total) if lines else None,
+        "status": status, "total_debt": int(total) if lines and not split else None,
         "components": [_public(f) for f in lines],
         "corroborated_by": [_public(f) for f in corroborating],
         "note_totals_seen": [_public(f) for f in notes],
+        "dimensional_face_debt": [_public(f) for f in split],
         "flags": flags,
     }
 
