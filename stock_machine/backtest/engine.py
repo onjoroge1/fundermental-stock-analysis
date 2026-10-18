@@ -98,7 +98,8 @@ class TickerData:
             return None
         return self.prices[i].get("adj_close")
 
-    def observe(self, as_of: str) -> dict | None:
+    def observe(self, as_of: str, *, detail: bool = False) -> dict | None:
+        """detail=True adds valuation inputs and growth (Strategy Lab never asks)."""
         qs = [p for p in self.periods
               if p["available_at"] and p["available_at"] <= as_of]
         if len(qs) < MIN_QUARTERS:
@@ -178,6 +179,12 @@ class TickerData:
             "expectations": expectations,
             "forward": forward,
             "forward_target_dates": target_dates,
+            **({"detail": {
+                "market_cap": market_cap, "net_debt": nd,
+                "fcf_ttm": (ttm or {}).get("fields", {}).get("free_cash_flow") if ttm else None,
+                "revenue_cagr_3y_pct": derived["growth"].get("revenue_cagr_3y_pct"),
+                "valuation_score": scores["components"].get("valuation"),
+            }} if detail else {}),
         }
 
 

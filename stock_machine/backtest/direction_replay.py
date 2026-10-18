@@ -107,6 +107,7 @@ def decide(ticker: str, session: str, *, prices: list[dict], composite, spy: lis
         "momentum": _direction_from(full["signal_components"]["technical"]),
         "bias": full["bias_score"],
         "fundamental_signal": full["signal_components"]["fundamental"],
+        "technical_signal": full["signal_components"]["technical"],
         "features": technical["features"],
     }
 
@@ -232,7 +233,8 @@ def load(conn, tickers: list[str]) -> tuple[dict, list[dict], list[dict], callab
         if symbol and symbol not in sector_cache:
             sector_cache[symbol] = db.fetch_prices(conn, symbol)
         sector_rows = sector_cache.get(symbol) or []
-        universe[ticker] = {"prices": data.prices, "sector_rows": sector_rows, "observe": data.observe}
+        universe[ticker] = {"prices": data.prices, "sector_rows": sector_rows, "observe": data.observe,
+                            "ticker_data": data}
         providers[ticker] = RegimeFeatureProvider(spy, qqq_rows=qqq, sector_rows=sector_rows)
 
     def regime_for(ticker, session):
