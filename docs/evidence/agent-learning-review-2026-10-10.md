@@ -63,6 +63,8 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
 | 41 | No historical baseline for the agent's heuristic direction: the forward direction test needs 24 blocks of 20 sessions (about two years) before it says anything. | DONE (#133; result in `direction-replay-2026-10-18.md`): over 6,555 decisions and 128 months the heuristic is indistinguishable from abstaining (−0.0017 vol units, 95% [−0.037, +0.033]); H1, H2 and H3 not supported. The forward challenger's baseline is about zero. |
 | 42 | Candidate signals untested historically: earnings surprise, estimate revisions, and the owner's idea of using fundamentals for fair value with technicals for timing. | DONE (#135, #136; `signal-replay-2026-10-18.md`): surprise and revisions INSUFFICIENT_COVERAGE (no point-in-time history before 2026); value gap NOT_SUPPORTED and significantly negative (cheap lagged rich, 2016–2026); value gap timed by technicals ~0; timing beat the raw value gap only weakly (H8 lower bound +0.0003). OPEN: vendor history for surprises/revisions; pre-register the reversed value gap on post-2026-08 data. |
 | 43 | The owner's design (fundamentals filter solid companies and set a fair value; trade toward it, timed by price action, over months) had no systematic historical fair value to test: report fair values are analyst-authored and the reverse DCF is withheld. FMP surprise history on this plan is 5 events (from 2025-10). | DONE (#138, #139; `fair-value-replay-2026-10-18.md`): nothing supported at family-wise 95%. Own-history P/E reversion negative; sector-relative fair value, timed, 120 sessions is positive but not significant (+0.0075/month, +0.109 vol units per trade, 54.9% hit rate) and is the candidate for the forward holdout. FMP plan returns 5 events per stock (history from 2025-10), so surprises stay untestable until a higher tier or accumulation. |
+| 44 | The sector P/E rule (the replay's only positive policy) had no confirmatory test on unseen data. | DONE (#141, #142, #143): forward tracker `fair_value_forward.py` freezes each month-end's decisions before the next open from 2026-10, scores 120-session outcomes with reward v5, and evaluates once on the first 24 active months. Protocol registered 2026-10-19 (hash `6d09af6c…`). First freeze 2026-10-30; first outcome due 2027-04-27. |
+| 45 | Owner-proposed strategies (momentum breakout, trend pullback, post-earnings momentum, value + technical confirmation) untested as rules with path-dependent exits. | IN PROGRESS (`feat/event-strategies`): pure rules in `agent_intelligence/strategy_signals.py` (pinned behaviour) and the pre-registered `backtest/event_replay.py` (dev 2016–2023 descriptive; hold-out 2024–2026-08 confirmatory for S1–S3 at family-wise 95%, refused until the SEC 8-K 2.02 earnings-date data is pinned). OPEN: earnings-date loader (S3), forward shadow registered before the hold-out run, agent-facing read-only API/MCP access. |
 
 ## Change log
 
@@ -351,3 +353,9 @@ Status: **DONE** (merged), **IN PR** (on a branch), **OPEN**.
   - `backtest/direction_replay.py` (protocol hashed before any run) and `scripts/run_direction_replay.py`.
   - Manual workflow `direction-replay.yml` (read-only DB session, evidence artifact).
   - Results go to `docs/evidence` after the first run.
+- Event strategies (item 45, `feat/event-strategies`):
+  - Entries are judged on closes and executed at the next close; exits are path-dependent (trailing 2×ATR on
+    normalized bars, trend failure below the 50-day average, gap fill for S3, maximum hold).
+  - One open trade per stock and strategy; a missing bar excludes the trade and locks the stock until its maximum
+    hold.
+  - Monthly equal-weight book scored with reward v5; Newey-West lag 3.
