@@ -116,7 +116,13 @@ def rewards(session: str, decision: dict, *, stock: dict, spy: dict,
             horizon: int = HORIZON_SESSIONS) -> dict | None:
     """Reward v5 for LONG and SHORT over the frozen window (FLAT is 0)."""
     entry = session_offset(session, 1)
-    due = session_offset(entry, horizon)
+    return rewards_between(entry, session_offset(entry, horizon), decision, stock=stock, spy=spy,
+                           horizon=horizon)
+
+
+def rewards_between(entry: str, due: str, decision: dict, *, stock: dict, spy: dict,
+                    horizon: int = HORIZON_SESSIONS) -> dict | None:
+    """Reward v5 between explicit (e.g. frozen) entry and due sessions."""
     stock_r, spy_r = _window_return(stock, entry, due), _window_return(spy, entry, due)
     if stock_r is None or spy_r is None:
         return None

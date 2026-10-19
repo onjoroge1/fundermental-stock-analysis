@@ -139,3 +139,80 @@ def test_evaluation_waits_for_24_active_months_then_tests_the_mean():
 ])
 def test_exit_codes(receipt, code):
     assert exit_code(receipt) == code
+
+
+# ---- review follow-ups -------------------------------------------------------------
+
+PINNED_PROTOCOL_SHA256 = "71ec9ea1b561b1e8cf1430935fb7bd933656e43ccc26fe1c077698463ba5a177"
+PINNED_UNIVERSE = ('AAL', 'AAPL', 'ABNB', 'ADBE', 'ADI', 'AMAT', 'AMD', 'AMZN', 'AVGO', 'BKNG', 'CMCSA', 'CMG',
+                   'COST', 'CRM', 'CSCO', 'DAL', 'DELL', 'DIS', 'F', 'GM', 'GOOGL', 'HD', 'HIMS', 'HPQ', 'IBM',
+                   'INTC', 'INTU', 'KLAC', 'LOW', 'LRCX', 'LUV', 'MCD', 'META', 'MSFT', 'MU', 'NFLX', 'NKE', 'NOW',
+                   'NVDA', 'ORCL', 'PLTR', 'QCOM', 'RIVN', 'SBUX', 'SOFI', 'T', 'TGT', 'TMUS', 'TSLA', 'TXN',
+                   'UAL', 'UBER', 'VZ', 'WMT')
+
+
+def test_the_registered_protocol_is_pinned():
+    # Production refuses to run once the registered protocol differs, so any
+    # change here must be deliberate (a new FORWARD_ID), not incidental.
+    assert f.PROTOCOL_SHA256 == PINNED_PROTOCOL_SHA256
+    assert tuple(f.PROTOCOL["universe"]) == PINNED_UNIVERSE
+
+
+def test_decision_behavior_is_pinned_and_the_fixture_covers_every_path():
+    assert f.behavior_digest() == f.DECISION_BEHAVIOR_SHA256
+    u, spy, session = f.behavior_fixture()
+    rows = f.decide_month(u, session, spy=spy)
+    sides = {r["side"] for r in rows}
+    assert {"LONG", "SHORT", "FLAT"} <= sides
+    assert any(not r["solid"] and fv._direction(r["sector_gap"]) != "FLAT" for r in rows)       # quality filter
+    assert any(r["solid"] and fv._direction(r["sector_gap"]) != "FLAT" and r["side"] == "FLAT" for r in rows)  # timing
+
+
+def test_evaluation_uses_the_registered_statistic():
+    from stock_machine.agent_intelligence import inference
+    values = [0.6 if m % 2 else -0.5 for m in range(24)]       # mean > 0, lower bound below zero
+    result = f.evaluate([outcome(m, v) for m, v in enumerate(values)])
+    se = inference.newey_west_se(values, lag=6)
+    assert result["newey_west_se"] == pytest.approx(se)
+    assert result["lower_95"] == pytest.approx(sum(values) / 24 - inference.t_quantile_975(23) * se)
+    assert result["mean"] > 0 and result["lower_95"] <= 0 and result["status"] == "NOT_SUPPORTED"
+
+
+def test_forward_scores_equal_the_replay_reward_after_a_json_round_trip():
+    import json
+    u, payload = frozen_payload()
+    payload = json.loads(json.dumps(payload))
+    out = f.score_month(payload, prices={t: d["prices"] for t, d in u.items()}, spy=SPY, completed="2016-12-30")
+    replayed = {r["ticker"]: r for r in fv.replay(u, spy=SPY, sessions=dr.month_end_sessions("2015-01-01", SESSION),
+                                                  decision_start=SESSION)}
+    assert replayed
+    for r in out["results"]:
+        if r["ticker"] in replayed:
+            assert r["score"] == pytest.approx(fv._score(replayed[r["ticker"]], f.POLICY))
+
+
+def test_timing_uses_the_frozen_deadline_even_if_the_calendar_changes(monkeypatch):
+    deadline = datetime(2026, 11, 2, 14, 30, tzinfo=timezone.utc)
+    decision = {"payload": {"entry_session": "2026-11-02", "freeze_deadline": deadline.isoformat(),
+                            "created_at": (deadline - timedelta(hours=3)).isoformat()},
+                "recorded_at": (deadline - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S+00")}
+
+    def closed(_):
+        raise ValueError("NotSessionError: day added as a closure")
+    monkeypatch.setattr(f, "session_open", closed)
+    assert f.timing_valid(decision)
+
+
+def test_every_month_end_since_the_start_is_enumerated():
+    assert f.decision_sessions_through("2026-10-29") == []
+    assert f.decision_sessions_through("2027-01-05") == ["2026-10-30", "2026-11-30", "2026-12-31"]
+
+
+def test_the_final_evaluation_is_reported_once_it_exists():
+    final = {"status": "NOT_SUPPORTED", "months": 24, "mean": -0.01}
+    live = {"status": "PASS_REQUIRES_INDEPENDENT_REVIEW", "months": 30, "active_months": 30, "mean": 0.02,
+            "through_session": "2029-04-30"}
+    shown = f.reported_evaluation(final, live)
+    assert shown["status"] == "NOT_SUPPORTED" and shown["final"] is True
+    assert shown["post_final_monitoring"]["months"] == 30 and "status" not in shown["post_final_monitoring"]
+    assert f.reported_evaluation(None, live) == live

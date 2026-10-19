@@ -30,8 +30,14 @@ def main():
     print(json.dumps(receipt, default=str))
     code = exit_code(receipt)
     if code:
-        print("::warning::fair-value forward needs attention: "
-              + str(receipt.get("reason_code") or (receipt.get("freeze") or {}).get("status")), file=sys.stderr)
+        freeze = receipt.get("freeze") or {}
+        outcomes = receipt.get("outcomes") or {}
+        detail = [str(receipt.get("reason_code") or freeze.get("status")),
+                  *(f"newly missed {m}" for m in freeze.get("newly_missed") or []),
+                  *(f"invalid timing {m}" for m in outcomes.get("invalid") or []),
+                  *([f"scoring error {outcomes['error']}"] if outcomes.get("error") else []),
+                  *(receipt.get("sticky_attention") or [])]
+        print("::warning::fair-value forward needs attention: " + "; ".join(detail), file=sys.stderr)
     return code
 
 

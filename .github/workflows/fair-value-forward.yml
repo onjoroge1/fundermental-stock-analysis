@@ -1,14 +1,16 @@
 name: Fair Value Forward Tracking
 
-# Daily: score matured months; on a month-end, freeze that session's decisions
-# before the next open. The night run follows ingestion and its repair run;
-# the two morning runs are the last attempts before the open (EST and EDT).
+# Daily: on a month-end, freeze that session's decisions before the next open,
+# then score matured months. The night run follows ingestion and its repair
+# run; the three morning runs are all final attempts (within 4h of the open)
+# in both EST (14:30 UTC open) and EDT (13:30 UTC open).
 on:
   workflow_dispatch:
   schedule:
     - cron: "15 4 * * 2-6"
-    - cron: "0 10 * * 1-5"
+    - cron: "45 10 * * 1-5"
     - cron: "45 11 * * 1-5"
+    - cron: "30 12 * * 1-5"
 
 permissions:
   contents: read
@@ -19,6 +21,8 @@ concurrency:
 
 jobs:
   track:
+    # Evidence is append-only: only main may register the protocol or freeze.
+    if: github.ref == 'refs/heads/main'
     environment: Production
     runs-on: ubuntu-latest
     timeout-minutes: 45
