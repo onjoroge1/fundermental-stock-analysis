@@ -95,6 +95,21 @@ def create_server(api: ResearchAPI):
         """Read up to 500 stored adjusted daily price observations; no live quote or refresh."""
         return await call(api.prices, ticker, days)
 
+    @mcp.tool(annotations=READ_ONLY)
+    async def get_strategy_evidence() -> dict:
+        """Read the four pre-registered event strategies and their development, hold-out and forward evidence."""
+        return await call(api.strategy_evidence)
+
+    @mcp.tool(annotations=READ_ONLY)
+    async def get_strategy_signals(ticker: str) -> dict:
+        """Read one stock's latest frozen strategy signals and shadow trades. Information only; not qualified to trade."""
+        return await call(api.strategy_signals, ticker)
+
+    @mcp.tool(annotations=READ_ONLY)
+    async def get_learning_status() -> dict:
+        """Read what the agent has learned from matured outcomes and where each forward test stands."""
+        return await call(api.learning_status)
+
     return mcp
 
 

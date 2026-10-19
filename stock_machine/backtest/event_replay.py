@@ -223,22 +223,31 @@ def earnings_events(path=None) -> dict:
     return {t: sorted(v) for t, v in out.items()}
 
 
+def s3_reaction(bars: ss.Bars, spy_bars: ss.Bars, rows, spy_rows, session: str) -> dict | None:
+    """The reaction to one announcement (any z), or None when it cannot be measured."""
+    rule = ss.RULES["S3_post_earnings"]
+    r = bars.index.get(session)
+    if r is None or r < ss.WINDOW or r + rule["reaction_sessions"] - 1 >= len(bars.sessions):
+        return None
+    before = bars.sessions[r - 1]
+    features = _features(rows, spy_rows, before)
+    if features is None or bars.atr[r - 1] is None:
+        return None
+    z = ss.reaction_z(bars, spy_bars, r, beta=features.get("beta_63_vs_spy"), vol20=features.get("realized_vol_20"))
+    if z is None:
+        return None
+    return {"signal_index": r + rule["reaction_sessions"] - 1, "gap_level": bars.close[r - 1],
+            "atr_ref": bars.atr[r - 1], "reaction_z": z, "reaction_session": session}
+
+
 def s3_entries(bars: ss.Bars, spy_bars: ss.Bars, rows, spy_rows, reaction_sessions) -> dict:
     """signal index (second reaction session) -> exit context, for reactions of at least z_min."""
     out = {}
-    rule = ss.RULES["S3_post_earnings"]
     for session in reaction_sessions:
-        r = bars.index.get(session)
-        if r is None or r < ss.WINDOW or r + rule["reaction_sessions"] - 1 >= len(bars.sessions):
-            continue
-        before = bars.sessions[r - 1]
-        features = _features(rows, spy_rows, before)
-        if features is None or bars.atr[r - 1] is None:
-            continue
-        z = ss.reaction_z(bars, spy_bars, r, beta=features.get("beta_63_vs_spy"), vol20=features.get("realized_vol_20"))
-        if z is not None and z >= rule["z_min"]:
-            out[r + rule["reaction_sessions"] - 1] = {"gap_level": bars.close[r - 1], "atr_ref": bars.atr[r - 1],
-                                                     "reaction_z": z, "reaction_session": session}
+        reaction = s3_reaction(bars, spy_bars, rows, spy_rows, session)
+        if reaction and reaction["reaction_z"] >= ss.RULES["S3_post_earnings"]["z_min"]:
+            out[reaction["signal_index"]] = {k: reaction[k] for k in
+                                             ("gap_level", "atr_ref", "reaction_z", "reaction_session")}
     return out
 
 
@@ -259,12 +268,21 @@ def _s4_eligibility(conn, tickers, sessions_by_month):
     return eligible
 
 
+def _forward_registered(conn) -> bool:
+    """The protocol caveat: the forward shadow is registered before the hold-out runs."""
+    from ..agent_intelligence import strategy_forward as sf
+    return conn.execute("SELECT 1 FROM research_evidence_records WHERE kind=%s AND request_key=%s",
+                        (sf.PROTOCOL_KIND, sf.FORWARD_ID)).fetchone() is not None
+
+
 def run(conn, *, tickers: list[str], stage: str, end: str) -> dict:
     from .. import db
     if stage not in ("dev", "holdout"):
         raise ValueError("EVENT_REPLAY_STAGE_INVALID")
     if stage == "holdout":
         ready, reason = holdout_ready()
+        if ready and not _forward_registered(conn):
+            ready, reason = False, "FORWARD_SHADOW_NOT_REGISTERED"
         if not ready:
             return {"protocol_id": PROTOCOL["protocol_id"], "stage": stage, "status": "REFUSED", "reason": reason}
     stage_end = DEV[1] if stage == "dev" else HOLDOUT[1]
