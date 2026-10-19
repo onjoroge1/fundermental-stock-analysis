@@ -24,6 +24,7 @@ WORKFLOWS = (
     ("technical-setup-shadow.yml", "warning"),
     ("option-surface-capture.yml", "warning"),
     ("company-events-refresh.yml", "warning"),
+    ("fair-value-forward.yml", "warning"),
 )
 # Journal blockers meaning "financial data unverified": still learnable (#120).
 FUNDAMENTAL_BLOCKERS = {"FINANCIAL_DEPENDENCIES_UNVERIFIED", "REQUIRED_DATA_NOT_VERIFIED", "DATA_QUALITY_NOT_PASS"}
