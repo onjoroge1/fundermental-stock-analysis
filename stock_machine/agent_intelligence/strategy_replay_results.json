@@ -53,7 +53,70 @@
    }
   }
  },
- "holdout": null,
+ "holdout": {
+  "evidence": "docs/evidence/event-strategy-replay-holdout-2026-10-19.md",
+  "label": "PSEUDO_OUT_OF_SAMPLE",
+  "run": {
+   "commit": "cd7b838",
+   "forward_shadow_registered": "evidence_4ce5c40396d46ba9b036efcdd3bf0b382297de57844421f8aec84c0bf359e5cd",
+   "github_run_id": 39341816076,
+   "stage": "holdout"
+  },
+  "strategies": {
+   "S1_volume_breakout": {
+    "active_months": 31,
+    "hit_rate": 0.4,
+    "interval": "family-wise (Bonferroni, 3)",
+    "lower": -0.035504915279712466,
+    "mean": -0.0007501956018518532,
+    "mean_reward_per_trade": -0.0038127588235294108,
+    "mean_sessions_held": 12.676470588235293,
+    "months": 32,
+    "trades": 340,
+    "upper": 0.034004524076008756,
+    "verdict": "NOT_SUPPORTED"
+   },
+   "S2_trend_pullback": {
+    "active_months": 32,
+    "hit_rate": 0.39322033898305087,
+    "interval": "family-wise (Bonferroni, 3)",
+    "lower": -0.03729992560876439,
+    "mean": -0.006413671875,
+    "mean_reward_per_trade": -0.018784449152542373,
+    "mean_sessions_held": 11.028813559322034,
+    "months": 32,
+    "trades": 590,
+    "upper": 0.02447258185876439,
+    "verdict": "NOT_SUPPORTED"
+   },
+   "S3_post_earnings": {
+    "active_months": 31,
+    "hit_rate": 0.42758620689655175,
+    "interval": "family-wise (Bonferroni, 3)",
+    "lower": -0.009289425688278442,
+    "mean": 0.0023858136574074072,
+    "mean_reward_per_trade": 0.028432317241379308,
+    "mean_sessions_held": 14.89655172413793,
+    "months": 32,
+    "trades": 145,
+    "upper": 0.014061053003093255,
+    "verdict": "NOT_SUPPORTED"
+   },
+   "S4_value_momentum": {
+    "active_months": 24,
+    "hit_rate": 0.4794520547945205,
+    "interval": "unadjusted 95% (exploratory)",
+    "lower": -0.0047723535886304,
+    "mean": 0.0015200266203703708,
+    "mean_reward_per_trade": 0.03598090410958904,
+    "mean_sessions_held": 14.520547945205479,
+    "months": 32,
+    "trades": 73,
+    "upper": 0.007812406829371142,
+    "verdict": null
+   }
+  }
+ },
  "protocol_id": "event-strategy-replay.v1",
  "protocol_sha256": "3fa1d5cfeecca4b3248844f2b444fa71f33ec1422fefffb7fa675b25d82c6a0c",
  "schema_version": "strategy-replay-results.v1"

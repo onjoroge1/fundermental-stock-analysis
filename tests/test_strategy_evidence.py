@@ -21,11 +21,26 @@ NOW = datetime(2026, 10, 28, 12, 45, tzinfo=timezone.utc)
 def test_packaged_results_match_the_recorded_evidence():
     packaged = ev.replay_results()
     recorded = json.loads((ROOT / "docs/evidence/event-strategy-replay-dev-2026-10-19.json").read_text())
+    holdout = json.loads((ROOT / "docs/evidence/event-strategy-replay-holdout-2026-10-19.json").read_text())
     assert packaged["protocol_current"] and packaged["protocol_sha256"] == recorded["protocol_sha256"]
-    assert packaged["holdout"] is None
+    assert holdout["protocol_sha256"] == packaged["protocol_sha256"] == er.PROTOCOL_SHA256
     for key, value in packaged["dev"]["strategies"].items():
         assert value == {k: recorded["result"]["strategies"][key]["dev"][k] for k in value}
-    assert (ROOT / packaged["dev"]["evidence"]).exists()
+        # the hold-out run re-reports the development stage: identical numbers, same data
+        assert value == {k: holdout["result"]["strategies"][key]["dev"][k] for k in value}
+    for key, value in packaged["holdout"]["strategies"].items():
+        source = holdout["result"]["strategies"][key]["holdout"]
+        assert {k: v for k, v in value.items() if k != "interval"} == {k: source.get(k) for k in value
+                                                                      if k != "interval"}
+    assert (ROOT / packaged["dev"]["evidence"]).exists() and (ROOT / packaged["holdout"]["evidence"]).exists()
+
+
+def test_readings_after_the_holdout():
+    readings = {s: ev._reading(None, h, None) for s, h in ev.replay_results()["holdout"]["strategies"].items()}
+    assert readings == {"S1_volume_breakout": "HOLDOUT_NOT_SUPPORTED_FORWARD_PENDING",
+                        "S2_trend_pullback": "HOLDOUT_NOT_SUPPORTED_FORWARD_PENDING",
+                        "S3_post_earnings": "HOLDOUT_NOT_SUPPORTED_FORWARD_PENDING",
+                        "S4_value_momentum": "HOLDOUT_EXPLORATORY_NOT_SIGNIFICANT_FORWARD_PENDING"}
 
 
 def test_actions_never_read_the_strategy_signals():
@@ -42,9 +57,10 @@ def test_actions_never_read_the_strategy_signals():
 def test_overview_and_ticker_views_before_and_after_a_freeze(shadow):  # noqa: F811
     with shadow() as conn:
         before = ev.overview(conn, now=NOW)
-    assert before["forward_shadow"]["protocol_registered"] is False and before["holdout_status"] == "NOT_RUN"
+    assert before["forward_shadow"]["protocol_registered"] is False and before["holdout_status"] == "RECORDED"
     assert [s["strategy"] for s in before["strategies"]] == list(sf.STRATEGIES)
-    assert all(s["reading"] == "NO_EDGE_IN_DEVELOPMENT_CONFIRMATION_PENDING" for s in before["strategies"])
+    assert all(s["reading"].startswith("HOLDOUT_") for s in before["strategies"])
+    assert before["strategies"][0]["evidence"]["holdout_2024_2026"]["verdict"] == "NOT_SUPPORTED"
     assert before["strategies"][0]["evidence"]["forward"]["label"] == "MONITORING_NOT_A_VERDICT"
     assert before["agent_use"].startswith("INFORMATION_ONLY") and before["protocol_sha256"] == er.PROTOCOL_SHA256
     run(datetime(2026, 10, 27, 4, 20, tzinfo=timezone.utc))

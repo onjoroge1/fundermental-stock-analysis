@@ -1,0 +1,310 @@
+{
+ "protocol_sha256": "3fa1d5cfeecca4b3248844f2b444fa71f33ec1422fefffb7fa675b25d82c6a0c",
+ "result": {
+  "protocol_id": "event-strategy-replay.v1",
+  "protocol_sha256": "3fa1d5cfeecca4b3248844f2b444fa71f33ec1422fefffb7fa675b25d82c6a0c",
+  "stage": "holdout",
+  "strategies": {
+   "S1_volume_breakout": {
+    "dev": {
+     "active_months": 92,
+     "diagnostics": {
+      "costs_doubled": {
+       "lower": -0.027013599474484187,
+       "mean": -0.015873450553123787,
+       "months": 96,
+       "newey_west_se": 0.00561145614436992,
+       "upper": -0.004733301631763387
+      },
+      "path_minus_fixed_hold": {
+       "lower": -0.011953935781568382,
+       "mean": -0.0025382841732067046,
+       "months": 96,
+       "newey_west_se": 0.004742801594840398,
+       "upper": 0.006877367435154973
+      }
+     },
+     "excluded": 0,
+     "exit_reasons": {
+      "MAX_HOLD": 336,
+      "TRAILING_STOP": 654,
+      "TREND_FAILURE": 55
+     },
+     "hit_rate": 0.415311004784689,
+     "lower": -0.020187808920645395,
+     "mean": -0.008950271106963767,
+     "mean_reward_per_trade": -0.04151022392344498,
+     "mean_sessions_held": 13.116746411483254,
+     "months": 96,
+     "newey_west_se": 0.005660512355563063,
+     "no_features": 0,
+     "trades": 1045,
+     "upper": 0.002287266706717859
+    },
+    "holdout": {
+     "active_months": 31,
+     "diagnostics": {
+      "costs_doubled": {
+       "lower": -0.033230991195028425,
+       "mean": -0.005271313477734597,
+       "months": 32,
+       "newey_west_se": 0.01370900568867882,
+       "upper": 0.022688364239559233
+      },
+      "path_minus_fixed_hold": {
+       "lower": -0.019004260017079406,
+       "mean": -0.004419510416666669,
+       "months": 32,
+       "newey_west_se": 0.007151098709422694,
+       "upper": 0.010165239183746066
+      }
+     },
+     "excluded": 0,
+     "exit_reasons": {
+      "MAX_HOLD": 100,
+      "TRAILING_STOP": 225,
+      "TREND_FAILURE": 15
+     },
+     "hit_rate": 0.4,
+     "label": "PSEUDO_OUT_OF_SAMPLE",
+     "lower": -0.035504915279712466,
+     "mean": -0.0007501956018518532,
+     "mean_reward_per_trade": -0.0038127588235294108,
+     "mean_sessions_held": 12.676470588235293,
+     "months": 32,
+     "newey_west_se": 0.013732058644663182,
+     "no_features": 0,
+     "trades": 340,
+     "upper": 0.034004524076008756,
+     "verdict": "NOT_SUPPORTED"
+    }
+   },
+   "S2_trend_pullback": {
+    "dev": {
+     "active_months": 96,
+     "diagnostics": {
+      "costs_doubled": {
+       "lower": -0.02352645963928888,
+       "mean": -0.006444912409103152,
+       "months": 96,
+       "newey_west_se": 0.008604225476410012,
+       "upper": 0.010636634821082576
+      },
+      "path_minus_fixed_hold": {
+       "lower": -0.039802879966981536,
+       "mean": -0.023410477656596068,
+       "months": 96,
+       "newey_west_se": 0.008257093088694836,
+       "upper": -0.0070180753462106005
+      }
+     },
+     "excluded": 0,
+     "exit_reasons": {
+      "MAX_HOLD": 471,
+      "TRAILING_STOP": 805,
+      "TREND_FAILURE": 437
+     },
+     "hit_rate": 0.4168126094570928,
+     "lower": -0.011797205829436604,
+     "mean": 0.005557078775247822,
+     "mean_reward_per_trade": 0.014910249854057209,
+     "mean_sessions_held": 11.793928779918271,
+     "months": 96,
+     "newey_west_se": 0.00874160728582151,
+     "no_features": 0,
+     "trades": 1713,
+     "upper": 0.022911363379932246
+    },
+    "holdout": {
+     "active_months": 32,
+     "diagnostics": {
+      "costs_doubled": {
+       "lower": -0.039371224528874524,
+       "mean": -0.015165539128217666,
+       "months": 32,
+       "newey_west_se": 0.011868372812134566,
+       "upper": 0.009040146272439193
+      },
+      "path_minus_fixed_hold": {
+       "lower": -0.012000104933083094,
+       "mean": 0.008789402199074075,
+       "months": 32,
+       "newey_west_se": 0.010193374702716586,
+       "upper": 0.029578909331231244
+      }
+     },
+     "excluded": 0,
+     "exit_reasons": {
+      "MAX_HOLD": 125,
+      "TRAILING_STOP": 296,
+      "TREND_FAILURE": 169
+     },
+     "hit_rate": 0.39322033898305087,
+     "label": "PSEUDO_OUT_OF_SAMPLE",
+     "lower": -0.03729992560876439,
+     "mean": -0.006413671875,
+     "mean_reward_per_trade": -0.018784449152542373,
+     "mean_sessions_held": 11.028813559322034,
+     "months": 32,
+     "newey_west_se": 0.012203575558003407,
+     "no_features": 0,
+     "trades": 590,
+     "upper": 0.02447258185876439,
+     "verdict": "NOT_SUPPORTED"
+    }
+   },
+   "S3_post_earnings": {
+    "dev": {
+     "active_months": 85,
+     "diagnostics": {
+      "costs_doubled": {
+       "lower": -0.008779578161094644,
+       "mean": -0.004032862393681672,
+       "months": 96,
+       "newey_west_se": 0.0023909902413920686,
+       "upper": 0.0007138533737312998
+      },
+      "path_minus_fixed_hold": {
+       "lower": -0.00405534098531764,
+       "mean": 0.00047401299346408037,
+       "months": 96,
+       "newey_west_se": 0.002281501925483889,
+       "upper": 0.005003366972245801
+      }
+     },
+     "excluded": 0,
+     "exit_reasons": {
+      "GAP_FILL": 48,
+      "MAX_HOLD": 104,
+      "TRAILING_STOP": 222
+     },
+     "hit_rate": 0.42513368983957217,
+     "lower": -0.007130488797950732,
+     "mean": -0.002371216793433027,
+     "mean_reward_per_trade": -0.030579045454545453,
+     "mean_sessions_held": 14.764705882352942,
+     "months": 96,
+     "newey_west_se": 0.0023973150018911336,
+     "no_features": 0,
+     "trades": 374,
+     "upper": 0.002388055211084678
+    },
+    "holdout": {
+     "active_months": 31,
+     "diagnostics": {
+      "costs_doubled": {
+       "lower": -0.00831641523465172,
+       "mean": 0.0009246244799011422,
+       "months": 32,
+       "newey_west_se": 0.004531005947101946,
+       "upper": 0.010165664194454005
+      },
+      "path_minus_fixed_hold": {
+       "lower": -0.002707170975206916,
+       "mean": 0.0016302482638888888,
+       "months": 32,
+       "newey_west_se": 0.002126694936335788,
+       "upper": 0.005967667502984694
+      }
+     },
+     "excluded": 0,
+     "exit_reasons": {
+      "GAP_FILL": 9,
+      "MAX_HOLD": 23,
+      "TRAILING_STOP": 113
+     },
+     "hit_rate": 0.42758620689655175,
+     "label": "PSEUDO_OUT_OF_SAMPLE",
+     "lower": -0.009289425688278442,
+     "mean": 0.0023858136574074072,
+     "mean_reward_per_trade": 0.028432317241379308,
+     "mean_sessions_held": 14.89655172413793,
+     "months": 32,
+     "newey_west_se": 0.004613044584202677,
+     "no_features": 0,
+     "trades": 145,
+     "upper": 0.014061053003093255,
+     "verdict": "NOT_SUPPORTED"
+    }
+   },
+   "S4_value_momentum": {
+    "dev": {
+     "active_months": 69,
+     "diagnostics": {
+      "costs_doubled": {
+       "lower": -0.006473131402165834,
+       "mean": -0.002368199734189706,
+       "months": 96,
+       "newey_west_se": 0.0020677141924302376,
+       "upper": 0.0017367319337864215
+      },
+      "path_minus_fixed_hold": {
+       "lower": -0.00900806880851732,
+       "mean": -0.003783771718381929,
+       "months": 96,
+       "newey_west_se": 0.0026315549471913305,
+       "upper": 0.0014405253717534616
+      }
+     },
+     "excluded": 0,
+     "exit_reasons": {
+      "MAX_HOLD": 28,
+      "TRAILING_STOP": 106,
+      "TREND_FAILURE": 34
+     },
+     "hit_rate": 0.4642857142857143,
+     "lower": -0.005424485716909135,
+     "mean": -0.0013463781429583395,
+     "mean_reward_per_trade": -0.042085333333333336,
+     "mean_sessions_held": 15.333333333333334,
+     "months": 96,
+     "newey_west_se": 0.0020542025034664584,
+     "no_features": 0,
+     "trades": 168,
+     "upper": 0.0027317294309924566
+    },
+    "holdout": {
+     "active_months": 24,
+     "diagnostics": {
+      "costs_doubled": {
+       "lower": -0.005487792157493816,
+       "mean": 0.000605792495136823,
+       "months": 32,
+       "newey_west_se": 0.0029877664367958523,
+       "upper": 0.006699377147767462
+      },
+      "path_minus_fixed_hold": {
+       "lower": -0.02014883423130568,
+       "mean": -0.005658351273148149,
+       "months": 32,
+       "newey_west_se": 0.0071048785080313915,
+       "upper": 0.008832131685009384
+      }
+     },
+     "excluded": 0,
+     "exit_reasons": {
+      "MAX_HOLD": 12,
+      "TRAILING_STOP": 52,
+      "TREND_FAILURE": 9
+     },
+     "hit_rate": 0.4794520547945205,
+     "lower": -0.0047723535886304,
+     "mean": 0.0015200266203703708,
+     "mean_reward_per_trade": 0.03598090410958904,
+     "mean_sessions_held": 14.520547945205479,
+     "months": 32,
+     "newey_west_se": 0.0030852385693689883,
+     "no_features": 0,
+     "trades": 73,
+     "upper": 0.007812406829371142
+    }
+   }
+  }
+ },
+ "run": {
+  "commit": "cd7b838",
+  "forward_shadow_registered": "evidence_4ce5c40396d46ba9b036efcdd3bf0b382297de57844421f8aec84c0bf359e5cd",
+  "github_run_id": 39341816076,
+  "stage": "holdout"
+ }
+}
