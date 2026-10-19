@@ -44,7 +44,7 @@ DEFINITIONS = {
                          "below the 20-session average, close back above it and above the prior close "
                          f"(technical_setups pullback); the 50-session average rising over {RISING_LAG} sessions "
                          f"and {MOMENTUM_SESSIONS}-session momentum positive",
-    "S3_post_earnings": "earnings release (SEC 8-K item 2.02, primary results) whose stock-specific reaction over "
+    "S3_post_earnings": "earnings release (any SEC 8-K item 2.02 filing) whose stock-specific reaction over "
                         "the two sessions from the first close after acceptance, measured against the close before "
                         "and beta-adjusted against SPY, is at least 2.0 ex-ante volatility units",
     "S4_value_momentum": "S1 or S2 entry for a solid company at least 20% below its sector-median P/E fair value "

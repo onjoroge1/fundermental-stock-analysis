@@ -33,7 +33,8 @@ MIN_TRADES = 60
 CONFIRMATORY = ("S1_volume_breakout", "S2_trend_pullback", "S3_post_earnings")
 EXPLORATORY = ("S4_value_momentum",)
 STRATEGY_BEHAVIOR_SHA256 = "82103fafbce22ef7a06c3c9cf4154a67380f87f8819b10319ea61f2291ee39be"
-EARNINGS_ANNOUNCEMENTS_SHA256 = None   # pinned once the SEC 8-K 2.02 loader's artifact is reviewed
+EARNINGS_ANNOUNCEMENTS_SHA256 = "6937f99aaaf97eb9405b7ca170d07f4ce474e6a5dc94d48463762df060fab4f5"
+EARNINGS_ANNOUNCEMENTS_PATH = "docs/evidence/earnings-announcements-v1.json"
 
 PROTOCOL = {
     "protocol_id": "event-strategy-replay.v1",
@@ -109,7 +110,8 @@ def trades_for(ticker: str, *, rows: list[dict], spy_rows: list[dict], bars: ss.
         if not context:
             continue
         gap_level = context.get("gap_level") if isinstance(context, dict) else None
-        exit_i, reason = ss.simulate_exit(bars, i + 1, strategy, atr_ref=bars.atr[i], gap_level=gap_level)
+        atr_ref = context.get("atr_ref", bars.atr[i]) if isinstance(context, dict) else bars.atr[i]
+        exit_i, reason = ss.simulate_exit(bars, i + 1, strategy, atr_ref=atr_ref, gap_level=gap_level)
         if exit_i == "PENDING":
             out.append({"ticker": ticker, "strategy": strategy, "signal": session, "status": "PENDING"})
             free_from = len(bars.sessions)
@@ -206,6 +208,40 @@ def evaluate(trades: list[dict], denominators: dict, *, stage: str) -> dict:
     return out
 
 
+def earnings_events(path=None) -> dict:
+    """ticker -> reaction sessions, from the pinned SEC 8-K item 2.02 dataset."""
+    import hashlib
+    import json
+    from pathlib import Path
+    file = Path(path or Path(__file__).resolve().parents[2] / EARNINGS_ANNOUNCEMENTS_PATH)
+    raw = file.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != EARNINGS_ANNOUNCEMENTS_SHA256:
+        raise ValueError("EARNINGS_DATA_CHANGED")
+    out = {}
+    for e in json.loads(raw)["events"]:
+        out.setdefault(e["ticker"], set()).add(e["reaction_session"])
+    return {t: sorted(v) for t, v in out.items()}
+
+
+def s3_entries(bars: ss.Bars, spy_bars: ss.Bars, rows, spy_rows, reaction_sessions) -> dict:
+    """signal index (second reaction session) -> exit context, for reactions of at least z_min."""
+    out = {}
+    rule = ss.RULES["S3_post_earnings"]
+    for session in reaction_sessions:
+        r = bars.index.get(session)
+        if r is None or r < ss.WINDOW or r + rule["reaction_sessions"] - 1 >= len(bars.sessions):
+            continue
+        before = bars.sessions[r - 1]
+        features = _features(rows, spy_rows, before)
+        if features is None or bars.atr[r - 1] is None:
+            continue
+        z = ss.reaction_z(bars, spy_bars, r, beta=features.get("beta_63_vs_spy"), vol20=features.get("realized_vol_20"))
+        if z is not None and z >= rule["z_min"]:
+            out[r + rule["reaction_sessions"] - 1] = {"gap_level": bars.close[r - 1], "atr_ref": bars.atr[r - 1],
+                                                     "reaction_z": z, "reaction_session": session}
+    return out
+
+
 # ---- loading and running -----------------------------------------------------------
 
 def _s4_eligibility(conn, tickers, sessions_by_month):
@@ -237,6 +273,7 @@ def run(conn, *, tickers: list[str], stage: str, end: str) -> dict:
     spy_bars = ss.Bars(spy_rows, end, sessions)
     month_ends = sorted({max(s for s in sessions if s[:7] == m) for m in {s[:7] for s in sessions}})
     eligible = _s4_eligibility(conn, tickers, [m for m in month_ends if m >= "2015-12-01"])
+    announcements = earnings_events()
     trades, history = [], defaultdict(int)
     for ticker in sorted(tickers):
         rows = db.fetch_prices(conn, ticker)
@@ -250,13 +287,15 @@ def run(conn, *, tickers: list[str], stage: str, end: str) -> dict:
             prior = [m for m in month_ends if m < b.sessions[i]]
             return (bool(prior) and t in eligible.get(prior[-1], set())
                     and (ss.s1_entry(b, i) or ss.s2_entry(b, i)))
+        s3_map = s3_entries(bars, spy_bars, rows, spy_rows, announcements.get(ticker, []))
+
+        def s3(b, i, m=s3_map):
+            return m.get(i, False)
         for strategy, entry in (("S1_volume_breakout", ss.s1_entry), ("S2_trend_pullback", ss.s2_entry),
-                                ("S4_value_momentum", s4)):
+                                ("S3_post_earnings", s3), ("S4_value_momentum", s4)):
             trades.extend(trades_for(ticker, rows=rows, spy_rows=spy_rows, bars=bars, spy_bars=spy_bars,
                                      strategy=strategy, entry=entry, stage_end=stage_end))
     if stage == "dev":
         trades = [t for t in trades if split_of(t["signal"]) == "dev"]
     result = evaluate(trades, dict(history), stage=stage)
-    if EARNINGS_ANNOUNCEMENTS_SHA256 is None:
-        result["strategies"]["S3_post_earnings"] = {"status": "PENDING_EARNINGS_DATA"}
     return {"protocol": PROTOCOL, "result": result, "trades": trades}

@@ -35,14 +35,52 @@ def test_protocol_is_pinned_to_the_strategy_rules():
     assert er.split_of("2026-09-01") is None and er.split_of("2015-12-31") is None
 
 
-def test_the_holdout_refuses_until_the_protocol_is_complete(monkeypatch):
-    assert er.holdout_ready() == (False, "EARNINGS_DATA_NOT_PINNED")
-    assert er.run(None, tickers=[], stage="holdout", end="2026-10-19")["status"] == "REFUSED"
-    monkeypatch.setattr(er, "EARNINGS_ANNOUNCEMENTS_SHA256", "a" * 64)
+PINNED_PROTOCOL_SHA256 = "3fa1d5cfeecca4b3248844f2b444fa71f33ec1422fefffb7fa675b25d82c6a0c"
+
+
+def test_the_protocol_is_pre_registered():
+    # Pinned before any hold-out run; a change needs a new protocol_id and disclosure.
+    assert er.PROTOCOL_SHA256 == PINNED_PROTOCOL_SHA256
+    assert er.PROTOCOL["earnings_announcements_sha256"] == er.EARNINGS_ANNOUNCEMENTS_SHA256
+
+
+def test_the_holdout_refuses_unless_data_and_rules_match_the_registration(monkeypatch, tmp_path):
+    assert er.holdout_ready() == (True, "READY")
     monkeypatch.setattr(er, "STRATEGY_BEHAVIOR_SHA256", "b" * 64)
     assert er.holdout_ready() == (False, "STRATEGY_BEHAVIOR_CHANGED")
+    monkeypatch.setattr(er, "EARNINGS_ANNOUNCEMENTS_SHA256", None)
+    assert er.run(None, tickers=[], stage="holdout", end="2026-10-19")["reason"] == "EARNINGS_DATA_NOT_PINNED"
     with pytest.raises(ValueError):
         er.run(None, tickers=[], stage="peek", end="2026-10-19")
+    edited = tmp_path / "events.json"
+    edited.write_text('{"events": []}')
+    with pytest.raises(ValueError, match="EARNINGS_DATA_CHANGED"):
+        er.earnings_events(edited)
+
+
+def test_the_pinned_earnings_data_covers_the_universe():
+    events = er.earnings_events()
+    assert len(events) == 54 and all(len(v) >= 20 for v in events.values())
+
+
+def test_post_earnings_entries_need_a_strong_reaction_and_use_pre_event_levels():
+    rows = rows_for(0.0005, 0.004, 50.0)
+    jump_at = 300
+    for i, r in enumerate(rows):
+        if i >= jump_at:
+            k = 1.12
+            for f in ("open", "high", "low", "close", "adj_close"):
+                r[f] = r[f] * k
+    bars, spy_bars = ss.Bars(rows, SESSIONS[-1], SESSIONS), ss.Bars(SPY, SESSIONS[-1], SESSIONS)
+    entries = er.s3_entries(bars, spy_bars, rows, SPY, [SESSIONS[jump_at], SESSIONS[100]])
+    assert list(entries) == [jump_at + 1]                    # signal on the second reaction session
+    context = entries[jump_at + 1]
+    assert context["gap_level"] == bars.close[jump_at - 1] and context["atr_ref"] == bars.atr[jump_at - 1]
+    assert context["reaction_z"] >= ss.RULES["S3_post_earnings"]["z_min"]
+    out = er.trades_for("X", rows=rows, spy_rows=SPY, bars=bars, spy_bars=spy_bars, strategy="S3_post_earnings",
+                        entry=lambda b, i: entries.get(i, False), stage_end=er.DEV[1])
+    assert [t["signal"] for t in out] == [SESSIONS[jump_at + 1]]
+    assert out[0]["entry"] == SESSIONS[jump_at + 2]
 
 
 def trades(strategy="S2_trend_pullback", entry=ss.s2_entry, rows=None, end="2020-12-31"):
@@ -120,6 +158,6 @@ def test_run_reads_the_database_and_stays_in_the_dev_window(pg):  # noqa: F811
         conn.commit()
         out = er.run(conn, tickers=["VZ"], stage="dev", end="2020-12-31")
     assert out["result"]["stage"] == "dev"
-    assert out["result"]["strategies"]["S3_post_earnings"] == {"status": "PENDING_EARNINGS_DATA"}
+    assert "dev" in out["result"]["strategies"]["S3_post_earnings"]
     assert out["trades"] and all(er.split_of(t["signal"]) == "dev" for t in out["trades"])
     assert db is not None
