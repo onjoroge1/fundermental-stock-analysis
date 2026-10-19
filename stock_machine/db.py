@@ -15,7 +15,7 @@ from psycopg.types.json import Jsonb
 
 from .config import DATABASE_URL
 
-REQUIRED_SCHEMA_VERSION = "0027_agent_outcome_checks"
+REQUIRED_SCHEMA_VERSION = "0028_fair_value_forward"
 
 
 def connect() -> psycopg.Connection:

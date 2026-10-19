@@ -1,0 +1,55 @@
+name: Fair Value Forward Migration 0028
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - migrations/versions/0028_fair_value_forward.py
+      - .github/workflows/fair-value-forward-migrate-0028.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-shadow-schema-and-technical
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: github.ref == 'refs/heads/main'
+    environment: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e .
+      - name: Apply and verify fair-value forward migration
+        run: |
+          python - <<'PY'
+          from alembic import command
+          from alembic.config import Config
+          from stock_machine import db
+          with db.connect() as conn:
+              before = {r[0] for r in conn.execute('SELECT version_num FROM alembic_version')}
+          if before not in ({'0027_agent_outcome_checks'}, {'0028_fair_value_forward'}):
+              raise SystemExit('UNEXPECTED_DATABASE_REVISION')
+          command.upgrade(Config('alembic.ini'), '0028_fair_value_forward')
+          kinds = ('FV_FORWARD_PROTOCOL_V1', 'FV_FORWARD_DECISION_V1', 'FV_FORWARD_OUTCOME_V1',
+                   'FV_FORWARD_CHECK_V1', 'FV_FORWARD_EVALUATION_V1')
+          with db.connect() as conn:
+              db.init_schema(conn)
+              definition = conn.execute(
+                  "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                  "WHERE conname='research_evidence_records_kind_check'"
+              ).fetchone()[0]
+          missing = [k for k in kinds if k not in definition]
+          if missing:
+              raise SystemExit('FORWARD_KINDS_NOT_ALLOWED:' + ','.join(missing))
+          print('FAIR_VALUE_FORWARD_SCHEMA_VERIFIED; trading settings unchanged')
+          PY

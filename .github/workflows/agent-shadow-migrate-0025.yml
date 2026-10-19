@@ -37,7 +37,7 @@ jobs:
           from stock_machine import db
           with db.connect() as conn:
               before = {r[0] for r in conn.execute('SELECT version_num FROM alembic_version')}
-          if before not in ({'0024_agent_universe_learning'}, {'0025_agent_shadow'}, {'0026_technical_setup_shadow'}, {'0027_agent_outcome_checks'}):
+          if before not in ({'0024_agent_universe_learning'}, {'0025_agent_shadow'}, {'0026_technical_setup_shadow'}, {'0027_agent_outcome_checks'}, {'0028_fair_value_forward'}):
               raise SystemExit('UNEXPECTED_DATABASE_REVISION')
           command.upgrade(Config('alembic.ini'), 'head')
           with db.connect() as conn:
