@@ -28,30 +28,39 @@ signals as information only.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import time
 from contextlib import suppress
 from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 
 from ..agents.contracts import AGENT_UNIVERSE, digest
 from ..backtest import direction_replay as dr
 from ..backtest import event_replay as er
+from ..data_quality import complete_bar
 from ..events import earnings_announcements as ea
 from ..market_calendar import latest_completed_session, session_dates, session_offset
 from . import fair_value_forward as fvf
 from . import strategy_signals as ss
 
 FORWARD_ID = "event-strategy-replay.v1:forward.v1"
-FIRST_DECISION_SESSION = "2026-10-21"
+FIRST_DECISION_SESSION = "2026-10-26"
 EVALUATION_MONTHS = ("2026-11", "2028-10")
-# The replay protocol this shadow confirms (pinned in tests/test_event_replay.py).
+# The replay protocol this shadow confirms (pinned in tests/test_event_replay.py), and the
+# pinned behaviour of this module's own flag and trade code on a fixed synthetic case.
 REPLAY_PROTOCOL_SHA256 = "3fa1d5cfeecca4b3248844f2b444fa71f33ec1422fefffb7fa675b25d82c6a0c"
+SHADOW_BEHAVIOR_SHA256 = "7a03fc75b779934e6d48394d0d709c08d2b977058c1e9a024d220cc4942b1a3a"
 RETRY_SESSIONS = 10
-FINAL_ATTEMPT_HOURS = 4
+FINAL_ATTEMPT_HOURS = 2
 STICKY_DAYS = 7
 HISTORY_SESSIONS = 400
 SEC_LOOKBACK_DAYS = 14
+SEC_BUDGET_SECONDS = 600
+SEC_MARGIN_SECONDS = 600
+SEC_TIMEOUT_SECONDS = 10
+SEC_MAX_CONSECUTIVE_FAILURES = 5
 
 PROTOCOL_KIND = fvf.PROTOCOL_KIND
 DECISION_KIND = fvf.DECISION_KIND
@@ -60,16 +69,17 @@ CHECK_KIND = fvf.CHECK_KIND
 EVALUATION_KIND = fvf.EVALUATION_KIND
 ACTOR = "strategy-forward-scheduler"
 STRATEGIES = (*er.CONFIRMATORY, *er.EXPLORATORY)
-LOSS_STATUSES = ("FREEZE_MISSED", "FREEZE_LATE", "INVALID_PROSPECTIVE_TIMING", "DECISION_SOURCES_CHANGED")
+# Losses stay visible for STICKY_DAYS; a code change is reported on the run that records it.
+LOSS_STATUSES = ("FREEZE_MISSED", "FREEZE_LATE", "INVALID_PROSPECTIVE_TIMING")
 OK_FREEZE = ("NOTHING_DUE", "FROZEN", "REPLAYED", "MISSED_ALREADY_RECORDED")
 
-# Code the flags depend on (db.py is excluded for the reason given in fair_value_forward).
+# Code the flags and trades depend on (db.py is excluded for the reason given in fair_value_forward).
 DECISION_SOURCES = (
-    "agent_intelligence/strategy_signals.py", "agent_intelligence/technical_setups.py",
-    "agent_intelligence/features.py", "agent_intelligence/reward.py", "backtest/event_replay.py",
-    "backtest/direction_replay.py", "backtest/fair_value_replay.py", "backtest/engine.py",
-    "events/earnings_announcements.py", "features/metrics.py", "features/scoring.py", "financial_integrity.py",
-    "normalization/earnings_releases.py", "data_quality.py", "market_calendar.py",
+    "agent_intelligence/strategy_forward.py", "agent_intelligence/strategy_signals.py",
+    "agent_intelligence/technical_setups.py", "agent_intelligence/features.py", "agent_intelligence/reward.py",
+    "backtest/event_replay.py", "backtest/direction_replay.py", "backtest/fair_value_replay.py",
+    "backtest/engine.py", "events/earnings_announcements.py", "features/metrics.py", "features/scoring.py",
+    "financial_integrity.py", "normalization/earnings_releases.py", "data_quality.py", "market_calendar.py",
 )
 FEATURES_KEPT = fvf.FEATURES_KEPT
 
@@ -88,21 +98,28 @@ def _protocol() -> dict:
         "confirms": {"protocol_id": er.PROTOCOL["protocol_id"], "protocol_sha256": REPLAY_PROTOCOL_SHA256},
         "strategies": er.PROTOCOL["strategies"], "exits": er.PROTOCOL["exits"], "timing": er.PROTOCOL["timing"],
         "strategy_behavior_sha256": er.STRATEGY_BEHAVIOR_SHA256,
+        "shadow_behavior": "this module's flag and trade code must reproduce shadow_behavior_sha256 on a fixed "
+                           "synthetic case or nothing is frozen or recorded; changes to the tracked code are "
+                           "recorded once per change as DECISION_SOURCES_CHANGED",
+        "shadow_behavior_sha256": SHADOW_BEHAVIOR_SHA256,
         "universe": sorted(AGENT_UNIVERSE),
         "decision_session": f"every XNYS session from {FIRST_DECISION_SESSION}",
         "freeze_deadline": "before the open of the next session, checked against the clock immediately before the "
                            "record is written and against the database recording time in the same transaction; a "
                            "session not frozen in time is recorded FREEZE_MISSED (or FREEZE_LATE) and is never "
                            "reconstructed",
-        "data_rule": "freeze when every universe stock and SPY has a bar at the session and every company's SEC "
-                     f"filings were read; on a final attempt (within {FINAL_ATTEMPT_HOURS}h of the deadline) freeze "
-                     "anyway: a stock without a bar has no decision, a stock whose filings could not be read has no "
-                     "S3 decision; without a SPY bar the session is never frozen and becomes FREEZE_MISSED",
+        "data_rule": "freeze when every universe stock and SPY has a complete bar at the session and every company's "
+                     f"SEC filings were read; on a final attempt (within {FINAL_ATTEMPT_HOURS}h of the deadline) "
+                     "freeze anyway: a stock without a complete bar has no decision, a stock whose filings could not "
+                     "be read within the time budget has no S3 decision, and S4 is undecided if its fundamentals "
+                     "cannot be observed; without a complete SPY bar the session is never frozen and becomes "
+                     "FREEZE_MISSED",
         "earnings_source": "data.sec.gov submissions (recent filings) for the company's current CIK: form 8-K with "
                            "item 2.02, acceptanceDateTime (UTC), reaction session = first close after acceptance "
                            "(events.earnings_announcements, the rule that built the replay dataset)",
         "s4_eligibility": "observed at the latest month-end session before the decision session "
-                          "(event_replay._s4_eligibility)",
+                          "(event_replay._s4_eligibility) by the first decision that uses that month-end, and reused "
+                          "by every later decision using the same month-end",
         "exit_levels": "the stop distance (signal-day ATR) and the S3 gap-fill level are frozen as ratios to the "
                        "signal close and rescaled to the scoring snapshot's close at the signal session",
         "trades": "entry at the next session's close; one open trade per stock and strategy; a trade is recorded "
@@ -113,7 +130,8 @@ def _protocol() -> dict:
         "reward": er.PROTOCOL["reward"],
         "reward_version": fvf.REWARD_VERSION, "scoring_behavior_sha256": fvf.SCORING_BEHAVIOR_SHA256,
         "unit": "calendar month of the signal session: sum of that month's trade rewards divided by the number of "
-                "universe stocks with a bar at the month's last frozen session; months without trades score 0",
+                "universe stocks with a complete bar and 60 sessions of history at the month's last frozen session "
+                "(the replay's denominator); months without trades score 0",
         "evaluation": {
             "months": list(EVALUATION_MONTHS),
             "when": "once, after the last session of the final month and once every trade signalled in those months "
@@ -166,34 +184,42 @@ def source_fingerprint() -> str:
 
 # ---- SEC earnings announcements ------------------------------------------------
 
-def sec_events(ciks: dict, session: str, *, client=None) -> tuple[dict, list[str]]:
-    """ticker -> recent item 2.02 announcements accepted by the session's UTC date; failed tickers."""
+def sec_events(ciks: dict, session: str, *, client=None,
+               budget_seconds: float = SEC_BUDGET_SECONDS) -> tuple[dict, list[str]]:
+    """ticker -> recent item 2.02 announcements accepted by the session's UTC date; unread tickers.
+
+    Bounded: two attempts per company, a per-request timeout, an overall time
+    budget, and a stop after consecutive failures; every company not read in
+    time is returned as unread (no S3 decision), never retried past the budget."""
     import httpx
 
     from ..config import SEC_USER_AGENT
     since = (date.fromisoformat(session) - timedelta(days=SEC_LOOKBACK_DAYS)).isoformat()
     own = client is None
-    client = client or httpx.Client(timeout=30, headers={"User-Agent": SEC_USER_AGENT,
-                                                         "Accept-Encoding": "gzip, deflate"})
-    events, failed = {}, []
+    client = client or httpx.Client(timeout=SEC_TIMEOUT_SECONDS, headers={"User-Agent": SEC_USER_AGENT,
+                                                                          "Accept-Encoding": "gzip, deflate"})
+    stop_at = time.monotonic() + max(0.0, budget_seconds)
+    events, failed, consecutive = {}, [], 0
     try:
         for ticker, cik in sorted(ciks.items()):
-            if not cik:
+            if not cik or time.monotonic() >= stop_at or consecutive >= SEC_MAX_CONSECUTIVE_FAILURES:
                 failed.append(ticker)
                 continue
             padded = f"{int(cik):010d}"
-            for attempt in range(3):
+            for attempt in range(2):
                 try:
                     response = client.get(f"https://data.sec.gov/submissions/CIK{padded}.json")
                     response.raise_for_status()
                     events[ticker] = ea.announcements(ticker, padded, ea.filings([response.json()]),
                                                       since=since, until=session)
+                    consecutive = 0
                     break
                 except Exception:
-                    if attempt == 2:
+                    if attempt == 1 or time.monotonic() >= stop_at:
                         failed.append(ticker)
-                    else:
-                        time.sleep(1.0 + attempt)
+                        consecutive += 1
+                        break
+                    time.sleep(1.0)
             time.sleep(0.12)
     finally:
         if own:
@@ -205,24 +231,27 @@ def sec_events(ciks: dict, session: str, *, client=None) -> tuple[dict, list[str
 
 def decide_session(session: str, *, prices: dict, spy: list[dict], events: dict, s4_eligible: set | None,
                    missing: list[str]) -> dict:
-    """Flags for every stock with a bar at the session, from data through its close only.
+    """Flags for every stock with a complete bar at the session, from data through its close only.
 
     events: ticker -> announcements (a ticker absent from it has no S3 decision).
-    Returns {"with_bar": [...], "missing": [...], "rows": [stocks with a flag or an announcement]}."""
+    Returns {"with_bar", "with_window" (60 complete sessions: the replay's
+    denominator), "missing", "rows" (stocks with a flag or an announcement)}."""
     sessions = session_dates(session_offset(session, -HISTORY_SESSIONS), session)
     spy_bars = ss.Bars(spy, session, sessions)
     reaction_session = session_offset(session, -(ss.RULES["S3_post_earnings"]["reaction_sessions"] - 1))
-    with_bar, absent, rows = [], set(missing), []
+    with_bar, with_window, absent, rows = [], [], set(missing), []
     for ticker in sorted(prices):
         if ticker in absent:
             continue
-        data = prices[ticker]
+        data = [r for r in prices[ticker] if str(r["date"])[:10] <= session]
         bars = ss.Bars(data, session, sessions)
         i = bars.index[session]
         if bars.close[i] is None:          # a stored but incomplete bar
             absent.add(ticker)
             continue
         with_bar.append(ticker)
+        if bars.window(i) is not None:
+            with_window.append(ticker)
         close = bars.close[i]
         flags = {"S1_volume_breakout": ss.s1_entry(bars, i), "S2_trend_pullback": ss.s2_entry(bars, i)}
         announcements = [e for e in events.get(ticker, []) if e["reaction_session"] == reaction_session]
@@ -251,11 +280,12 @@ def decide_session(session: str, *, prices: dict, spy: list[dict], events: dict,
                      "atr_ratio": bars.atr[i] / close if bars.atr[i] is not None else None,
                      "flags": flags, "s3": s3,
                      "features": {k: features.get(k) for k in FEATURES_KEPT} if features else None})
-    return {"with_bar": with_bar, "missing": sorted(absent), "rows": rows}
+    return {"with_bar": with_bar, "with_window": with_window, "missing": sorted(absent), "rows": rows}
 
 
 def decision_payload(session: str, decided: dict, *, protocol: dict, created_at: datetime, deadline: datetime,
-                     sec_failed: list[str], s4_month_end: str, s4_eligible: set | None) -> dict:
+                     sec_failed: list[str], s4_month_end: str, s4_eligible: set | None,
+                     s4_source: str | None = None) -> dict:
     counts = {s: sum(bool(r["flags"].get(s)) for r in decided["rows"]) for s in STRATEGIES}
     return clean({
         "forward_id": FORWARD_ID, "protocol_record_id": protocol["record_id"],
@@ -263,10 +293,12 @@ def decision_payload(session: str, decided: dict, *, protocol: dict, created_at:
         "entry_session": session_offset(session, 1), "freeze_deadline": deadline.isoformat(),
         "created_at": created_at.isoformat(),
         "code": {"git_sha": os.getenv("GITHUB_SHA"), "decision_sources_sha256": source_fingerprint(),
-                 "strategy_behavior_sha256": er.STRATEGY_BEHAVIOR_SHA256},
-        "with_bar": decided["with_bar"], "missing_bars_at_freeze": decided["missing"],
+                 "strategy_behavior_sha256": er.STRATEGY_BEHAVIOR_SHA256,
+                 "shadow_behavior_sha256": SHADOW_BEHAVIOR_SHA256},
+        "with_bar": decided["with_bar"], "with_window": decided["with_window"],
+        "missing_bars_at_freeze": decided["missing"],
         "sec_unavailable": sorted(sec_failed), "s4_month_end": s4_month_end,
-        "s4_eligible": sorted(s4_eligible) if s4_eligible is not None else None,
+        "s4_eligible": sorted(s4_eligible) if s4_eligible is not None else None, "s4_source": s4_source,
         "counts": counts, "rows": decided["rows"],
         "promotion": "NOT_AUTHORIZED", "broker_submission": False, "use": "INFORMATION_ONLY",
     })
@@ -292,11 +324,12 @@ def signals_by_chain(decisions: list[dict]) -> dict:
     return chains
 
 
-def _levels(row: dict, strategy: str, close_now: float) -> tuple[float | None, float | None]:
+def _levels(row: dict, strategy: str, close_now: float) -> dict:
     if strategy == "S3_post_earnings":
         s3 = row.get("s3") or {}
-        return s3.get("atr_ratio", 0.0) * close_now, s3.get("gap_ratio", 0.0) * close_now
-    return (row["atr_ratio"] * close_now if row.get("atr_ratio") is not None else None), None
+        return {"atr_ref": s3["atr_ratio"] * close_now, "gap_level": s3["gap_ratio"] * close_now}
+    return {"atr_ref": row["atr_ratio"] * close_now if row.get("atr_ratio") is not None else None,
+            "gap_level": None}
 
 
 def resolve_chain(ticker: str, strategy: str, signals: list, *, bars: ss.Bars, stock: dict, spy: dict,
@@ -323,8 +356,8 @@ def resolve_chain(ticker: str, strategy: str, signals: list, *, bars: ss.Bars, s
                 "decision_content_hash": decision["content_hash"]}
         i = bars.index.get(session)
         close_now = bars.close[i] if i is not None else None
-        exit_i, reason = ("EXCLUDED_MISSING_BARS", None) if close_now is None else ss.simulate_exit(
-            bars, i + 1, strategy, **dict(zip(("atr_ref", "gap_level"), _levels(row, strategy, close_now))))
+        exit_i, reason = (("EXCLUDED_MISSING_BARS", None) if close_now is None else
+                          ss.simulate_exit(bars, i + 1, strategy, **_levels(row, strategy, close_now)))
         path = None
         if isinstance(exit_i, int) and row.get("features") is not None:
             path = dr.rewards_between(entry, bars.sessions[exit_i], {"features": row["features"]}, stock=stock,
@@ -353,10 +386,45 @@ def resolve_chain(ticker: str, strategy: str, signals: list, *, bars: ss.Bars, s
     return new, {"state": "CLEAR"}
 
 
+def provisional_trades(ticker: str, chains: dict, *, bars: ss.Bars, completed: str, recorded: dict) -> list[dict]:
+    """Information only: where each stock-strategy chain stands today, including exits the
+    rules have already signalled but the shadow records only when the window completes."""
+    out = []
+    for strategy in STRATEGIES:
+        free_from = None
+        for session, row, _ in chains.get((ticker, strategy), []):
+            if free_from and session < free_from:
+                continue
+            key = outcome_key(strategy, ticker, session)
+            if key in recorded:
+                free_from = recorded[key]["free_from"]
+                continue
+            entry = session_offset(session, 1)
+            item = {"ticker": ticker, "strategy": strategy, "signal": session, "entry": entry,
+                    "window_ends": session_offset(entry, ss.RULES[strategy]["max_hold"])}
+            i = bars.index.get(session)
+            if entry > completed:
+                out.append({**item, "status": "AWAITING_ENTRY"})
+                break
+            if i is None or bars.close[i] is None:
+                out.append({**item, "status": "BARS_MISSING"})
+                break
+            exit_i, reason = ss.simulate_exit(bars, i + 1, strategy, **_levels(row, strategy, bars.close[i]))
+            if isinstance(exit_i, int):
+                done = completed >= item["window_ends"]
+                out.append({**item, "status": "WINDOW_COMPLETE_AWAITING_RECORD" if done else "EXIT_SIGNALLED",
+                            "exit": bars.sessions[exit_i], "reason": reason})
+                free_from = bars.sessions[exit_i]
+                continue
+            out.append({**item, "status": "HOLDING" if exit_i == "PENDING" else "BARS_MISSING"})
+            break
+    return out
+
+
 # ---- evaluation ----------------------------------------------------------------
 
 def denominators(decisions: list[dict]) -> dict:
-    """month -> stocks with a bar at the month's last frozen (valid) session."""
+    """month -> stocks with a complete bar and 60 sessions of history at the month's last frozen (valid) session."""
     last = {}
     for d in decisions:
         if fvf.timing_valid(d):
@@ -364,11 +432,11 @@ def denominators(decisions: list[dict]) -> dict:
             month = p["decision_session"][:7]
             if month not in last or p["decision_session"] > last[month]["decision_session"]:
                 last[month] = p
-    return {m: len(p["with_bar"]) for m, p in last.items()}
+    return {m: len(p["with_window"]) for m, p in last.items()}
 
 
-def evaluate(outcomes: list[dict], denominators_: dict, *, months: tuple[str, str] = EVALUATION_MONTHS) -> dict:
-    lo, hi = months
+def evaluate(outcomes: list[dict], denominators_: dict, *, months: tuple[str, str] | None = None) -> dict:
+    lo, hi = months or EVALUATION_MONTHS
     span = sorted(m for m in denominators_ if lo <= m <= hi)
     out = {}
     for strategy in STRATEGIES:
@@ -388,8 +456,61 @@ def evaluate(outcomes: list[dict], denominators_: dict, *, months: tuple[str, st
             entry["verdict"] = ("PASS_REQUIRES_INDEPENDENT_REVIEW" if stat["mean"] > 0 and stat["lower"] > 0
                                 else "NOT_SUPPORTED")
         out[strategy] = entry
-    return {"months": list(months), "months_with_decisions": len(span), "strategies": out,
+    return {"months": [lo, hi], "months_with_decisions": len(span), "strategies": out,
             "promotion": "NOT_AUTHORIZED"}
+
+
+# ---- behaviour pin -------------------------------------------------------------
+
+def behavior_fixture():
+    """A fixed synthetic stock (a volume breakout, then an announcement with a strong reaction) and SPY."""
+    days = session_dates("2025-01-02", "2026-09-30")
+
+    def path(drift, wobble, start, *, gap_on=None, spike_on=None, jump_from=None):
+        rows, price = [], start
+        for i, day in enumerate(days):
+            price *= 1 + drift + wobble * math.sin(i / 4) + (0.06 if day == gap_on else 0.0)
+            scale = 1.10 if jump_from and day >= jump_from else 1.0
+            p = price * scale
+            rows.append({"date": day, "open": p * 0.995, "high": p * 1.01, "low": p * 0.985, "close": p,
+                         "adj_close": p, "volume": 1_000_000 * (3.0 if day == spike_on else 1.0)})
+        return rows
+    stock = path(0.001, 0.006, 40.0, gap_on="2026-03-10", spike_on="2026-03-10", jump_from="2026-05-05")
+    spy = path(0.0004, 0.004, 400.0)
+    events = [{"accession": "fixture-1", "acceptance_utc": "2026-05-04T20:10:00+00:00", "items": "2.02,9.01",
+               "reaction_session": "2026-05-05"}]
+    return days, stock, spy, events
+
+
+@lru_cache(maxsize=1)
+def behavior_digest() -> str:
+    """Flags, frozen levels and recorded trades on the fixture (rounded)."""
+    def r6(x):
+        return None if x is None else round(float(x), 6)
+    days, stock, spy, events = behavior_fixture()
+    decisions = []
+    for session in session_dates("2026-03-02", "2026-06-30"):
+        out = decide_session(session, prices={"X": stock}, spy=[r for r in spy if r["date"] <= session],
+                             events={"X": [e for e in events if e["acceptance_utc"][:10] <= session]},
+                             s4_eligible={"X"} if session[5:7] in ("03", "05") else set(), missing=[])
+        decisions.append({"request_key": session, "record_id": session, "content_hash": session,
+                          "recorded_at": f"{session}T22:00:00+00:00",
+                          "payload": {"decision_session": session, "freeze_deadline": deadline_for(session).isoformat(),
+                                      "created_at": f"{session}T22:00:00+00:00", "rows": out["rows"],
+                                      "with_window": out["with_window"]}})
+    completed = days[-1]
+    bars = ss.Bars(stock, completed, session_dates(session_offset("2026-03-02", -HISTORY_SESSIONS), completed))
+    trades = []
+    for (ticker, strategy), signals in sorted(signals_by_chain(decisions).items()):
+        new, state = resolve_chain(ticker, strategy, signals, bars=bars, stock=dr._adjusted(stock),
+                                   spy=dr._adjusted(spy), completed=completed, recorded={})
+        trades += [[o["strategy"], o["signal"], o["status"], o.get("exit"), o.get("reason"), r6(o.get("reward"))]
+                   for _, o in new] + [[strategy, state["state"]]]
+    flags = [[d["payload"]["decision_session"], r["ticker"], r["flags"], r6(r["atr_ratio"]),
+              r6((r["s3"] or {}).get("reaction_z")), r6((r["s3"] or {}).get("gap_ratio")),
+              {k: r6(v) for k, v in sorted((r["features"] or {}).items())}]
+             for d in decisions for r in d["payload"]["rows"]]
+    return digest({"flags": flags, "trades": trades, "denominators": denominators(decisions)})
 
 
 # ---- database reads ------------------------------------------------------------
@@ -437,6 +558,15 @@ def sticky_attention(conn, now: datetime) -> list[str]:
     return out
 
 
+def bars_incomplete(conn, session: str, tickers) -> list[str]:
+    """Tickers without a complete bar at the session (the strategy code's own test, not just a price)."""
+    rows = conn.execute("""SELECT ticker,date::text,open,high,low,close,adj_close,volume FROM prices_daily
+        WHERE date=%s AND ticker=ANY(%s)""", (session, list(tickers))).fetchall()
+    complete = {r[0] for r in rows if complete_bar(dict(zip(
+        ("ticker", "date", "open", "high", "low", "close", "adj_close", "volume"), r)))}
+    return sorted(set(tickers) - complete)
+
+
 # ---- database writes -----------------------------------------------------------
 
 def _save_check(conn, key: str, payload: dict) -> bool:
@@ -464,6 +594,20 @@ def _register(conn) -> dict:
         raise ProtocolChanged("FORWARD_PROTOCOL_CHANGED") from exc
 
 
+def _s4_for(conn, read_conn, month_end: str, universe) -> tuple[set | None, str]:
+    """The S4 eligibility for a month-end: reused from the first decision that observed it."""
+    for d in decisions(conn):
+        p = d["payload"]
+        if p.get("s4_month_end") == month_end and p.get("s4_eligible") is not None:
+            return set(p["s4_eligible"]), "REUSED:" + p["decision_session"]
+    try:
+        return er._s4_eligibility(read_conn, list(universe), [month_end])[month_end], "OBSERVED"
+    except Exception as exc:           # S4 is exploratory: never cost S1-S3 their session
+        with suppress(Exception):
+            read_conn.rollback()
+        return None, f"UNAVAILABLE: {type(exc).__name__}: {str(exc)[:160]}"
+
+
 def _freeze(conn, read_conn, session: str, now: datetime, clock, protocol: dict, fetch_events) -> dict:
     from .. import db, research_store
     key = f"{FORWARD_ID}:{session}"
@@ -482,22 +626,24 @@ def _freeze(conn, read_conn, session: str, now: datetime, clock, protocol: dict,
     universe = PROTOCOL["universe"]
     final_attempt = deadline - now <= timedelta(hours=FINAL_ATTEMPT_HOURS)
     read_conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-    missing = fvf.bars_missing(read_conn, session, [*universe, "SPY"])
+    missing = bars_incomplete(read_conn, session, [*universe, "SPY"])
     if "SPY" in missing or (missing and not final_attempt):
         read_conn.rollback()
         return {"status": "FREEZE_PENDING_DATA", "decision_session": session, "missing": missing,
                 "final_attempt": final_attempt}
     ciks = {t: (db.fetch_company(read_conn, t) or {}).get("cik") for t in universe}
     read_conn.rollback()
-    events, sec_failed = fetch_events(ciks, session)
+    budget = min(SEC_BUDGET_SECONDS, (deadline - clock()).total_seconds() - SEC_MARGIN_SECONDS)
+    events, sec_failed = fetch_events(ciks, session, budget_seconds=budget)
     if sec_failed and not final_attempt:
         return {"status": "FREEZE_PENDING_DATA", "decision_session": session, "sec_unavailable": sec_failed,
                 "final_attempt": final_attempt}
+    month_end = prior_month_end(session)
     read_conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
     prices = {t: db.fetch_prices(read_conn, t, session) for t in universe}
     spy = db.fetch_prices(read_conn, "SPY", session)
-    month_end = prior_month_end(session)
-    s4_eligible = er._s4_eligibility(read_conn, list(universe), [month_end])[month_end]
+    s4_eligible, s4_source = _s4_for(conn, read_conn, month_end, universe)
+    conn.commit()
     read_conn.rollback()
     decided = decide_session(session, prices=prices, spy=spy, events=events, s4_eligible=s4_eligible,
                              missing=[t for t in missing if t != "SPY"])
@@ -506,7 +652,8 @@ def _freeze(conn, read_conn, session: str, now: datetime, clock, protocol: dict,
         written = _record_loss(conn, session, deadline)
         return {"status": "FREEZE_MISSED" if written else "MISSED_ALREADY_RECORDED", "decision_session": session}
     payload = decision_payload(session, decided, protocol=protocol, created_at=created, deadline=deadline,
-                               sec_failed=sec_failed, s4_month_end=month_end, s4_eligible=s4_eligible)
+                               sec_failed=sec_failed, s4_month_end=month_end, s4_eligible=s4_eligible,
+                               s4_source=s4_source)
     saved = research_store.save(conn, DECISION_KIND, key, payload)
     late = fvf._recorded_at(saved) >= deadline
     if late:
@@ -514,17 +661,18 @@ def _freeze(conn, read_conn, session: str, now: datetime, clock, protocol: dict,
                                                  "deadline": deadline.isoformat()})
     sources = source_fingerprint()
     earlier = [d for d in decisions(conn) if d["payload"]["decision_session"] < session]
-    first = (earlier[0]["payload"].get("code") or {}).get("decision_sources_sha256") if earlier else sources
-    changed = first != sources
+    previous = (earlier[-1]["payload"].get("code") or {}).get("decision_sources_sha256") if earlier else sources
+    changed = previous != sources          # recorded once per change, against the previous decision
     if changed:
         _save_check(conn, f"{key}:DECISION_SOURCES_CHANGED",
                     {"decision_session": session, "status": "DECISION_SOURCES_CHANGED",
-                     "deadline": deadline.isoformat(), "first_sources_sha256": first, "sources_sha256": sources})
+                     "deadline": deadline.isoformat(), "previous_sources_sha256": previous,
+                     "sources_sha256": sources})
     conn.commit()
     return {"status": "FREEZE_LATE" if late else "FROZEN", "decision_session": session,
             "record_id": saved["record_id"], "content_hash": saved["content_hash"], "counts": payload["counts"],
             "missing_bars_at_freeze": payload["missing_bars_at_freeze"], "sec_unavailable": sorted(sec_failed),
-            "decision_sources_changed": changed}
+            "s4_source": s4_source, "decision_sources_changed": changed}
 
 
 def freeze_due(conn, read_conn, completed: str, now: datetime, clock, protocol: dict, fetch_events) -> dict:
@@ -636,6 +784,8 @@ def _run_locked(receipt, completed, now, clock, fetch_events, db, research_store
                 receipt.update(protocol_sha256=PROTOCOL_SHA256, protocol_record_id=protocol["record_id"])
                 if ss.behavior_digest() != er.STRATEGY_BEHAVIOR_SHA256:
                     raise ProtocolChanged("STRATEGY_BEHAVIOR_CHANGED")
+                if behavior_digest() != SHADOW_BEHAVIOR_SHA256:
+                    raise ProtocolChanged("SHADOW_BEHAVIOR_CHANGED")
                 freeze = freeze_due(conn, read_conn, completed, now, clock, protocol, fetch_events)
                 receipt["freeze"] = freeze
                 try:
@@ -659,6 +809,8 @@ def _run_locked(receipt, completed, now, clock, fetch_events, db, research_store
                 sticky = sticky_attention(conn, clock())
             attention = (freeze["status"] not in OK_FREEZE or freeze.get("newly_missed")
                          or freeze.get("decision_sources_changed") or freeze.get("sec_unavailable")
+                         or freeze.get("missing_bars_at_freeze")
+                         or str(freeze.get("s4_source") or "").startswith("UNAVAILABLE")
                          or stats["invalid"] or stats["errors"] or stats["blocked"] or sticky)
             receipt.update(status="ATTENTION" if attention else "OK", sticky_attention=sticky,
                            evaluation_final=bool(final))
@@ -681,10 +833,10 @@ def _run_locked(receipt, completed, now, clock, fetch_events, db, research_store
 
 # ---- read-only views -----------------------------------------------------------
 
-def open_trades(frozen: list[dict], recorded: dict) -> list[dict]:
-    """The one unresolved trade per stock and strategy (taken, window not yet recorded)."""
-    out = []
-    for (ticker, strategy), signals in sorted(signals_by_chain(frozen).items()):
+def unresolved_counts(frozen: list[dict], recorded: dict) -> dict:
+    """strategy -> stocks whose chain has a taken trade not yet recorded (no prices read)."""
+    counts = {s: 0 for s in STRATEGIES}
+    for (ticker, strategy), signals in signals_by_chain(frozen).items():
         free_from = None
         for session, _, _ in signals:
             if free_from and session < free_from:
@@ -693,15 +845,14 @@ def open_trades(frozen: list[dict], recorded: dict) -> list[dict]:
             if key in recorded:
                 free_from = recorded[key]["free_from"]
                 continue
-            entry = session_offset(session, 1)
-            out.append({"ticker": ticker, "strategy": strategy, "signal": session, "entry": entry,
-                        "window_ends": session_offset(entry, ss.RULES[strategy]["max_hold"])})
+            counts[strategy] += 1
             break
-    return out
+    return counts
 
 
 def summary(conn, *, now: datetime | None = None, ticker: str | None = None) -> dict:
     """Read-only status for the API, the agent and the watchdog (one stock's view with ticker)."""
+    from .. import db
     now = now or _utcnow()
     conn.execute("SET TRANSACTION READ ONLY")
     completed = latest_completed_session(now)
@@ -718,16 +869,25 @@ def summary(conn, *, now: datetime | None = None, ticker: str | None = None) -> 
                     | {s for s in sessions[:-1] if s not in frozen_sessions})
     latest = frozen[-1]["payload"] if frozen else None
     trades = list(recorded.values())
-    opened = open_trades(frozen, recorded)
+    view = {}
     if ticker:
         trades = [t for t in trades if t["ticker"] == ticker]
-        opened = [t for t in opened if t["ticker"] == ticker]
+        chains = {k: v for k, v in signals_by_chain(frozen).items() if k[0] == ticker}
+        if chains:
+            rows = db.fetch_prices(conn, ticker, completed)
+            first = min(s for chain in chains.values() for s, _, _ in chain)
+            bars = ss.Bars(rows, completed, session_dates(session_offset(first, -HISTORY_SESSIONS), completed))
+            view["trades_in_progress"] = provisional_trades(ticker, chains, bars=bars, completed=completed,
+                                                            recorded=recorded)
+        else:
+            view["trades_in_progress"] = []
     latest_rows = [r for r in (latest or {}).get("rows", []) if not ticker or r["ticker"] == ticker]
     final = final_evaluation(conn)
     monitoring = evaluate(list(recorded.values()), denominators(frozen),
                           months=(FIRST_DECISION_SESSION[:7], completed[:7]))
     for entry in monitoring["strategies"].values():
         entry.pop("verdict")              # no verdict before the registered evaluation
+    fingerprints = {(d["payload"].get("code") or {}).get("decision_sources_sha256") for d in frozen} - {None}
     return clean({
         "status": "OK", "forward_id": FORWARD_ID, "protocol_registered": bool(protocol),
         "protocol_sha256": PROTOCOL_SHA256, "confirms_replay_protocol_sha256": REPLAY_PROTOCOL_SHA256,
@@ -736,11 +896,14 @@ def summary(conn, *, now: datetime | None = None, ticker: str | None = None) -> 
         "freeze_missing": missing and deadline is not None and now >= deadline,
         "freeze_window_open": missing and deadline is not None and now < deadline,
         "frozen_sessions": len(frozen_sessions), "missed_sessions": missed[-20:], "missed_count": len(missed),
+        "decision_code_versions": len(fingerprints),
         "latest_decision": {"decision_session": latest["decision_session"], "counts": latest["counts"],
                             "with_bar": (ticker in latest["with_bar"]) if ticker else len(latest["with_bar"]),
                             "missing_bars": latest["missing_bars_at_freeze"],
-                            "sec_unavailable": latest["sec_unavailable"], "rows": latest_rows} if latest else None,
-        "open_trades": opened,
+                            "sec_unavailable": latest["sec_unavailable"], "s4_source": latest.get("s4_source"),
+                            "rows": latest_rows} if latest else None,
+        "unresolved_trades": unresolved_counts(frozen, recorded),
+        **view,
         "recent_trades": sorted(trades, key=lambda t: (t.get("exit") or t["signal"], t["strategy"]))[-25:],
         "monitoring": {**monitoring, "label": "MONITORING_NOT_A_VERDICT"} if not final else None,
         "evaluation": {**final, "final": True} if final else {"status": "PENDING", "final": False},

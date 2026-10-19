@@ -1,9 +1,10 @@
 name: Strategy Forward Shadow
 
 # Daily: after each session, freeze the event strategies' entry flags before
-# the next open, then record trades whose windows have completed. Same
-# schedule as the fair-value tracker: the night run follows ingestion; the
-# three morning runs are final attempts (within 4h of the open) in EST and EDT.
+# the next open, then record trades whose windows have completed. The night
+# run follows ingestion; the morning runs wait for late data until the final
+# attempts (within 2h of the open): two in EST (14:30 UTC open), three in EDT
+# (13:30 UTC open).
 on:
   workflow_dispatch:
   schedule:
@@ -11,6 +12,7 @@ on:
     - cron: "50 10 * * 1-5"
     - cron: "50 11 * * 1-5"
     - cron: "35 12 * * 1-5"
+    - cron: "15 13 * * 1-5"
 
 permissions:
   contents: read

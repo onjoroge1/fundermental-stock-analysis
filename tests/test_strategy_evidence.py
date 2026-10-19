@@ -15,7 +15,7 @@ from tests.test_research_postgres import pg  # noqa: F401  (Postgres fixture)
 from tests.test_strategy_forward_postgres import run, shadow  # noqa: F401  (fixture)
 
 ROOT = Path(__file__).resolve().parents[1]
-NOW = datetime(2026, 10, 23, 12, 45, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 28, 12, 45, tzinfo=timezone.utc)
 
 
 def test_packaged_results_match_the_recorded_evidence():
@@ -47,17 +47,18 @@ def test_overview_and_ticker_views_before_and_after_a_freeze(shadow):  # noqa: F
     assert all(s["reading"] == "NO_EDGE_IN_DEVELOPMENT_CONFIRMATION_PENDING" for s in before["strategies"])
     assert before["strategies"][0]["evidence"]["forward"]["label"] == "MONITORING_NOT_A_VERDICT"
     assert before["agent_use"].startswith("INFORMATION_ONLY") and before["protocol_sha256"] == er.PROTOCOL_SHA256
-    run(datetime(2026, 10, 22, 4, 20, tzinfo=timezone.utc))
-    run(datetime(2026, 10, 23, 4, 20, tzinfo=timezone.utc))
+    run(datetime(2026, 10, 27, 4, 20, tzinfo=timezone.utc))
+    run(datetime(2026, 10, 28, 4, 20, tzinfo=timezone.utc))
     with shadow() as conn:
         view = ev.for_ticker(conn, "VZ", now=NOW)
         after = ev.overview(conn, now=NOW)
-    assert view["decision_session"] == "2026-10-22" and view["frozen_before_next_open"] and view["has_bar"]
+    assert view["decision_session"] == "2026-10-27" and view["frozen_before_next_open"] and view["has_bar"]
     assert view["signals"]["S1_volume_breakout"] is True and view["signal_context"]["atr_ratio"] > 0
-    assert view["open_shadow_trades"][0]["strategy"] == "S1_volume_breakout"
+    assert view["shadow_trades_in_progress"][0]["strategy"] == "S1_volume_breakout"
     assert set(view["strategy_readings"]) == set(sf.STRATEGIES)
     assert after["forward_shadow"]["protocol_registered"] and after["forward_shadow"]["frozen_sessions"] == 2
     assert after["forward_shadow"]["latest_counts"]["S1_volume_breakout"] == 1
+    assert after["forward_shadow"]["unresolved_trades"]["S1_volume_breakout"] == 1
 
 
 def test_learning_status_says_nothing_is_learned_until_an_arm_has_observations(shadow):  # noqa: F811

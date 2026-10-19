@@ -62,8 +62,11 @@ Diagnostics (pre-registered, monthly book, 95%):
 
 - The universe is today's coverage list, so it is survivorship-biased.
 - The hold-out overlaps data earlier research had seen (momentum subperiods, technical setups), so it is
-  pseudo-out-of-sample. The forward shadow, which freezes each session's flags before the next open from 2026-10-21,
+  pseudo-out-of-sample. The forward shadow, which freezes each session's flags before the next open from 2026-10-26,
   is the clean test.
 - Stops are judged on closes and filled at the next close. Intraday stops and gaps through stops are not modelled.
 - Adjusted closes are today's vintage. Fundamental scoring thresholds (S4) were hand-set in 2026.
+- Expected forward coverage at the development rates: S3 about 94 trades in the 24 evaluation months. S4 about
+  42 trades and 17 active months, below the 60 / 18 minimums, so S4's forward result will most likely be
+  INSUFFICIENT_COVERAGE.
 - S3 uses every item 2.02 filing. A non-results 2.02 filing would add noise, not bias. Acceptance times are SEC UTC.

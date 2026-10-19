@@ -44,7 +44,7 @@ def _compact_forward(status: dict) -> dict:
     latest = status.get("latest_decision") or {}
     return {**{k: status.get(k) for k in keys},
             "latest_decision_session": latest.get("decision_session"), "latest_counts": latest.get("counts"),
-            "open_trades": len(status.get("open_trades") or [])}
+            "unresolved_trades": status.get("unresolved_trades")}
 
 
 def _strategies(results: dict, forward: dict) -> list[dict]:
@@ -98,7 +98,7 @@ def for_ticker(conn, ticker: str, *, now: datetime | None = None) -> dict:
         "signals": flags,
         "signal_context": {k: row.get(k) for k in ("close", "atr_ratio", "s3")} if row else None,
         "sec_filings_unread": ticker in (latest.get("sec_unavailable") or []),
-        "open_shadow_trades": status.get("open_trades"),
+        "shadow_trades_in_progress": status.get("trades_in_progress"),
         "recent_shadow_trades": status.get("recent_trades"),
         "strategy_readings": {s["strategy"]: s["reading"] for s in _strategies(replay_results(), status)},
         "agent_use": AGENT_USE, "promotion": "NOT_AUTHORIZED", "broker_submission": False,
