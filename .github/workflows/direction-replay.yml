@@ -5,10 +5,15 @@ on:
   workflow_dispatch:
     inputs:
       suite:
-        description: "direction (heuristic), signals (surprise, revisions, value gap) or fairvalue"
+        description: "direction (heuristic), signals (surprise, revisions, value gap), fairvalue or events"
         type: choice
-        options: [direction, signals, fairvalue]
+        options: [direction, signals, fairvalue, events]
         default: direction
+      stage:
+        description: "events suite only: dev (2016-2023) or holdout (run once)"
+        type: choice
+        options: [dev, holdout]
+        default: dev
 
 permissions:
   contents: read
@@ -32,7 +37,7 @@ jobs:
           cache: pip
       - run: python -m pip install -e .
       - name: Replay the heuristic direction (read-only)
-        run: python -m scripts.run_direction_replay --suite "${{ inputs.suite }}"
+        run: python -m scripts.run_direction_replay --suite "${{ inputs.suite }}" --stage "${{ inputs.stage }}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
