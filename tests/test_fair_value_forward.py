@@ -340,3 +340,10 @@ def test_migration_bounds_its_lock_before_altering():
                                     "ADD CONSTRAINT research_evidence_records_kind_check")]
     assert order == sorted(order)
     assert all(k in sql for k in ("FV_FORWARD_DECISION_V1", "FV_FORWARD_EVALUATION_V1", "AGENT_OUTCOME_CHECK_V1"))
+
+
+def test_routine_migrations_never_flag_decision_code_changes():
+    # Every migration bumps db.REQUIRED_SCHEMA_VERSION; that must not read as a rule change.
+    assert "db.py" not in f.DECISION_SOURCES
+    assert f.PROTOCOL_SHA256 == PINNED_PROTOCOL_SHA256   # the registered protocol is unaffected
+
