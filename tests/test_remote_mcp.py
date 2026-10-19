@@ -14,7 +14,8 @@ from stock_machine.mcp_server.http import MAX_REQUEST_BYTES, ResearchMCP
 
 HEADERS = {"Accept": "application/json, text/event-stream"}
 TOOLS = {"get_agent_status", "get_stock_research", "get_saved_analysis", "get_forecast",
-         "get_data_freshness", "list_agent_decisions", "get_agent_decision", "get_price_history"}
+         "get_data_freshness", "list_agent_decisions", "get_agent_decision", "get_price_history",
+         "get_strategy_evidence", "get_strategy_signals", "get_learning_status"}
 
 
 @pytest.fixture
@@ -66,6 +67,21 @@ def harness(monkeypatch):
     @app.get("/api/agent-lab/decisions/{identifier}")
     async def detail(identifier: str):
         return {"decision": {"decision_id": identifier, "action": "NO_TRADE"}, "frozen_evidence": {}, "events": []}
+
+    @app.get("/api/v1/strategies")
+    async def strategies(request: Request):
+        calls.append(("GET", request.url.path, {}, dict(request.headers)))
+        return {"schema_version": "strategy-evidence.v1", "strategies": [], "agent_use": "INFORMATION_ONLY"}
+
+    @app.get("/api/v1/stocks/{ticker}/strategy-signals")
+    async def signals(ticker: str, request: Request):
+        calls.append(("GET", request.url.path, {}, dict(request.headers)))
+        return {"ticker": ticker, "signals": {"S1_volume_breakout": False}, "agent_use": "INFORMATION_ONLY"}
+
+    @app.get("/api/v1/agent/learning-status")
+    async def learning(request: Request):
+        calls.append(("GET", request.url.path, {}, dict(request.headers)))
+        return {"learned_from_outcomes": False, "reading": "NOTHING_LEARNED_YET"}
 
     @app.post("/api/admin/{path:path}")
     async def forbidden(path: str):
@@ -184,6 +200,19 @@ def test_remaining_reads_and_missing_report(harness):
         assert payload(tool(client, "list_agent_decisions", {"day": "2026-09-16", "limit": 5}))["data"]["counts"]["total"] == 0
         assert tool(client, "list_agent_decisions", {"day": "2026-99-99"})["isError"]
         assert tool(client, "get_agent_decision", {"decision_id": "not-a-uuid"})["isError"]
+
+
+def test_strategy_and_learning_reads_are_information_only(harness):
+    with TestClient(harness[0]) as client:
+        evidence = payload(tool(client, "get_strategy_evidence"))
+        signals = payload(tool(client, "get_strategy_signals", {"ticker": "nvda"}))
+        learning = payload(tool(client, "get_learning_status"))
+        assert tool(client, "get_strategy_signals", {"ticker": "../admin"})["isError"]
+    assert evidence["source_api_path"] == "/api/v1/strategies" and "not an input to the agent" in evidence["note"]
+    assert signals["source_api_path"] == "/api/v1/stocks/NVDA/strategy-signals" and signals["read_only"] is True
+    assert learning["data"]["reading"] == "NOTHING_LEARNED_YET"
+    assert [c[1] for c in harness[1]] == ["/api/v1/strategies", "/api/v1/stocks/NVDA/strategy-signals",
+                                         "/api/v1/agent/learning-status"]
 
 
 @pytest.mark.parametrize("code", [401, 403, 404, 429, 500, 503])

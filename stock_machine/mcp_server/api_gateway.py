@@ -19,7 +19,8 @@ _SYMBOL = re.compile(r"[A-Z][A-Z0-9.-]{0,9}\Z", re.ASCII)
 _READ_PATH = re.compile(
     r"/api/(?:agent-lab(?:/decisions/[0-9a-f-]{36})?|data-quality|"
     r"(?:report|predict|prices)/[A-Z][A-Z0-9.-]{0,9}|"
-    r"v1/stocks/[A-Z][A-Z0-9.-]{0,9}/research)\Z", re.ASCII)
+    r"v1/stocks/[A-Z][A-Z0-9.-]{0,9}/(?:research|strategy-signals)|v1/strategies|v1/agent/learning-status)\Z",
+    re.ASCII)
 
 
 class APIReadError(RuntimeError):
@@ -174,3 +175,21 @@ class ResearchAPI:
         path = f"/api/prices/{symbol(ticker)}"
         return _envelope(path, await self._read(path, {"days": bounded(days, 500)}),
             note="Stored adjusted daily prices as provided by the existing API, not a live quote or new provider ingestion.")
+
+    async def strategy_evidence(self):
+        path = "/api/v1/strategies"
+        return _envelope(path, await self._read(path),
+            note="Pre-registered event strategies with development, hold-out and forward evidence. Information "
+                 "only: not an input to the agent's actions, and no strategy is qualified to trade.")
+
+    async def strategy_signals(self, ticker: str):
+        path = f"/api/v1/stocks/{symbol(ticker)}/strategy-signals"
+        return _envelope(path, await self._read(path),
+            note="Signals frozen before the next open by the forward shadow; shadow trades are simulated "
+                 "research records, not fills. Read each strategy's evidence reading before relying on a flag.")
+
+    async def learning_status(self):
+        path = "/api/v1/agent/learning-status"
+        return _envelope(path, await self._read(path),
+            note="Learning counts come from the latest scheduled learning stage; forward tests report no verdict "
+                 "before their registered evaluation.")

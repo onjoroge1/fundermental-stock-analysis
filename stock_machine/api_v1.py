@@ -212,6 +212,9 @@ def api_meta() -> dict[str, Any]:
         },
         "routes": {
             "stock_research": "/api/v1/stocks/{ticker}/research",
+            "strategy_evidence": "/api/v1/strategies",
+            "strategy_signals": "/api/v1/stocks/{ticker}/strategy-signals",
+            "agent_learning_status": "/api/v1/agent/learning-status",
             "bearish_opportunities": "/api/v1/opportunities/bearish",
             "bear_plan": "/api/v1/stocks/{ticker}/bear-plan",
             "legacy_live_options": "/api/options/generate/{ticker}",
@@ -221,6 +224,34 @@ def api_meta() -> dict[str, Any]:
             "accounting_quality": "/api/accounting-quality",
         },
     }
+
+
+@router.get("/strategies")
+def strategy_evidence() -> dict[str, Any]:
+    """The pre-registered event strategies and their evidence (development, hold-out, forward shadow)."""
+    from .agent_intelligence import strategy_evidence as evidence
+    with db.connect() as conn:
+        return evidence.overview(conn)
+
+
+@router.get("/stocks/{ticker}/strategy-signals")
+def strategy_signals(ticker: str) -> dict[str, Any]:
+    """One stock's latest frozen strategy signals and shadow trades. Information only; never trades."""
+    from .agent_intelligence import strategy_evidence as evidence
+    from .agents.contracts import AGENT_UNIVERSE
+    symbol = ticker.upper().strip()
+    if symbol not in AGENT_UNIVERSE:
+        raise HTTPException(404, "Ticker is outside the covered agent universe")
+    with db.connect() as conn:
+        return evidence.for_ticker(conn, symbol)
+
+
+@router.get("/agent/learning-status")
+def agent_learning_status() -> dict[str, Any]:
+    """What the agent has learned from matured outcomes, and where each forward test stands."""
+    from .agent_intelligence import strategy_evidence as evidence
+    with db.connect() as conn:
+        return evidence.learning_status(conn)
 
 
 @router.get("/stocks/{ticker}/research")

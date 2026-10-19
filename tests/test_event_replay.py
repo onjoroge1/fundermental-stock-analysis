@@ -161,3 +161,13 @@ def test_run_reads_the_database_and_stays_in_the_dev_window(pg):  # noqa: F811
     assert "dev" in out["result"]["strategies"]["S3_post_earnings"]
     assert out["trades"] and all(er.split_of(t["signal"]) == "dev" for t in out["trades"])
     assert db is not None
+
+
+def test_the_holdout_waits_for_the_forward_shadow_registration(pg):  # noqa: F811
+    from stock_machine import research_store
+    from stock_machine.agent_intelligence import strategy_forward as sf
+    with pg() as conn:
+        assert er.run(conn, tickers=[], stage="holdout", end="2026-10-19")["reason"] == "FORWARD_SHADOW_NOT_REGISTERED"
+        research_store.save(conn, sf.PROTOCOL_KIND, sf.FORWARD_ID, sf.PROTOCOL)
+        conn.commit()
+        assert er._forward_registered(conn)

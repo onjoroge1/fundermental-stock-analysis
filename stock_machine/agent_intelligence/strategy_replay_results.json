@@ -1,0 +1,60 @@
+{
+ "dev": {
+  "evidence": "docs/evidence/event-strategy-replay-dev-2026-10-19.md",
+  "run": {
+   "commit": "430066d",
+   "github_run_id": 39331743784,
+   "stage": "dev"
+  },
+  "strategies": {
+   "S1_volume_breakout": {
+    "active_months": 92,
+    "hit_rate": 0.415311004784689,
+    "lower": -0.020187808920645395,
+    "mean": -0.008950271106963767,
+    "mean_reward_per_trade": -0.04151022392344498,
+    "mean_sessions_held": 13.116746411483254,
+    "months": 96,
+    "trades": 1045,
+    "upper": 0.002287266706717859
+   },
+   "S2_trend_pullback": {
+    "active_months": 96,
+    "hit_rate": 0.4168126094570928,
+    "lower": -0.011797205829436604,
+    "mean": 0.005557078775247822,
+    "mean_reward_per_trade": 0.014910249854057209,
+    "mean_sessions_held": 11.793928779918271,
+    "months": 96,
+    "trades": 1713,
+    "upper": 0.022911363379932246
+   },
+   "S3_post_earnings": {
+    "active_months": 85,
+    "hit_rate": 0.42513368983957217,
+    "lower": -0.007130488797950732,
+    "mean": -0.002371216793433027,
+    "mean_reward_per_trade": -0.030579045454545453,
+    "mean_sessions_held": 14.764705882352942,
+    "months": 96,
+    "trades": 374,
+    "upper": 0.002388055211084678
+   },
+   "S4_value_momentum": {
+    "active_months": 69,
+    "hit_rate": 0.4642857142857143,
+    "lower": -0.005424485716909135,
+    "mean": -0.0013463781429583395,
+    "mean_reward_per_trade": -0.042085333333333336,
+    "mean_sessions_held": 15.333333333333334,
+    "months": 96,
+    "trades": 168,
+    "upper": 0.0027317294309924566
+   }
+  }
+ },
+ "holdout": null,
+ "protocol_id": "event-strategy-replay.v1",
+ "protocol_sha256": "3fa1d5cfeecca4b3248844f2b444fa71f33ec1422fefffb7fa675b25d82c6a0c",
+ "schema_version": "strategy-replay-results.v1"
+}
