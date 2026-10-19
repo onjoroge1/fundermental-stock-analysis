@@ -1,9 +1,8 @@
 """Forward tracker against real Postgres: freeze, replay, score, miss, timing.
 
-Runs pass an explicit clock so results never depend on today's date. The
-database stamps recorded_at with its own clock; tests that score a month
-frozen "in 2026" treat recording time as creation time (_recorded_at), and a
-dedicated test checks the real recorded_at rule.
+Nothing here depends on today's date: every run passes an explicit clock, and
+the test schema's recorded_at default follows a per-connection setting that
+the fixture sets to the simulated database time.
 """
 
 import math
@@ -11,19 +10,22 @@ from datetime import datetime, timezone
 
 import pytest
 
-from stock_machine import research_store
+from stock_machine import db, research_store
 from stock_machine.agent_intelligence import fair_value_forward as f
 from stock_machine.market_calendar import session_dates
 from tests.test_research_postgres import pg  # noqa: F401  (Postgres fixture)
 
 DAYS = session_dates("2025-06-02", "2027-12-31")
+DB_NOW = {"t": None}
 
 
 def at(*args):
     return datetime(*args, tzinfo=timezone.utc)
 
 
-def run(now, clock_now=None):
+def run(now, clock_now=None, db_now=None):
+    """One scheduled run: the job's clock, and the database's own recording time."""
+    DB_NOW["t"] = db_now or clock_now or now
     return f.run_daily(now=now, clock=lambda: clock_now or now)
 
 
@@ -39,17 +41,24 @@ def seed(conn, ticker, drift, start=100.0, days=DAYS):
 @pytest.fixture
 def tracker(pg, monkeypatch):  # noqa: F811
     monkeypatch.setattr(f, "PROTOCOL", {**f.PROTOCOL, "universe": ["VZ"]})
-    monkeypatch.delenv("GITHUB_REF", raising=False)
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
     with pg() as conn:
+        conn.execute("""ALTER TABLE research_evidence_records ALTER COLUMN recorded_at SET DEFAULT
+            COALESCE(NULLIF(current_setting('sm.test_now', true), '')::timestamptz, clock_timestamp())""")
         seed(conn, "VZ", 0.0008)
         seed(conn, "SPY", 0.0004, 400.0)
         conn.commit()
-    return pg
 
-
-@pytest.fixture
-def recorded_as_created(monkeypatch):
-    monkeypatch.setattr(f, "_recorded_at", lambda d: f._parse(d["payload"]["created_at"]))
+    def connect():
+        c = pg()
+        if DB_NOW["t"] is not None:
+            c.execute("SELECT set_config('sm.test_now', %s, false)", (DB_NOW["t"].isoformat(),))
+            c.commit()
+        return c
+    monkeypatch.setattr(db, "connect", connect)
+    DB_NOW["t"] = None
+    yield connect
+    DB_NOW["t"] = None
 
 
 def count(pg, kind, where="", params=()):  # noqa: F811
@@ -67,7 +76,7 @@ def delete_bar(pg, ticker, day):  # noqa: F811
 NIGHT = at(2026, 10, 31, 4, 20)   # after the 2026-10-30 close; deadline 2026-11-02 14:30 UTC
 
 
-def test_freeze_replay_and_score_one_month(tracker, recorded_as_created):
+def test_freeze_replay_and_score_one_month(tracker):
     with tracker() as conn:
         before = f.summary(conn, now=NIGHT)
     assert before["freeze_window_open"] and not before["freeze_missing"]
@@ -105,7 +114,7 @@ def test_a_missed_month_is_recorded_once_and_never_reconstructed(tracker):
     assert status["freeze_missing"] and status["missed_months"] == ["2026-10-30"]
 
 
-def test_months_missed_during_a_long_outage_are_all_recorded(tracker, recorded_as_created):
+def test_months_missed_during_a_long_outage_are_all_recorded(tracker):
     assert run(NIGHT)["freeze"]["status"] == "FROZEN"
     back = run(at(2027, 1, 2, 4, 20))          # first run after the 2026-12-31 close
     assert back["freeze"]["status"] == "FROZEN" and back["freeze"]["decision_session"] == "2026-12-31"
@@ -141,7 +150,7 @@ def test_a_freeze_that_would_land_after_the_open_is_not_written(tracker):
     assert late["freeze"]["status"] == "FREEZE_MISSED" and count(tracker, f.DECISION_KIND) == 0
 
 
-def test_a_scoring_failure_never_blocks_the_freeze(tracker, recorded_as_created, monkeypatch):
+def test_a_scoring_failure_never_blocks_the_freeze(tracker, monkeypatch):
     assert run(NIGHT)["freeze"]["status"] == "FROZEN"
 
     def broken(*args, **kwargs):
@@ -150,10 +159,13 @@ def test_a_scoring_failure_never_blocks_the_freeze(tracker, recorded_as_created,
     next_month_end = run(at(2027, 5, 1, 4, 20))    # 2026-10 is due; 2027-04-30 must still freeze
     assert next_month_end["freeze"]["status"] == "FROZEN"
     assert next_month_end["freeze"]["decision_session"] == "2027-04-30"
-    assert next_month_end["outcomes"]["error"] == "RuntimeError" and next_month_end["status"] == "ATTENTION"
+    errors = next_month_end["outcomes"]["errors"]
+    assert errors == [{"decision_session": "2026-10-30", "error": "RuntimeError: vendor outage"}]
+    assert next_month_end["status"] == "ATTENTION"
+    assert next_month_end["evaluation"]["status"] == "PENDING_EVIDENCE"
 
 
-def test_a_blocked_month_is_checked_once_per_session(tracker, recorded_as_created):
+def test_a_blocked_month_is_checked_once_per_session(tracker):
     assert run(NIGHT)["freeze"]["status"] == "FROZEN"
     delete_bar(tracker, "VZ", "2027-02-01")
     first = run(at(2027, 5, 1, 4, 20))
@@ -169,22 +181,46 @@ def test_a_blocked_month_is_checked_once_per_session(tracker, recorded_as_create
 
 def test_a_decision_recorded_after_its_deadline_is_never_scored(tracker):
     run(NIGHT)  # registers the protocol
+    DB_NOW["t"] = at(2026, 12, 1, 15)               # the database records it after the 12-01 open
     with tracker() as conn:
         protocol = research_store.get(conn, f.PROTOCOL_KIND, f.FORWARD_ID)
-        # Created in time on paper, but recorded by the database now: long after its deadline.
-        payload = f.decision_payload("2026-09-30", [], protocol=protocol, created_at=at(2026, 9, 30, 21),
+        payload = f.decision_payload("2026-11-30", [], protocol=protocol, created_at=at(2026, 11, 30, 23),
                                      missing=[])
-        research_store.save(conn, f.DECISION_KIND, f"{f.FORWARD_ID}:2026-09-30", payload)
+        research_store.save(conn, f.DECISION_KIND, f"{f.FORWARD_ID}:2026-11-30", payload)
         conn.commit()
-    due = datetime.fromisoformat(payload["due_session"] + "T21:00:00+00:00")
-    result = run(due.replace(hour=23))                        # scored right after it matures
-    assert "2026-09-30" in result["outcomes"]["invalid"] and result["status"] == "ATTENTION"
+    due = datetime.fromisoformat(payload["due_session"] + "T23:00:00+00:00")
+    result = run(due)                                # scored right after it matures
+    assert "2026-11-30" in result["outcomes"]["invalid"] and result["status"] == "ATTENTION"
     with tracker() as conn:
-        assert research_store.get(conn, f.OUTCOME_KIND, f"{f.FORWARD_ID}:2026-09-30")["payload"]["status"] == (
+        assert research_store.get(conn, f.OUTCOME_KIND, f"{f.FORWARD_ID}:2026-11-30")["payload"]["status"] == (
             "INVALID_PROSPECTIVE_TIMING")
-        status = f.summary(conn, now=due.replace(hour=23))
-    assert "INVALID_PROSPECTIVE_TIMING:2026-09-30" in status["sticky_attention"]
-    assert status["invalid_months"] == ["2026-09-30"]
+        status = f.summary(conn, now=due)
+    assert "INVALID_PROSPECTIVE_TIMING:2026-11-30" in status["sticky_attention"]
+    assert status["invalid_months"] == ["2026-11-30"]
+
+
+def test_a_freeze_recorded_after_the_open_is_flagged_at_once(tracker):
+    late = run(at(2026, 11, 2, 12, 30), db_now=at(2026, 11, 2, 14, 31))   # insert blocked past the open
+    assert late["freeze"]["status"] == "FREEZE_LATE" and late["status"] == "ATTENTION"
+    assert count(tracker, f.DECISION_KIND) == 1
+    assert count(tracker, f.CHECK_KIND, "AND payload->>'status'='FREEZE_LATE'") == 1
+    again = run(at(2026, 11, 3, 4, 20))
+    assert again["freeze"]["status"] == "REPLAYED" and again["status"] == "ATTENTION"   # sticky for a week
+    with tracker() as conn:
+        assert f.summary(conn, now=at(2026, 11, 3, 12))["missed_months"] == ["2026-10-30"]
+
+
+def test_a_lost_late_marker_is_repaired_on_the_next_run(tracker):
+    DB_NOW["t"] = at(2026, 11, 2, 14, 31)
+    run(at(2026, 11, 2, 12, 30), db_now=at(2026, 11, 2, 14, 31))
+    with tracker() as conn:   # simulate the marker never having been written (crash)
+        conn.execute("ALTER TABLE research_evidence_records DISABLE TRIGGER USER")
+        conn.execute("DELETE FROM research_evidence_records WHERE kind=%s", (f.CHECK_KIND,))
+        conn.execute("ALTER TABLE research_evidence_records ENABLE TRIGGER USER")
+        conn.commit()
+    repaired = run(at(2026, 11, 3, 4, 20))
+    assert repaired["freeze"]["status"] == "FREEZE_LATE"
+    assert count(tracker, f.CHECK_KIND, "AND payload->>'status'='FREEZE_LATE'") == 1
 
 
 def scored_outcome(i, value):
@@ -211,7 +247,8 @@ def test_the_evaluation_is_written_once_and_stays_the_reported_result(tracker):
     assert count(tracker, f.EVALUATION_KIND) == 1
     with tracker() as conn:
         shown = f.summary(conn, now=at(2029, 7, 3, 12))["evaluation"]
-    assert shown["final"] and shown["months"] == 24 and shown["post_final_monitoring"]["months"] == 30
+    assert shown["final"] and shown["months"] == 24
+    assert shown["post_final_monitoring"]["scored_months_available"] == 30
 
 
 def test_a_changed_protocol_or_decision_behavior_refuses_to_run(tracker, monkeypatch):
@@ -229,3 +266,15 @@ def test_only_main_writes_evidence(tracker, monkeypatch):
     monkeypatch.setenv("GITHUB_REF", "refs/heads/feature")
     assert run(NIGHT)["status"] == "REFUSED_NON_MAIN"
     assert count(tracker, f.PROTOCOL_KIND) == 0
+
+
+def test_no_final_verdict_while_an_earlier_month_is_unresolved(tracker):
+    run(NIGHT)   # registers; freezes 2026-10-30, which is not yet scored
+    with tracker() as conn:
+        for i in range(24):
+            session, payload = scored_outcome(i + 1, 0.05 + 0.01 * (i % 3))   # 2027-02 onward
+            research_store.save(conn, f.OUTCOME_KIND, f"{f.FORWARD_ID}:{session}", payload)
+        conn.commit()
+    pending = run(at(2027, 4, 1, 4, 20))   # 2026-10-30 is not due until 2027-04-27
+    assert pending["evaluation"]["status"] == "EVALUATION_DUE" and pending["evaluation"]["final"] is False
+    assert count(tracker, f.EVALUATION_KIND) == 0

@@ -132,7 +132,7 @@ def _get(path: str, params: dict | None = None) -> dict:
 def _workflow_runs(file: str) -> list[dict]:
     repo = os.environ["GITHUB_REPOSITORY"]
     out = subprocess.run(
-        ["gh", "api", f"repos/{repo}/actions/workflows/{file}/runs?per_page=10&exclude_pull_requests=true",
+        ["gh", "api", f"repos/{repo}/actions/workflows/{file}/runs?per_page=10&exclude_pull_requests=true&branch=main",
          "--jq", "[.workflow_runs[] | {conclusion, created_at, html_url}]"],
         check=True, capture_output=True, text=True,
     )

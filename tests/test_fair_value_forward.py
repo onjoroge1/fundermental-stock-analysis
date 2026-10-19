@@ -136,6 +136,8 @@ def test_evaluation_waits_for_24_active_months_then_tests_the_mean():
     ({"status": "PROTOCOL_CHANGED"}, 1),
     ({"status": "FAILED"}, 1),
     ({"status": "BUSY"}, 1),
+    ({"status": "REFUSED_NON_MAIN"}, 1),
+    ({"status": "ATTENTION", "freeze": {"status": "FREEZE_LATE"}}, 1),
 ])
 def test_exit_codes(receipt, code):
     assert exit_code(receipt) == code
@@ -143,7 +145,7 @@ def test_exit_codes(receipt, code):
 
 # ---- review follow-ups -------------------------------------------------------------
 
-PINNED_PROTOCOL_SHA256 = "71ec9ea1b561b1e8cf1430935fb7bd933656e43ccc26fe1c077698463ba5a177"
+PINNED_PROTOCOL_SHA256 = "d95379d33d9f3697f67467da95ee238dc2be2dfdcb72df083f43429ec3d07a04"
 PINNED_UNIVERSE = ('AAL', 'AAPL', 'ABNB', 'ADBE', 'ADI', 'AMAT', 'AMD', 'AMZN', 'AVGO', 'BKNG', 'CMCSA', 'CMG',
                    'COST', 'CRM', 'CSCO', 'DAL', 'DELL', 'DIS', 'F', 'GM', 'GOOGL', 'HD', 'HIMS', 'HPQ', 'IBM',
                    'INTC', 'INTU', 'KLAC', 'LOW', 'LRCX', 'LUV', 'MCD', 'META', 'MSFT', 'MU', 'NFLX', 'NKE', 'NOW',
@@ -162,10 +164,17 @@ def test_decision_behavior_is_pinned_and_the_fixture_covers_every_path():
     assert f.behavior_digest() == f.DECISION_BEHAVIOR_SHA256
     u, spy, session = f.behavior_fixture()
     rows = f.decide_month(u, session, spy=spy)
-    sides = {r["side"] for r in rows}
-    assert {"LONG", "SHORT", "FLAT"} <= sides
-    assert any(not r["solid"] and fv._direction(r["sector_gap"]) != "FLAT" for r in rows)       # quality filter
-    assert any(r["solid"] and fv._direction(r["sector_gap"]) != "FLAT" and r["side"] == "FLAT" for r in rows)  # timing
+    by = {r["ticker"]: r for r in rows}
+    assert {"LONG", "SHORT", "FLAT", "NO_DECISION"} <= {r["side"] for r in rows}
+    decided = [r for r in rows if r["side"] != "NO_DECISION"]
+    assert any(not r["solid"] and fv._direction(r["sector_gap"]) != "FLAT" for r in decided)       # quality filter
+    assert any(r["financial_health_score"] < 50 and r["profitability_score"] >= 50 and not r["solid"] for r in decided)
+    assert any(r["solid"] and fv._direction(r["sector_gap"]) != "FLAT" and r["side"] == "FLAT" for r in decided)
+    gamma = [r for r in decided if r["sector"] == "Gamma"]
+    universe_median = fv.sector_gaps({t: (r["sector"], r["pe_ttm"]) for t, r in by.items()})
+    assert len(gamma) < fv.MIN_SECTOR_NAMES and gamma[0]["sector_gap"] == universe_median[gamma[0]["ticker"]]
+    assert any(r["pe_ttm"] is not None and r["pe_ttm"] < 0 and r["sector_gap"] is None for r in decided)  # losses
+    assert f.PROTOCOL["decision_behavior_sha256"] == f.DECISION_BEHAVIOR_SHA256
 
 
 def test_evaluation_uses_the_registered_statistic():
@@ -210,9 +219,85 @@ def test_every_month_end_since_the_start_is_enumerated():
 
 def test_the_final_evaluation_is_reported_once_it_exists():
     final = {"status": "NOT_SUPPORTED", "months": 24, "mean": -0.01}
-    live = {"status": "PASS_REQUIRES_INDEPENDENT_REVIEW", "months": 30, "active_months": 30, "mean": 0.02,
-            "through_session": "2029-04-30"}
+    live = {"status": "PASS_REQUIRES_INDEPENDENT_REVIEW", "months": 24, "active_months": 24, "mean": 0.02,
+            "through_session": "2029-04-30", "scored_months_available": 30}
     shown = f.reported_evaluation(final, live)
     assert shown["status"] == "NOT_SUPPORTED" and shown["final"] is True
-    assert shown["post_final_monitoring"]["months"] == 30 and "status" not in shown["post_final_monitoring"]
-    assert f.reported_evaluation(None, live) == live
+    assert shown["post_final_monitoring"] == {"scored_months_available": 30, "through_session": "2029-04-30"}
+    due = f.reported_evaluation(None, live)
+    assert due["status"] == "EVALUATION_DUE" and due["final"] is False and "mean" not in due
+    pending = {"status": "PENDING_EVIDENCE", "months": 3}
+    assert f.reported_evaluation(None, pending) == {**pending, "final": False}
+
+
+def test_the_sample_is_the_first_24_active_months_in_decision_order():
+    months = [outcome(m, 0.05 + 0.01 * (m % 3)) for m in range(24)] + [outcome(m, -5.0) for m in range(24, 30)]
+    result = f.evaluate(list(reversed(months)))
+    assert result["months"] == 24 and result["through_session"] == months[23]["decision_session"]
+    assert result["status"] == "PASS_REQUIRES_INDEPENDENT_REVIEW" and result["scored_months_available"] == 30
+    with_flat = [outcome(0, 0.0, active=False)] + [outcome(m, 0.1) for m in range(1, 25)]
+    assert f.evaluate(with_flat)["months"] == 25   # inactive months before the 24th active one count
+
+
+def test_evaluation_statistic_literal_values():
+    values = [0.6 if m % 2 else -0.5 for m in range(24)]
+    result = f.evaluate([outcome(m, v) for m, v in enumerate(values)])
+    assert result["mean"] == pytest.approx(0.05)
+    assert result["newey_west_se"] == pytest.approx(0.043346, abs=1e-6)   # Bartlett lag 6, n-1 scaled (hand-checked)
+    assert result["lower_95"] == pytest.approx(0.05 - 2.068652 * 0.043346, abs=1e-5)       # t(23) 97.5%
+
+
+def _crons():
+    import re
+    from pathlib import Path
+    text = (Path(__file__).resolve().parents[1] / ".github/workflows/fair-value-forward.yml").read_text()
+    return [(int(h), int(m), days) for m, h, days in re.findall(r'cron: "(\d+) (\d+) \* \* ([\d-]+)"', text)]
+
+
+@pytest.mark.parametrize("entry", ["2026-11-02", "2027-05-03", "2027-03-15", "2026-12-01"])
+def test_every_morning_run_is_a_final_attempt_in_both_seasons(entry):
+    opening = f.session_open(entry)
+    morning = [(h, m) for h, m, days in _crons() if days == "1-5"]
+    assert len(morning) >= 3
+    for h, m in morning:
+        run_at = opening.replace(hour=h, minute=m)
+        assert timedelta(0) < opening - run_at <= timedelta(hours=f.FINAL_ATTEMPT_HOURS), (entry, h, m)
+    night = [(h, m) for h, m, days in _crons() if days == "2-6"]
+    assert night == [(4, 15)]
+
+
+def test_scoring_uses_the_frozen_dates_not_the_calendar():
+    u, payload = frozen_payload()
+    shifted = {**payload, "due_session": dr.session_offset(payload["due_session"], -5)}
+    out = f.score_month(shifted, prices={t: d["prices"] for t, d in u.items()}, spy=SPY, completed="2016-12-30")
+    assert out["due_session"] == shifted["due_session"]
+    scored = {r["ticker"]: r for r in out["results"] if r["status"] == "SCORED"}
+    stock = dr._adjusted(u["T0"]["prices"])
+    frozen = {r["ticker"]: r for r in shifted["rows"]}
+    direct = dr.rewards_between(shifted["entry_session"], shifted["due_session"], {"features": frozen["T0"]["features"]},
+                                stock=stock, spy=dr._adjusted(SPY), horizon=f.HORIZON)
+    assert scored["T0"]["rewards"] == direct["rewards"]
+
+
+def test_only_main_runs_and_nothing_is_read_first(monkeypatch):
+    from stock_machine import db
+
+    def no_db():
+        raise AssertionError("must refuse before touching the database")
+    monkeypatch.setattr(db, "connect", no_db)
+    for ref in ("refs/heads/feature", None):
+        if ref:
+            monkeypatch.setenv("GITHUB_REF", ref)
+        else:
+            monkeypatch.delenv("GITHUB_REF", raising=False)
+        assert f.run_daily(now=datetime(2026, 10, 31, 4, 20, tzinfo=timezone.utc))["status"] == "REFUSED_NON_MAIN"
+
+
+def test_migration_bounds_its_lock_before_altering():
+    from tests.test_db_integrity import migration_sql
+    sql = migration_sql("0027_agent_outcome_checks:0028_fair_value_forward")
+    order = [sql.index(s) for s in ("SET LOCAL lock_timeout", "SET LOCAL statement_timeout",
+                                    "DROP CONSTRAINT research_evidence_records_kind_check",
+                                    "ADD CONSTRAINT research_evidence_records_kind_check")]
+    assert order == sorted(order)
+    assert all(k in sql for k in ("FV_FORWARD_DECISION_V1", "FV_FORWARD_EVALUATION_V1", "AGENT_OUTCOME_CHECK_V1"))

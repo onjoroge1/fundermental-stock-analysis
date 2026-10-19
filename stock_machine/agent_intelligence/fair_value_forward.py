@@ -13,9 +13,10 @@ tests that single policy on data the replay never saw:
   each stock is scored with reward v5 from one price snapshot; FLAT scores
   zero. A stock whose window still lacks bars RETRY_SESSIONS sessions after it
   is due is excluded, visibly.
-- Evaluate once: at the first run with at least 24 months that had an active
-  position (Newey-West lag 6, t(n-1) 97.5%). That record is final; later
-  months are monitoring only. A pass only authorizes review.
+- Evaluate once, on a data-defined sample: the first 24 months with an active
+  position in decision order (Newey-West lag 6, t(n-1) 97.5%), written only
+  when every earlier frozen month has a final outcome. That record is final;
+  later months are monitoring only. A pass only authorizes review.
 
 Nothing here trades, sizes positions or changes paper or live settings.
 """
@@ -26,6 +27,7 @@ import math
 import os
 import re
 from calendar import monthrange
+from contextlib import suppress
 from datetime import date, datetime, timedelta, timezone
 from math import ceil, sin
 from pathlib import Path
@@ -46,9 +48,10 @@ MIN_ACTIVE_MONTHS = 24
 FINAL_ATTEMPT_HOURS = 4
 STICKY_DAYS = 7
 # The replay protocol this tracker confirms, and the pinned behaviour of the
-# shared decision code on a fixed synthetic case. Either changing is a new tracker.
+# shared decision code on a fixed synthetic case. Both are part of PROTOCOL, so
+# changing either changes the registered protocol and needs a new FORWARD_ID.
 REPLAY_PROTOCOL_SHA256 = "4b151cdfc7777f8adbc73eafbd51a6f98ead5c601b6788b4faf47b727ce0bda3"
-DECISION_BEHAVIOR_SHA256 = "e3938d86d7de8af924a79809bf3478271086d183d24a06985a7c9d74b994aa36"
+DECISION_BEHAVIOR_SHA256 = "153fe3d9937d4bda87d56e58cb54e24949a6417c5c39172c1f2d1440ccd490dd"
 
 PROTOCOL_KIND = "FV_FORWARD_PROTOCOL_V1"
 DECISION_KIND = "FV_FORWARD_DECISION_V1"
@@ -56,6 +59,7 @@ OUTCOME_KIND = "FV_FORWARD_OUTCOME_V1"
 CHECK_KIND = "FV_FORWARD_CHECK_V1"
 EVALUATION_KIND = "FV_FORWARD_EVALUATION_V1"
 ACTOR = "fair-value-scheduler"
+LOSS_STATUSES = ("FREEZE_MISSED", "FREEZE_LATE", "INVALID_PROSPECTIVE_TIMING", "DECISION_SOURCES_CHANGED")
 
 DECISION_SOURCES = (
     "backtest/fair_value_replay.py", "backtest/direction_replay.py", "backtest/engine.py",
@@ -65,40 +69,6 @@ DECISION_SOURCES = (
 FEATURES_KEPT = ("beta_63_vs_spy", "realized_vol_20", "realized_vol_60", "momentum_63",
                  "relative_momentum_63_vs_spy", "price")
 
-PROTOCOL = {
-    "forward_id": FORWARD_ID,
-    "confirms": {"protocol_id": fv.PROTOCOL["protocol_id"], "protocol_sha256": REPLAY_PROTOCOL_SHA256,
-                 "policy": POLICY, "evidence": "docs/evidence/fair-value-replay-2026-10-18.md"},
-    "policy": {"fair_value": fv.PROTOCOL["fair_value"]["sector"], "solid_company": fv.PROTOCOL["solid_company"],
-               "trade": fv.PROTOCOL["trade"], "window_sessions": HORIZON},
-    "universe": sorted(AGENT_UNIVERSE),
-    "decision_session": "last XNYS session of each calendar month, from " + FIRST_DECISION_MONTH,
-    "freeze_deadline": "before the open of the session after the decision session, checked against the clock "
-                       "immediately before the record is written and against the database recording time after; "
-                       "a month not frozen in time is recorded FREEZE_MISSED (or FREEZE_LATE) and is never "
-                       "reconstructed",
-    "data_rule": "freeze when every universe stock and SPY has a bar at the decision session; on a final attempt "
-                 f"(within {FINAL_ATTEMPT_HOURS}h of the deadline) freeze anyway and record stocks without a bar as "
-                 "NO_DECISION_MISSING_BAR; without a SPY bar the month is never frozen and becomes FREEZE_MISSED",
-    "window": f"entry at the close of the session after the decision session; exit {HORIZON} sessions later; both "
-              "dates are frozen with the decision",
-    "reward": "risk-scaled-residual-paper-reward.v5 from one price snapshot read at scoring; FLAT = 0",
-    "missing_bars": f"retry once per session; {RETRY_SESSIONS} sessions after the due session a stock still without "
-                    "a complete window is EXCLUDED_MISSING_BARS and omitted from that month's mean",
-    "evaluation": "evaluated once, at the first run with at least "
-                  f"{MIN_ACTIVE_MONTHS} scored months that had an active position: monthly mean of scored stocks "
-                  "(FLAT = 0); Newey-West lag ceil(120/21) = 6; Student t(n-1) 97.5%; "
-                  "PASS_REQUIRES_INDEPENDENT_REVIEW if the mean and its lower 95% bound are both positive, else "
-                  "NOT_SUPPORTED; that record is final and later months are monitoring only",
-    "single_hypothesis": "one pre-specified policy is confirmed, so no multiple-testing correction applies",
-    "timing_validity": "a decision created or recorded at or after its frozen deadline is "
-                       "INVALID_PROSPECTIVE_TIMING and never scored",
-    "decision_behavior": "the shared decision code must reproduce a pinned result on a fixed synthetic case; "
-                         "otherwise no month is frozen",
-    "qualification": "PASS_REQUIRES_INDEPENDENT_REVIEW; promotion NOT_AUTHORIZED; broker_submission false",
-}
-PROTOCOL_SHA256 = digest(PROTOCOL)
-
 
 class ProtocolChanged(RuntimeError):
     pass
@@ -106,6 +76,48 @@ class ProtocolChanged(RuntimeError):
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _protocol() -> dict:
+    return {
+        "forward_id": FORWARD_ID,
+        "confirms": {"protocol_id": fv.PROTOCOL["protocol_id"], "protocol_sha256": REPLAY_PROTOCOL_SHA256,
+                     "policy": POLICY, "evidence": "docs/evidence/fair-value-replay-2026-10-18.md"},
+        "policy": {"fair_value": fv.PROTOCOL["fair_value"]["sector"], "solid_company": fv.PROTOCOL["solid_company"],
+                   "trade": fv.PROTOCOL["trade"], "window_sessions": HORIZON},
+        "universe": sorted(AGENT_UNIVERSE),
+        "decision_session": "last XNYS session of each calendar month, from " + FIRST_DECISION_MONTH,
+        "freeze_deadline": "before the open of the session after the decision session, checked against the clock "
+                           "immediately before the record is written and against the database recording time in "
+                           "the same transaction; a month not frozen in time is recorded FREEZE_MISSED (or "
+                           "FREEZE_LATE) and is never reconstructed",
+        "data_rule": "freeze when every universe stock and SPY has a bar at the decision session; on a final attempt "
+                     f"(within {FINAL_ATTEMPT_HOURS}h of the deadline) freeze anyway and record stocks without a bar "
+                     "as NO_DECISION_MISSING_BAR; without a SPY bar the month is never frozen and becomes FREEZE_MISSED",
+        "window": f"entry at the close of the session after the decision session; exit {HORIZON} sessions later; "
+                  "both dates are frozen with the decision",
+        "reward": "risk-scaled-residual-paper-reward.v5 from one price snapshot read at scoring; FLAT = 0",
+        "missing_bars": f"retry once per session; {RETRY_SESSIONS} sessions after the due session a stock still "
+                        "without a complete window is EXCLUDED_MISSING_BARS and omitted from that month's mean",
+        "evaluation": f"evaluated once, on every scored month in decision order up to and including the "
+                      f"{MIN_ACTIVE_MONTHS}th month with an active position, and only when every earlier frozen "
+                      "month has a final outcome and scoring had no error in that run: monthly mean of scored stocks "
+                      "(FLAT = 0); Newey-West lag ceil(120/21) = 6; Student t(n-1) 97.5%; "
+                      "PASS_REQUIRES_INDEPENDENT_REVIEW if the mean and its lower 95% bound are both positive, "
+                      "else NOT_SUPPORTED; that record is final and later months are monitoring only",
+        "single_hypothesis": "one pre-specified policy is confirmed, so no multiple-testing correction applies",
+        "timing_validity": "a decision created or recorded at or after its frozen deadline is "
+                           "INVALID_PROSPECTIVE_TIMING and never scored",
+        "decision_behavior": "the shared decision code must reproduce decision_behavior_sha256 on the fixed synthetic "
+                             "case or no month is frozen; changes to the fundamentals pipeline (engine, metrics, "
+                             "scoring) are tracked by a source fingerprint and recorded as DECISION_SOURCES_CHANGED",
+        "decision_behavior_sha256": DECISION_BEHAVIOR_SHA256,
+        "qualification": "PASS_REQUIRES_INDEPENDENT_REVIEW; promotion NOT_AUTHORIZED; broker_submission false",
+    }
+
+
+PROTOCOL = _protocol()
+PROTOCOL_SHA256 = digest(PROTOCOL)
 
 
 # ---- calendar ------------------------------------------------------------------
@@ -169,7 +181,7 @@ def source_fingerprint() -> str:
     return hashlib.sha256(b"".join((root / p).read_bytes() for p in DECISION_SOURCES)).hexdigest()
 
 
-# ---- freeze ----------------------------------------------------------------------
+# ---- decisions -------------------------------------------------------------------
 
 def decide_month(universe: dict, session: str, *, spy: list[dict], regime_for=None) -> list[dict]:
     """Every universe stock's frozen decision at one session (shared replay code)."""
@@ -194,44 +206,66 @@ def decide_month(universe: dict, session: str, *, spy: list[dict], regime_for=No
     return clean(rows)
 
 
-def behavior_fixture():
-    """A fixed synthetic month: 12 stocks in two sectors, deterministic prices and fundamentals."""
-    days = session_dates("2024-01-02", "2024-12-31")
+def _fixture_days(start: date, count: int) -> list[str]:
+    """Plain weekdays: the fixture must not depend on exchange-calendar releases."""
+    out, day = [], start
+    while len(out) < count:
+        if day.weekday() < 5:
+            out.append(day.isoformat())
+        day += timedelta(days=1)
+    return out
 
-    def series(drift, wobble, start):
+
+# (sector, P/E, profitability, financial health, daily drift, history sessions)
+# Alpha trends down, Beta and Gamma up, so timing agrees with shorts in Alpha
+# and longs elsewhere and disagrees otherwise. P/Es are lopsided within a
+# sector (median != mean); Gamma has too few names and uses the universe
+# median; quality scores sit on both sides of 50; one stock has too little
+# history (NO_DECISION) and one has losses (no P/E).
+FIXTURE = (
+    ("Alpha", 40, 40, 60, -0.0042, 260), ("Alpha", 38, 60, 60, -0.0035, 260), ("Alpha", 12, 60, 60, -0.0028, 260),
+    ("Alpha", 15, 60, 45, -0.0021, 260), ("Alpha", 44, 60, 60, -0.0014, 260), ("Alpha", 14, 60, 60, -0.0007, 260),
+    ("Beta", 9, 40, 60, 0.0012, 260), ("Beta", 26, 60, 60, 0.0019, 260), ("Beta", 11, 60, 60, 0.0026, 260),
+    ("Beta", 24, 60, 60, 0.0033, 260), ("Beta", 8, 60, 60, 0.0040, 260), ("Beta", 30, 60, 60, 0.0047, 260),
+    ("Gamma", 10, 60, 60, 0.0030, 260), ("Gamma", 35, 60, 60, 0.0030, 260),
+    ("Beta", 9, 60, 60, 0.0030, 40), ("Beta", -5.0, 60, 60, 0.0030, 260),
+)
+
+
+def behavior_fixture():
+    days = _fixture_days(date(2024, 1, 2), 260)
+    session = days[-1]
+
+    def series(drift, wobble, start, length):
         rows, price = [], start
-        for i, day in enumerate(days):
+        for i, day in enumerate(days[-length:]):
             price *= 1 + drift + wobble * sin(i / 3)
             rows.append({"date": day, "open": price, "high": price * 1.01, "low": price * 0.99,
                          "close": price, "adj_close": price, "volume": 1_000_000})
         return rows
 
-    # Alpha trends down and Beta up, so timing agrees with shorts in Alpha and
-    # longs in Beta and disagrees otherwise; P/E spreads give gaps both sides
-    # of +/-20%; every fourth stock fails the solid-company filter.
-    pes = (40, 40, 15, 15, 40, 15, 10, 25, 10, 25, 10, 25)
     universe = {}
-    for i, pe in enumerate(pes):
-        prices = series((i - 6) * 0.0007 + (0.0012 if i >= 6 else 0), 0.01, 40 + 5 * i)
-        closes = {r["date"]: r["adj_close"] for r in prices}
+    for i, (sector, pe, profit, health, drift, length) in enumerate(FIXTURE):
+        prices = series(drift, 0.01, 40 + 5 * i, length)
+        closes = {r["date"] for r in prices}
 
-        def observe(as_of, c=closes, ratio=pe, quality=60 if i % 4 else 40):
-            return {"composite": 70, "detail": {"pe_ttm": ratio if as_of in c else None,
-                                                "profitability_score": quality, "financial_health_score": 60}}
-        universe[f"S{i:02d}"] = {"prices": prices, "sector_rows": None, "observe": observe,
-                                 "sector": "Alpha" if i < 6 else "Beta"}
-    return universe, series(0.0004, 0.004, 400.0), "2024-06-28"
+        def observe(as_of, have=closes, ratio=pe, p=profit, h=health):
+            return {"composite": 70, "detail": {"pe_ttm": ratio if as_of in have else None,
+                                                "profitability_score": p, "financial_health_score": h}}
+        universe[f"S{i:02d}"] = {"prices": prices, "sector_rows": None, "observe": observe, "sector": sector}
+    return universe, series(0.0004, 0.004, 400.0, 260), session
 
 
 def behavior_digest() -> str:
-    """Rounded decisions on the fixture, so platform float noise cannot change it."""
+    """Rounded decisions and scoring inputs on the fixture (platform float noise cannot move it)."""
+    def r6(x):
+        return None if x is None else round(float(x), 6)
     universe, spy, session = behavior_fixture()
     rows = decide_month(universe, session, spy=spy)
-    summary = [{"ticker": r["ticker"], "side": r["side"],
-                "gap": None if r.get("sector_gap") is None else round(r["sector_gap"], 6),
-                "tech": None if r.get("technical_signal") is None else round(r["technical_signal"], 6)}
-               for r in rows]
-    return digest(summary)
+    return digest([{"ticker": r["ticker"], "side": r["side"], "solid": r.get("solid"), "pe": r6(r.get("pe_ttm")),
+                    "gap": r6(r.get("sector_gap")), "tech": r6(r.get("technical_signal")),
+                    "features": {k: r6(v) for k, v in sorted((r.get("features") or {}).items())}}
+                   for r in rows])
 
 
 def decision_payload(session: str, rows: list[dict], *, protocol: dict, created_at: datetime,
@@ -254,7 +288,7 @@ def decision_payload(session: str, rows: list[dict], *, protocol: dict, created_
     }
 
 
-# ---- scoring ---------------------------------------------------------------------
+# ---- timing ----------------------------------------------------------------------
 
 def _parse(stamp: str) -> datetime:
     text = str(stamp).replace("Z", "+00:00").replace(" ", "T")
@@ -264,8 +298,8 @@ def _parse(stamp: str) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
-def _recorded_at(decision: dict) -> datetime:
-    return _parse(decision["recorded_at"])
+def _recorded_at(record: dict) -> datetime:
+    return _parse(record["recorded_at"])
 
 
 def _deadline(payload: dict) -> datetime:
@@ -279,6 +313,8 @@ def timing_valid(decision: dict) -> bool:
     deadline = _deadline(payload)
     return _parse(payload["created_at"]) < deadline and _recorded_at(decision) < deadline
 
+
+# ---- scoring ---------------------------------------------------------------------
 
 def score_month(decision_payload_: dict, *, prices: dict, spy: list[dict], completed: str) -> dict:
     """Outcome for one frozen month, or {"status": "PENDING", "blocked": [...]}."""
@@ -320,14 +356,21 @@ def score_month(decision_payload_: dict, *, prices: dict, spy: list[dict], compl
 # ---- evaluation ------------------------------------------------------------------
 
 def evaluate(outcomes: list[dict]) -> dict:
-    """outcomes: outcome payloads, any order; only SCORED months with a mean count."""
+    """The registered statistic on the data-defined sample: scored months in decision
+    order up to and including the MIN_ACTIVE_MONTHS-th active month."""
     months = sorted((o for o in outcomes if o.get("status") == "SCORED" and o.get("monthly_mean") is not None),
                     key=lambda o: o["decision_session"])
-    values = [o["monthly_mean"] for o in months]
-    active = sum(bool(o["active"]) for o in months)
+    active, sample = 0, []
+    for o in months:
+        sample.append(o)
+        active += bool(o["active"])
+        if active >= MIN_ACTIVE_MONTHS:
+            break
+    values = [o["monthly_mean"] for o in sample]
     out = {"months": len(values), "active_months": active, "min_active_months": MIN_ACTIVE_MONTHS,
            "mean": mean(values) if values else None,
-           "through_session": months[-1]["decision_session"] if months else None}
+           "through_session": sample[-1]["decision_session"] if sample else None,
+           "scored_months_available": len(months)}
     if active < MIN_ACTIVE_MONTHS or len(values) < 3:
         return {**out, "status": "PENDING_EVIDENCE"}
     se = inference.newey_west_se(values, lag=ceil(HORIZON / 21))
@@ -340,14 +383,18 @@ def evaluate(outcomes: list[dict]) -> dict:
 
 
 def reported_evaluation(final: dict | None, live: dict) -> dict:
-    """The final record once it exists; later numbers are monitoring without a verdict."""
-    if not final:
-        return live
-    monitoring = {k: live.get(k) for k in ("months", "active_months", "mean", "through_session")}
-    return {**final, "final": True, "post_final_monitoring": monitoring}
+    """The final record once it exists. Before that a reached threshold is only
+    EVALUATION_DUE (no verdict shown); afterwards later numbers are monitoring."""
+    if final:
+        monitoring = {k: live.get(k) for k in ("scored_months_available", "through_session")}
+        return {**final, "final": True, "post_final_monitoring": monitoring}
+    if live["status"] == "PENDING_EVIDENCE":
+        return {**live, "final": False}
+    return {"status": "EVALUATION_DUE", "final": False,
+            **{k: live.get(k) for k in ("months", "active_months", "through_session")}}
 
 
-# ---- database orchestration ------------------------------------------------------
+# ---- database reads --------------------------------------------------------------
 
 _COLS = ("request_key", "record_id", "content_hash", "payload", "recorded_at")
 
@@ -391,19 +438,19 @@ def final_evaluation(conn) -> dict | None:
 
 
 def sticky_attention(conn, now: datetime) -> list[str]:
-    """Losses that became known (or were recorded) in the last STICKY_DAYS, so the daily
-    watchdog sees them even though later runs succeed."""
-    rows = conn.execute("""SELECT payload->>'decision_session', payload->>'status',
-               COALESCE(payload->>'deadline', payload->>'due_session'), recorded_at::text
-        FROM research_evidence_records
-        WHERE kind=ANY(%s) AND payload->>'forward_id'=%s
-          AND payload->>'status' IN ('FREEZE_MISSED','FREEZE_LATE','INVALID_PROSPECTIVE_TIMING')
-        ORDER BY 1""", ([CHECK_KIND, OUTCOME_KIND], FORWARD_ID)).fetchall()
+    """Losses that became known (or were recorded) in the last STICKY_DAYS, so the
+    daily watchdog sees them even though later runs succeed."""
+    rows = _rows(conn, """SELECT request_key,record_id,content_hash,payload,recorded_at::text
+        FROM research_evidence_records WHERE kind=ANY(%s) AND payload->>'forward_id'=%s
+          AND payload->>'status'=ANY(%s) ORDER BY payload->>'decision_session'""",
+                 ([CHECK_KIND, OUTCOME_KIND], FORWARD_ID, list(LOSS_STATUSES)))
     out = []
-    for session, status, known, recorded in rows:
-        when = max(_parse(known if "T" in (known or "") else f"{known}T21:00:00+00:00"), _parse(recorded))
+    for r in rows:
+        known = r["payload"].get("deadline") or r["payload"].get("due_session")
+        known_at = _parse(known if "T" in (known or "") else f"{known}T21:00:00+00:00") if known else None
+        when = max(t for t in (known_at, _recorded_at(r)) if t is not None)
         if timedelta(0) <= now - when <= timedelta(days=STICKY_DAYS):
-            out.append(f"{status}:{session}")
+            out.append(f"{r['payload']['status']}:{r['payload']['decision_session']}")
     return out
 
 
@@ -414,8 +461,10 @@ def bars_missing(conn, session: str, tickers) -> list[str]:
     return sorted(set(tickers) - have)
 
 
+# ---- database writes -------------------------------------------------------------
+
 def _save_check(conn, key: str, payload: dict) -> bool:
-    """Write a check once per key; False when it already exists (a later attempt is covered)."""
+    """Write a check once per key (no commit); False when it already exists."""
     from .. import research_store
     if research_store.get(conn, CHECK_KIND, key):
         return False
@@ -423,41 +472,57 @@ def _save_check(conn, key: str, payload: dict) -> bool:
     return True
 
 
+def _record_loss(conn, session: str, deadline: datetime, status: str = "FREEZE_MISSED", **extra) -> bool:
+    written = _save_check(conn, f"{FORWARD_ID}:{session}:{status}",
+                          {"decision_session": session, "status": status, "deadline": deadline.isoformat(), **extra})
+    conn.commit()
+    return written
+
+
 def score_pending(conn, read_conn, completed: str) -> dict:
+    """Score every due month; an error in one month never stops the others."""
     from .. import db, research_store
-    scored, pending, invalid = [], [], []
+    stats = {"scored": [], "blocked": [], "invalid": [], "errors": []}
     for d in unscored_due(conn, completed):
         key, payload = d["request_key"], d["payload"]
-        conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ("fv-forward-outcome:" + key,))
-        if research_store.get(conn, OUTCOME_KIND, key) or research_store.get(conn, CHECK_KIND, f"{key}:{completed}"):
-            conn.commit()  # scored already, or already checked and blocked this session
-            continue
-        if not timing_valid(d):
-            research_store.save(conn, OUTCOME_KIND, key, {
-                "status": "INVALID_PROSPECTIVE_TIMING", "forward_id": FORWARD_ID,
-                "decision_session": payload["decision_session"], "due_session": payload["due_session"],
-                "decision_record_id": d["record_id"]})
+        try:
+            conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ("fv-forward-outcome:" + key,))
+            if research_store.get(conn, OUTCOME_KIND, key) or research_store.get(
+                    conn, CHECK_KIND, f"{key}:{completed}"):
+                conn.commit()  # scored already, or already checked and blocked this session
+                continue
+            if not timing_valid(d):
+                research_store.save(conn, OUTCOME_KIND, key, {
+                    "status": "INVALID_PROSPECTIVE_TIMING", "forward_id": FORWARD_ID,
+                    "decision_session": payload["decision_session"], "due_session": payload["due_session"],
+                    "decision_record_id": d["record_id"]})
+                conn.commit()
+                stats["invalid"].append(payload["decision_session"])
+                continue
+            tickers = [r["ticker"] for r in payload["rows"] if r["side"] != "NO_DECISION"]
+            read_conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            prices = {t: db.fetch_prices(read_conn, t, completed) for t in tickers}
+            spy = db.fetch_prices(read_conn, "SPY", completed)
+            read_conn.rollback()
+            result = score_month(payload, prices=prices, spy=spy, completed=completed)
+            if result["status"] == "PENDING":
+                _save_check(conn, f"{key}:{completed}", {"decision_session": payload["decision_session"],
+                                                         "status": "OUTCOME_BLOCKED_MISSING_BARS",
+                                                         "blocked": result["blocked"],
+                                                         "due_session": payload["due_session"]})
+                stats["blocked"].append(payload["decision_session"])
+            else:
+                research_store.save(conn, OUTCOME_KIND, key, {**result, "decision_record_id": d["record_id"],
+                                                              "decision_content_hash": d["content_hash"]})
+                stats["scored"].append(payload["decision_session"])
             conn.commit()
-            invalid.append(payload["decision_session"])
-            continue
-        tickers = [r["ticker"] for r in payload["rows"] if r["side"] != "NO_DECISION"]
-        read_conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-        prices = {t: db.fetch_prices(read_conn, t, completed) for t in tickers}
-        spy = db.fetch_prices(read_conn, "SPY", completed)
-        read_conn.rollback()
-        result = score_month(payload, prices=prices, spy=spy, completed=completed)
-        if result["status"] == "PENDING":
-            _save_check(conn, f"{key}:{completed}", {"decision_session": payload["decision_session"],
-                                                     "status": "OUTCOME_BLOCKED_MISSING_BARS",
-                                                     "blocked": result["blocked"],
-                                                     "due_session": payload["due_session"]})
-            pending.append(payload["decision_session"])
-        else:
-            research_store.save(conn, OUTCOME_KIND, key, {**result, "decision_record_id": d["record_id"],
-                                                          "decision_content_hash": d["content_hash"]})
-            scored.append(payload["decision_session"])
-        conn.commit()
-    return {"scored": scored, "blocked": pending, "invalid": invalid}
+        except Exception as exc:  # this month retries next run
+            for c in (conn, read_conn):
+                with suppress(Exception):
+                    c.rollback()
+            stats["errors"].append({"decision_session": payload.get("decision_session"),
+                                    "error": f"{type(exc).__name__}: {str(exc)[:200]}"})
+    return stats
 
 
 def _register(conn) -> dict:
@@ -470,23 +535,21 @@ def _register(conn) -> dict:
         raise ProtocolChanged("FORWARD_PROTOCOL_CHANGED") from exc
 
 
-def _record_miss(conn, session: str, deadline: datetime, status: str = "FREEZE_MISSED") -> bool:
-    written = _save_check(conn, f"{FORWARD_ID}:{session}:{status}",
-                          {"decision_session": session, "status": status, "deadline": deadline.isoformat()})
-    conn.commit()
-    return written
-
-
 def _freeze(conn, read_conn, session: str, now: datetime, clock, protocol: dict) -> dict:
     from .. import research_store
     key = f"{FORWARD_ID}:{session}"
     existing = research_store.get(conn, DECISION_KIND, key)
     if existing:
+        if not timing_valid(existing):  # repair a late marker lost in a crash
+            if _record_loss(conn, session, _deadline(existing["payload"]), "FREEZE_LATE"):
+                return {"status": "FREEZE_LATE", "decision_session": session, "record_id": existing["record_id"]}
+        conn.commit()
         return {"status": "REPLAYED", "decision_session": session, "record_id": existing["record_id"]}
+    conn.commit()  # stay idle (not idle in transaction) during the load below
     entry, _ = windows(session)
     deadline = session_open(entry)
     if now >= deadline:
-        written = _record_miss(conn, session, deadline)
+        written = _record_loss(conn, session, deadline)
         return {"status": "FREEZE_MISSED" if written else "MISSED_ALREADY_RECORDED", "decision_session": session}
     read_conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
     missing = bars_missing(read_conn, session, [*PROTOCOL["universe"], "SPY"])
@@ -500,35 +563,56 @@ def _freeze(conn, read_conn, session: str, now: datetime, clock, protocol: dict)
     read_conn.rollback()
     created = clock()
     if created >= deadline:  # the load ran past the open: never write a decision that is already late
-        written = _record_miss(conn, session, deadline)
+        written = _record_loss(conn, session, deadline)
         return {"status": "FREEZE_MISSED" if written else "MISSED_ALREADY_RECORDED", "decision_session": session}
     payload = decision_payload(session, rows, protocol=protocol, created_at=created, missing=missing,
                                deadline=deadline)
     saved = research_store.save(conn, DECISION_KIND, key, payload)
+    late = _recorded_at(saved) >= deadline
+    if late:  # same transaction as the decision, so the marker cannot be lost
+        _save_check(conn, f"{key}:FREEZE_LATE", {"decision_session": session, "status": "FREEZE_LATE",
+                                                 "deadline": deadline.isoformat()})
+    sources = source_fingerprint()
+    earlier = [d for d in decisions(conn) if d["payload"]["decision_session"] < session]
+    first = (earlier[0]["payload"].get("code") or {}).get("decision_sources_sha256") if earlier else sources
+    changed = first != sources
+    if changed:
+        _save_check(conn, f"{key}:DECISION_SOURCES_CHANGED",
+                    {"decision_session": session, "status": "DECISION_SOURCES_CHANGED",
+                     "deadline": deadline.isoformat(), "first_sources_sha256": first, "sources_sha256": sources})
     conn.commit()
-    result = {"status": "FROZEN", "decision_session": session, "record_id": saved["record_id"],
-              "content_hash": saved["content_hash"], "counts": payload["counts"],
-              "missing_bars_at_freeze": payload["missing_bars_at_freeze"]}
-    if _recorded_at(saved) >= deadline:
-        _record_miss(conn, session, deadline, "FREEZE_LATE")
-        result["status"] = "FREEZE_LATE"
-    return result
+    return {"status": "FREEZE_LATE" if late else "FROZEN", "decision_session": session,
+            "record_id": saved["record_id"], "content_hash": saved["content_hash"], "counts": payload["counts"],
+            "missing_bars_at_freeze": payload["missing_bars_at_freeze"], "decision_sources_changed": changed}
 
 
 def freeze_due(conn, read_conn, completed: str, now: datetime, clock, protocol: dict) -> dict:
-    """Record any earlier month-end that was never frozen, then freeze the latest if due."""
+    """Record any earlier month-end that was never frozen, then freeze the latest if due.
+
+    Months are matched by calendar month, so a revised calendar cannot record one twice."""
     sessions = decision_sessions_through(completed)
     if not sessions:
         return {"status": "NOTHING_DUE", "newly_missed": []}
-    frozen = {d["payload"]["decision_session"] for d in decisions(conn)}
-    recorded = {c["payload"]["decision_session"] for c in checks_with_status(conn, ("FREEZE_MISSED",))}
+    frozen = {d["payload"]["decision_session"][:7] for d in decisions(conn)}
+    recorded = {c["payload"]["decision_session"][:7] for c in checks_with_status(conn, ("FREEZE_MISSED",))}
     newly_missed = []
     for session in sessions[:-1]:
-        if session not in frozen and session not in recorded:
-            if _record_miss(conn, session, session_open(windows(session)[0])):
+        if session[:7] not in frozen and session[:7] not in recorded:
+            if _record_loss(conn, session, session_open(windows(session)[0])):
                 newly_missed.append(session)
+    if sessions[-1][:7] in frozen and sessions[-1] not in {d["payload"]["decision_session"] for d in decisions(conn)}:
+        return {"status": "REPLAYED", "decision_session": sessions[-1], "newly_missed": newly_missed}
     result = _freeze(conn, read_conn, sessions[-1], now, clock, protocol)
     return {**result, "newly_missed": newly_missed}
+
+
+def _ready_for_final(conn, through: str) -> bool:
+    done = {o.get("decision_session") for o in outcomes(conn)}
+    return all(d["payload"]["decision_session"] in done for d in decisions(conn)
+               if d["payload"]["decision_session"] <= through)
+
+
+OK_FREEZE = ("NOTHING_DUE", "FROZEN", "REPLAYED", "MISSED_ALREADY_RECORDED")
 
 
 def run_daily(*, now: datetime | None = None, clock=None) -> dict:
@@ -536,16 +620,16 @@ def run_daily(*, now: datetime | None = None, clock=None) -> dict:
     from .. import db, research_store
     from ..admin_panel.store import audit
 
-    clock = clock or _utcnow
+    if clock is None:
+        clock = (lambda: now) if now is not None else _utcnow
     now = now or clock()
     if now.tzinfo is None:
         raise ValueError("FORWARD_TIMESTAMP_NOT_AWARE")
     completed = latest_completed_session(now)
     receipt = {"stage": "fair_value_forward", "forward_id": FORWARD_ID, "completed_session": completed,
                "promotion": "NOT_AUTHORIZED", "broker_submission": False}
-    ref = os.getenv("GITHUB_REF")
-    if ref and ref != "refs/heads/main":
-        return {**receipt, "status": "REFUSED_NON_MAIN", "reason_code": ref}
+    if os.getenv("GITHUB_REF") != "refs/heads/main":
+        return {**receipt, "status": "REFUSED_NON_MAIN", "reason_code": os.getenv("GITHUB_REF") or "UNSET"}
     with db.connect() as lock:
         lock.autocommit = True
         if not lock.execute("SELECT pg_try_advisory_lock(hashtextextended(%s,0))", (FORWARD_ID,)).fetchone()[0]:
@@ -555,41 +639,46 @@ def run_daily(*, now: datetime | None = None, clock=None) -> dict:
             with db.connect() as conn, db.connect() as read_conn:
                 protocol = _register(conn)
                 conn.commit()
+                receipt.update(protocol_sha256=PROTOCOL_SHA256, protocol_record_id=protocol["record_id"])
                 if behavior_digest() != DECISION_BEHAVIOR_SHA256:
                     raise ProtocolChanged("DECISION_BEHAVIOR_CHANGED")
                 freeze = freeze_due(conn, read_conn, completed, now, clock, protocol)
+                receipt["freeze"] = freeze
                 try:
-                    outcome_stats = score_pending(conn, read_conn, completed)
-                except Exception as exc:  # scoring retries next session; it must not hide the freeze
-                    conn.rollback()
-                    read_conn.rollback()
-                    outcome_stats = {"scored": [], "blocked": [], "invalid": [], "error": type(exc).__name__}
+                    stats = score_pending(conn, read_conn, completed)
+                except Exception as exc:  # e.g. the due-month query itself failed
+                    for c in (conn, read_conn):
+                        with suppress(Exception):
+                            c.rollback()
+                    stats = {"scored": [], "blocked": [], "invalid": [],
+                             "errors": [{"error": f"{type(exc).__name__}: {str(exc)[:200]}"}]}
+                receipt["outcomes"] = stats
                 live = evaluate(outcomes(conn))
                 final = final_evaluation(conn)
-                if not final and live["status"] != "PENDING_EVIDENCE":
+                if (not final and live["status"] != "PENDING_EVIDENCE" and not stats["errors"]
+                        and _ready_for_final(conn, live["through_session"])):
                     research_store.save(conn, EVALUATION_KIND, f"{FORWARD_ID}:final",
                                         clean({"forward_id": FORWARD_ID, **live}))
                     conn.commit()
                     final = final_evaluation(conn)
                 sticky = sticky_attention(conn, clock())
-            attention = (freeze["status"] not in ("NOTHING_DUE", "FROZEN", "REPLAYED", "MISSED_ALREADY_RECORDED")
-                         or freeze.get("newly_missed") or outcome_stats["invalid"] or outcome_stats.get("error")
-                         or sticky)
             report = reported_evaluation(final, live)
-            receipt.update(status="ATTENTION" if attention else "OK", protocol_sha256=PROTOCOL_SHA256,
-                           protocol_record_id=protocol["record_id"], freeze=freeze, outcomes=outcome_stats,
-                           sticky_attention=sticky,
+            attention = (freeze["status"] not in OK_FREEZE or freeze.get("newly_missed")
+                         or freeze.get("decision_sources_changed") or stats["invalid"] or stats["errors"] or sticky)
+            receipt.update(status="ATTENTION" if attention else "OK", sticky_attention=sticky,
                            evaluation={k: report.get(k) for k in ("status", "final", "months", "active_months",
                                                                    "mean", "lower_95", "upper_95")})
         except ProtocolChanged as exc:
             receipt.update(status="PROTOCOL_CHANGED", reason_code=str(exc))
         except Exception as exc:
-            receipt.update(status="FAILED", reason_code=type(exc).__name__)
+            receipt.update(status="FAILED", reason_code=f"{type(exc).__name__}: {str(exc)[:200]}")
         finally:
             try:
                 audit(lock, ACTOR, "FAIR_VALUE_FORWARD_STAGE_FINISHED",
                       clean({**receipt, "status": receipt.get("status", "FAILED")}))
-            finally:
+            except Exception:
+                receipt["audit_failed"] = True
+            with suppress(Exception):
                 lock.execute("SELECT pg_advisory_unlock(hashtextextended(%s,0))", (FORWARD_ID,))
         return receipt
 
@@ -604,10 +693,16 @@ def summary(conn, *, now: datetime | None = None) -> dict:
     frozen = decisions(conn)
     scored = outcomes(conn)
     scored_sessions = {o.get("decision_session") for o in scored}
-    expected = expected_decision_session(completed)
-    frozen_sessions = {d["payload"]["decision_session"] for d in frozen}
-    missing = bool(expected) and expected not in frozen_sessions
-    deadline = session_open(windows(expected)[0]) if expected else None
+    frozen_months = {d["payload"]["decision_session"][:7]: d for d in frozen}
+    sessions = decision_sessions_through(completed)
+    expected = sessions[-1] if sessions else None
+    expected_frozen = frozen_months.get(expected[:7]) if expected else None
+    deadline = (_deadline(expected_frozen["payload"]) if expected_frozen
+                else session_open(windows(expected)[0]) if expected else None)
+    missing = bool(expected) and expected_frozen is None
+    recorded_losses = {c["payload"]["decision_session"]
+                       for c in checks_with_status(conn, ("FREEZE_MISSED", "FREEZE_LATE"))}
+    unrecorded = {s for s in sessions[:-1] if s[:7] not in frozen_months}
     fingerprints = sorted({(d["payload"].get("code") or {}).get("decision_sources_sha256") for d in frozen} - {None})
     return clean({
         "status": "OK", "forward_id": FORWARD_ID, "protocol_registered": bool(protocol),
@@ -619,8 +714,7 @@ def summary(conn, *, now: datetime | None = None) -> dict:
         "frozen_months": [{"decision_session": d["payload"]["decision_session"],
                            "due_session": d["payload"]["due_session"], "counts": d["payload"]["counts"],
                            "content_hash": d["content_hash"]} for d in frozen],
-        "missed_months": sorted({c["payload"]["decision_session"]
-                                 for c in checks_with_status(conn, ("FREEZE_MISSED", "FREEZE_LATE"))}),
+        "missed_months": sorted(recorded_losses | unrecorded),
         "matured_due_unscored": [d["payload"]["decision_session"] for d in frozen
                                  if d["payload"]["due_session"] <= completed
                                  and d["payload"]["decision_session"] not in scored_sessions],

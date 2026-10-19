@@ -21,6 +21,7 @@ def upgrade():
     allowed = ",".join(f"'{kind}'" for kind in KINDS)
     # Fail fast instead of queueing every evidence read behind a blocked ALTER.
     op.execute("SET LOCAL lock_timeout = '10s'")
+    op.execute("SET LOCAL statement_timeout = '120s'")
     op.execute(
         "ALTER TABLE research_evidence_records DROP CONSTRAINT research_evidence_records_kind_check"
     )

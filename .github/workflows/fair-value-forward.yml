@@ -42,7 +42,7 @@ jobs:
           with db.connect() as conn:
               db.init_schema(conn)
           PY
-      - name: Score matured months and freeze a due month-end
+      - name: Freeze a due month-end, then score matured months
         run: python -m scripts.run_fair_value_forward
       - uses: actions/upload-artifact@v4
         if: always()

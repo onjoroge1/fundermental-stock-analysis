@@ -1,19 +1,19 @@
-"""Daily fair-value forward tracking: score matured months, freeze the month-end.
+"""Daily fair-value forward tracking: freeze a due month-end, then score matured months.
 
   python -m scripts.run_fair_value_forward
 
 Writes data/fair_value_forward/<completed session>.json and prints the
-receipt. Exit 1 when attention is needed (a freeze waiting for data, a missed
-freeze, invalid timing, a protocol change, failure or contention), so the
-scheduled job and the health watchdog surface it.
+receipt. Exit 1 when attention is needed, so the scheduled job and the health
+watchdog surface it: a freeze waiting for data, a missed or late freeze,
+invalid timing, a scoring error, a decision-code change, a loss recorded in
+the last week, a protocol change, a refused non-main run, failure or
+contention.
 """
 import json
 import sys
 from pathlib import Path
 
-from stock_machine.agent_intelligence.fair_value_forward import run_daily
-
-OK_FREEZE = ("NOTHING_DUE", "FROZEN", "REPLAYED", "MISSED_ALREADY_RECORDED")
+from stock_machine.agent_intelligence.fair_value_forward import OK_FREEZE, run_daily
 
 
 def exit_code(receipt: dict) -> int:
@@ -35,7 +35,7 @@ def main():
         detail = [str(receipt.get("reason_code") or freeze.get("status")),
                   *(f"newly missed {m}" for m in freeze.get("newly_missed") or []),
                   *(f"invalid timing {m}" for m in outcomes.get("invalid") or []),
-                  *([f"scoring error {outcomes['error']}"] if outcomes.get("error") else []),
+                  *(f"scoring error {e.get('decision_session') or ''} {e['error']}" for e in outcomes.get("errors") or []),
                   *(receipt.get("sticky_attention") or [])]
         print("::warning::fair-value forward needs attention: " + "; ".join(detail), file=sys.stderr)
     return code
