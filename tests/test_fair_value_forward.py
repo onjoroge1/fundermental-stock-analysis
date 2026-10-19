@@ -145,7 +145,7 @@ def test_exit_codes(receipt, code):
 
 # ---- review follow-ups -------------------------------------------------------------
 
-PINNED_PROTOCOL_SHA256 = "d95379d33d9f3697f67467da95ee238dc2be2dfdcb72df083f43429ec3d07a04"
+PINNED_PROTOCOL_SHA256 = "6d09af6c5ead176880e354f481ed73db9d17fecf55f5be3974131e3f8569781a"
 PINNED_UNIVERSE = ('AAL', 'AAPL', 'ABNB', 'ADBE', 'ADI', 'AMAT', 'AMD', 'AMZN', 'AVGO', 'BKNG', 'CMCSA', 'CMG',
                    'COST', 'CRM', 'CSCO', 'DAL', 'DELL', 'DIS', 'F', 'GM', 'GOOGL', 'HD', 'HIMS', 'HPQ', 'IBM',
                    'INTC', 'INTU', 'KLAC', 'LOW', 'LRCX', 'LUV', 'MCD', 'META', 'MSFT', 'MU', 'NFLX', 'NKE', 'NOW',
@@ -175,6 +175,45 @@ def test_decision_behavior_is_pinned_and_the_fixture_covers_every_path():
     assert len(gamma) < fv.MIN_SECTOR_NAMES and gamma[0]["sector_gap"] == universe_median[gamma[0]["ticker"]]
     assert any(r["pe_ttm"] is not None and r["pe_ttm"] < 0 and r["sector_gap"] is None for r in decided)  # losses
     assert f.PROTOCOL["decision_behavior_sha256"] == f.DECISION_BEHAVIOR_SHA256
+    # Boundaries the pin must see (threshold, quality, timing strength, sector size).
+    gap_side = {round(r["sector_gap"], 3): r["side"] for r in decided
+                if r["sector"] in ("Delta", "Epsilon") and r["sector_gap"]}
+    assert gap_side == {0.205: "LONG", 0.195: "FLAT", -0.205: "SHORT", -0.195: "FLAT"}
+    theta = [r for r in decided if r["sector"] == "Theta" and r["pe_ttm"] == 10]
+    assert [(r["profitability_score"], r["solid"]) for r in theta[:2]] == [(50, True), (49.9, False)]
+    weak = [r for r in theta if abs(r["technical_signal"]) < 0.25]
+    assert {(r["side"], r["technical_signal"] > 0) for r in weak} == {("LONG", True), ("FLAT", False)}
+    zeta = next(r for r in decided if r["sector"] == "Zeta" and r["pe_ttm"] == 10)
+    eta = next(r for r in decided if r["sector"] == "Eta" and r["pe_ttm"] == 10)
+    assert zeta["sector_gap"] == pytest.approx(1.5) and eta["sector_gap"] == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("mutation", [
+    ("GAP_THRESHOLD", 0.21), ("GAP_THRESHOLD", 0.19), ("QUALITY_MIN", 50.5), ("QUALITY_MIN", 49.5),
+    ("MIN_SECTOR_NAMES", 3), ("MIN_SECTOR_NAMES", 5),
+])
+def test_the_behavior_pin_catches_rule_changes(monkeypatch, mutation):
+    monkeypatch.setattr(fv, *mutation)
+    assert f.behavior_digest() != f.DECISION_BEHAVIOR_SHA256
+
+
+def test_the_behavior_pin_catches_a_minimum_timing_strength(monkeypatch):
+    original = fv.policy_side
+
+    def stronger(row, policy):
+        side = original(row, policy)
+        t = row["technical_signal"]
+        return "FLAT" if side != "FLAT" and abs(t) < 0.5 else side
+    monkeypatch.setattr(fv, "policy_side", stronger)
+    assert f.behavior_digest() != f.DECISION_BEHAVIOR_SHA256
+
+
+def test_scoring_is_pinned(monkeypatch):
+    from stock_machine.agent_intelligence import reward
+    assert f.scoring_digest() == f.SCORING_BEHAVIOR_SHA256 and reward.VERSION == f.REWARD_VERSION
+    assert f.PROTOCOL["scoring_behavior_sha256"] == f.SCORING_BEHAVIOR_SHA256
+    monkeypatch.setattr(reward, "MIN_ANNUAL_VOL", 0.60)
+    assert f.scoring_digest() != f.SCORING_BEHAVIOR_SHA256
 
 
 def test_evaluation_uses_the_registered_statistic():

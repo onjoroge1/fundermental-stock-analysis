@@ -278,3 +278,42 @@ def test_no_final_verdict_while_an_earlier_month_is_unresolved(tracker):
     pending = run(at(2027, 4, 1, 4, 20))   # 2026-10-30 is not due until 2027-04-27
     assert pending["evaluation"]["status"] == "EVALUATION_DUE" and pending["evaluation"]["final"] is False
     assert count(tracker, f.EVALUATION_KIND) == 0
+
+
+def test_a_scoring_code_change_never_blocks_the_freeze(tracker, monkeypatch):
+    monkeypatch.setattr(f, "SCORING_BEHAVIOR_SHA256", "0" * 64)
+    result = run(NIGHT)
+    assert result["freeze"]["status"] == "FROZEN" and result["status"] == "ATTENTION"
+    assert result["outcomes"]["errors"] == [{"error": "ProtocolChanged: SCORING_BEHAVIOR_CHANGED"}]
+
+
+def test_a_decision_code_change_is_flagged_and_stays_red_until_reviewed(tracker, monkeypatch):
+    assert run(NIGHT)["freeze"]["status"] == "FROZEN"
+    monkeypatch.setattr(f, "source_fingerprint", lambda: "f" * 64)
+    flagged = run(at(2026, 12, 1, 4, 20))                         # freezes 2026-11-30 with changed code
+    assert flagged["freeze"]["status"] == "FROZEN" and flagged["freeze"]["decision_sources_changed"]
+    assert flagged["status"] == "ATTENTION"
+    before_open = run(at(2026, 12, 1, 10, 45))                    # replayed, but the change stays visible
+    assert before_open["freeze"]["status"] == "REPLAYED" and before_open["status"] == "ATTENTION"
+    assert "DECISION_SOURCES_CHANGED:2026-11-30" in before_open["sticky_attention"]
+
+
+def test_a_failed_audit_turns_the_run_red(tracker, monkeypatch):
+    from stock_machine.admin_panel import store
+    real = store.audit
+
+    def flaky(conn, actor, event, details):
+        if event.endswith("FINISHED"):
+            raise RuntimeError("lock connection dropped")
+        return real(conn, actor, event, details)
+    monkeypatch.setattr(store, "audit", flaky)
+    result = run(NIGHT)
+    assert result["freeze"]["status"] == "FROZEN" and result["audit_failed"] and result["status"] == "ATTENTION"
+
+
+def test_a_lock_connection_failure_still_returns_a_receipt(tracker, monkeypatch):
+    def down():
+        raise RuntimeError("database unreachable")
+    monkeypatch.setattr(db, "connect", down)
+    result = run(NIGHT)
+    assert result["status"] == "FAILED" and "database unreachable" in result["reason_code"]

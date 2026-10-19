@@ -51,7 +51,9 @@ STICKY_DAYS = 7
 # shared decision code on a fixed synthetic case. Both are part of PROTOCOL, so
 # changing either changes the registered protocol and needs a new FORWARD_ID.
 REPLAY_PROTOCOL_SHA256 = "4b151cdfc7777f8adbc73eafbd51a6f98ead5c601b6788b4faf47b727ce0bda3"
-DECISION_BEHAVIOR_SHA256 = "153fe3d9937d4bda87d56e58cb54e24949a6417c5c39172c1f2d1440ccd490dd"
+SCORING_BEHAVIOR_SHA256 = "bca0081f5cbc56ad7830180665f2b6986a8ccac9a9e15529bb45120d59503203"
+REWARD_VERSION = "risk-scaled-residual-paper-reward.v5"
+DECISION_BEHAVIOR_SHA256 = "1ed3c3ba1a0ccc2c07e302659f2c7a3d999a6cc00d132d4cb039f95c222be9ea"
 
 PROTOCOL_KIND = "FV_FORWARD_PROTOCOL_V1"
 DECISION_KIND = "FV_FORWARD_DECISION_V1"
@@ -61,10 +63,12 @@ EVALUATION_KIND = "FV_FORWARD_EVALUATION_V1"
 ACTOR = "fair-value-scheduler"
 LOSS_STATUSES = ("FREEZE_MISSED", "FREEZE_LATE", "INVALID_PROSPECTIVE_TIMING", "DECISION_SOURCES_CHANGED")
 
+# Code the decision depends on (reviewed data files are data, refreshed by design).
 DECISION_SOURCES = (
     "backtest/fair_value_replay.py", "backtest/direction_replay.py", "backtest/engine.py",
     "agent_intelligence/features.py", "agent_intelligence/state.py", "agent_intelligence/reward.py",
-    "features/metrics.py", "features/scoring.py", "regime.py",
+    "features/metrics.py", "features/scoring.py", "regime.py", "financial_integrity.py",
+    "normalization/earnings_releases.py", "db.py", "market_calendar.py",
 )
 FEATURES_KEPT = ("beta_63_vs_spy", "realized_vol_20", "realized_vol_60", "momentum_63",
                  "relative_momentum_63_vs_spy", "price")
@@ -112,6 +116,9 @@ def _protocol() -> dict:
                              "case or no month is frozen; changes to the fundamentals pipeline (engine, metrics, "
                              "scoring) are tracked by a source fingerprint and recorded as DECISION_SOURCES_CHANGED",
         "decision_behavior_sha256": DECISION_BEHAVIOR_SHA256,
+        "scoring_behavior": f"scoring must use reward version {REWARD_VERSION} and reproduce scoring_behavior_sha256 "
+                            "on a fixed synthetic window, or no month is scored (the freeze is unaffected)",
+        "scoring_behavior_sha256": SCORING_BEHAVIOR_SHA256,
         "qualification": "PASS_REQUIRES_INDEPENDENT_REVIEW; promotion NOT_AUTHORIZED; broker_submission false",
     }
 
@@ -229,6 +236,24 @@ FIXTURE = (
     ("Beta", 24, 60, 60, 0.0033, 260), ("Beta", 8, 60, 60, 0.0040, 260), ("Beta", 30, 60, 60, 0.0047, 260),
     ("Gamma", 10, 60, 60, 0.0030, 260), ("Gamma", 35, 60, 60, 0.0030, 260),
     ("Beta", 9, 60, 60, 0.0030, 40), ("Beta", -5.0, 60, 60, 0.0030, 260),
+    # Delta (rising, median 20): gaps +0.205 (LONG) and +0.195 (FLAT) straddle +20%.
+    ("Delta", 20, 60, 60, 0.0030, 260), ("Delta", 20, 60, 60, 0.0030, 260), ("Delta", 20, 60, 60, 0.0030, 260),
+    ("Delta", 20 / 1.205, 60, 60, 0.0030, 260), ("Delta", 20 / 1.195, 60, 60, 0.0030, 260),
+    # Epsilon (falling, median 20): gaps -0.205 (SHORT) and -0.195 (FLAT) straddle -20%.
+    ("Epsilon", 20, 60, 60, -0.0030, 260), ("Epsilon", 20, 60, 60, -0.0030, 260),
+    ("Epsilon", 20, 60, 60, -0.0030, 260), ("Epsilon", 20 / 0.795, 60, 60, -0.0030, 260),
+    ("Epsilon", 20 / 0.805, 60, 60, -0.0030, 260),
+    # Theta (median 30): quality exactly 50 (solid) and 49.9 (not); a weak agreeing
+    # technical signal (LONG) and a weak disagreeing one (FLAT).
+    ("Theta", 10, 50, 60, 0.0030, 260), ("Theta", 10, 49.9, 60, 0.0030, 260),
+    ("Theta", 10, 60, 60, 0.0004, 260), ("Theta", 10, 60, 60, 0.00035, 260),
+    ("Theta", 30, 60, 60, 0.0030, 260), ("Theta", 30, 60, 60, 0.0030, 260), ("Theta", 30, 60, 60, 0.0030, 260),
+    ("Theta", 30, 60, 60, 0.0030, 260), ("Theta", 30, 60, 60, 0.0030, 260),
+    # Zeta has exactly 4 names (its own median, 25), Eta 3 (the universe median);
+    # both differ from the universe median so a sector-size change moves their gaps.
+    ("Zeta", 10, 60, 60, 0.0030, 260), ("Zeta", 10, 60, 60, 0.0030, 260),
+    ("Zeta", 40, 60, 60, 0.0030, 260), ("Zeta", 40, 60, 60, 0.0030, 260),
+    ("Eta", 10, 60, 60, 0.0030, 260), ("Eta", 10, 60, 60, 0.0030, 260), ("Eta", 40, 60, 60, 0.0030, 260),
 )
 
 
@@ -246,7 +271,7 @@ def behavior_fixture():
 
     universe = {}
     for i, (sector, pe, profit, health, drift, length) in enumerate(FIXTURE):
-        prices = series(drift, 0.01, 40 + 5 * i, length)
+        prices = series(drift, 0.01, 40 + 5 * (i % 16), length)
         closes = {r["date"] for r in prices}
 
         def observe(as_of, have=closes, ratio=pe, p=profit, h=health):
@@ -266,6 +291,26 @@ def behavior_digest() -> str:
                     "gap": r6(r.get("sector_gap")), "tech": r6(r.get("technical_signal")),
                     "features": {k: r6(v) for k, v in sorted((r.get("features") or {}).items())}}
                    for r in rows])
+
+
+def scoring_digest() -> str:
+    """Reward v5 on a fixed synthetic window for a few frozen-feature cases (rounded)."""
+    from . import reward
+    days = _fixture_days(date(2024, 1, 2), 260)
+    entry, due = days[100], days[100 + HORIZON]
+
+    def path(drift, start):
+        out, price = {}, start
+        for i, day in enumerate(days):
+            price *= 1 + drift + 0.01 * sin(i / 3)
+            out[day] = price
+        return out
+    stock, spy = path(0.0012, 50.0), path(0.0004, 400.0)
+    cases = [{"beta_63_vs_spy": 0.5, "realized_vol_20": 0.3}, {"beta_63_vs_spy": 1.4, "realized_vol_20": None,
+             "realized_vol_60": 0.25}, {"beta_63_vs_spy": None}, {"beta_63_vs_spy": 4.0, "realized_vol_20": 0.01}]
+    out = [{k: round(v, 9) for k, v in dr.rewards_between(entry, due, {"features": c}, stock=stock, spy=spy,
+                                                         horizon=HORIZON)["rewards"].items()} for c in cases]
+    return digest({"version": reward.VERSION, "rewards": out})
 
 
 def decision_payload(session: str, rows: list[dict], *, protocol: dict, created_at: datetime,
@@ -350,6 +395,7 @@ def score_month(decision_payload_: dict, *, prices: dict, spy: list[dict], compl
         "active": any(x["side"] in ("LONG", "SHORT") for x in scored),
         "scored": len(scored), "excluded": sum(x["status"] == "EXCLUDED_MISSING_BARS" for x in results),
         "spy_path_sha256": digest([spy_adj.get(d) for d in session_dates(entry, due)]),
+        "reward_version": REWARD_VERSION, "scoring_behavior_sha256": SCORING_BEHAVIOR_SHA256,
     })
 
 
@@ -448,8 +494,9 @@ def sticky_attention(conn, now: datetime) -> list[str]:
     for r in rows:
         known = r["payload"].get("deadline") or r["payload"].get("due_session")
         known_at = _parse(known if "T" in (known or "") else f"{known}T21:00:00+00:00") if known else None
-        when = max(t for t in (known_at, _recorded_at(r)) if t is not None)
-        if timedelta(0) <= now - when <= timedelta(days=STICKY_DAYS):
+        recent = [t for t in (known_at, _recorded_at(r))
+                  if t is not None and timedelta(0) <= now - t <= timedelta(days=STICKY_DAYS)]
+        if recent:
             out.append(f"{r['payload']['status']}:{r['payload']['decision_session']}")
     return out
 
@@ -600,8 +647,11 @@ def freeze_due(conn, read_conn, completed: str, now: datetime, clock, protocol: 
         if session[:7] not in frozen and session[:7] not in recorded:
             if _record_loss(conn, session, session_open(windows(session)[0])):
                 newly_missed.append(session)
-    if sessions[-1][:7] in frozen and sessions[-1] not in {d["payload"]["decision_session"] for d in decisions(conn)}:
-        return {"status": "REPLAYED", "decision_session": sessions[-1], "newly_missed": newly_missed}
+    latest = sessions[-1]
+    if latest[:7] in frozen and latest not in {d["payload"]["decision_session"] for d in decisions(conn)}:
+        return {"status": "REPLAYED", "decision_session": latest, "newly_missed": newly_missed}
+    if latest[:7] not in frozen and latest[:7] in recorded:
+        return {"status": "MISSED_ALREADY_RECORDED", "decision_session": latest, "newly_missed": newly_missed}
     result = _freeze(conn, read_conn, sessions[-1], now, clock, protocol)
     return {**result, "newly_missed": newly_missed}
 
@@ -630,6 +680,14 @@ def run_daily(*, now: datetime | None = None, clock=None) -> dict:
                "promotion": "NOT_AUTHORIZED", "broker_submission": False}
     if os.getenv("GITHUB_REF") != "refs/heads/main":
         return {**receipt, "status": "REFUSED_NON_MAIN", "reason_code": os.getenv("GITHUB_REF") or "UNSET"}
+    try:
+        return _run_locked(receipt, completed, now, clock, db, research_store, audit)
+    except Exception as exc:  # e.g. the lock connection itself failed: still return a receipt
+        return {**receipt, "status": "FAILED", "reason_code": f"{type(exc).__name__}: {str(exc)[:200]}"}
+
+
+def _run_locked(receipt, completed, now, clock, db, research_store, audit) -> dict:
+    from . import reward
     with db.connect() as lock:
         lock.autocommit = True
         if not lock.execute("SELECT pg_try_advisory_lock(hashtextextended(%s,0))", (FORWARD_ID,)).fetchone()[0]:
@@ -645,6 +703,8 @@ def run_daily(*, now: datetime | None = None, clock=None) -> dict:
                 freeze = freeze_due(conn, read_conn, completed, now, clock, protocol)
                 receipt["freeze"] = freeze
                 try:
+                    if reward.VERSION != REWARD_VERSION or scoring_digest() != SCORING_BEHAVIOR_SHA256:
+                        raise ProtocolChanged("SCORING_BEHAVIOR_CHANGED")  # never blocks the freeze above
                     stats = score_pending(conn, read_conn, completed)
                 except Exception as exc:  # e.g. the due-month query itself failed
                     for c in (conn, read_conn):
@@ -678,6 +738,8 @@ def run_daily(*, now: datetime | None = None, clock=None) -> dict:
                       clean({**receipt, "status": receipt.get("status", "FAILED")}))
             except Exception:
                 receipt["audit_failed"] = True
+                if receipt.get("status") == "OK":
+                    receipt["status"] = "ATTENTION"
             with suppress(Exception):
                 lock.execute("SELECT pg_advisory_unlock(hashtextextended(%s,0))", (FORWARD_ID,))
         return receipt
@@ -700,9 +762,12 @@ def summary(conn, *, now: datetime | None = None) -> dict:
     deadline = (_deadline(expected_frozen["payload"]) if expected_frozen
                 else session_open(windows(expected)[0]) if expected else None)
     missing = bool(expected) and expected_frozen is None
-    recorded_losses = {c["payload"]["decision_session"]
-                       for c in checks_with_status(conn, ("FREEZE_MISSED", "FREEZE_LATE"))}
-    unrecorded = {s for s in sessions[:-1] if s[:7] not in frozen_months}
+    losses = {}
+    for c in checks_with_status(conn, ("FREEZE_MISSED", "FREEZE_LATE")):
+        losses.setdefault(c["payload"]["decision_session"][:7], c["payload"]["decision_session"])
+    for missed in sessions[:-1]:
+        if missed[:7] not in frozen_months:
+            losses.setdefault(missed[:7], missed)
     fingerprints = sorted({(d["payload"].get("code") or {}).get("decision_sources_sha256") for d in frozen} - {None})
     return clean({
         "status": "OK", "forward_id": FORWARD_ID, "protocol_registered": bool(protocol),
@@ -714,7 +779,7 @@ def summary(conn, *, now: datetime | None = None) -> dict:
         "frozen_months": [{"decision_session": d["payload"]["decision_session"],
                            "due_session": d["payload"]["due_session"], "counts": d["payload"]["counts"],
                            "content_hash": d["content_hash"]} for d in frozen],
-        "missed_months": sorted(recorded_losses | unrecorded),
+        "missed_months": sorted(losses.values()),
         "matured_due_unscored": [d["payload"]["decision_session"] for d in frozen
                                  if d["payload"]["due_session"] <= completed
                                  and d["payload"]["decision_session"] not in scored_sessions],
