@@ -63,12 +63,14 @@ EVALUATION_KIND = "FV_FORWARD_EVALUATION_V1"
 ACTOR = "fair-value-scheduler"
 LOSS_STATUSES = ("FREEZE_MISSED", "FREEZE_LATE", "INVALID_PROSPECTIVE_TIMING", "DECISION_SOURCES_CHANGED")
 
-# Code the decision depends on (reviewed data files are data, refreshed by design).
+# Code the decision depends on. Reviewed data files are data, refreshed by design;
+# db.py is excluded because every schema migration edits its version constant
+# (its read functions are covered by the behaviour pin's inputs, not its text).
 DECISION_SOURCES = (
     "backtest/fair_value_replay.py", "backtest/direction_replay.py", "backtest/engine.py",
     "agent_intelligence/features.py", "agent_intelligence/state.py", "agent_intelligence/reward.py",
     "features/metrics.py", "features/scoring.py", "regime.py", "financial_integrity.py",
-    "normalization/earnings_releases.py", "db.py", "market_calendar.py",
+    "normalization/earnings_releases.py", "market_calendar.py",
 )
 FEATURES_KEPT = ("beta_63_vs_spy", "realized_vol_20", "realized_vol_60", "momentum_63",
                  "relative_momentum_63_vs_spy", "price")
