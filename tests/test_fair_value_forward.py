@@ -347,3 +347,27 @@ def test_routine_migrations_never_flag_decision_code_changes():
     assert "db.py" not in f.DECISION_SOURCES
     assert f.PROTOCOL_SHA256 == PINNED_PROTOCOL_SHA256   # the registered protocol is unaffected
 
+
+
+def test_every_tracked_source_exists_and_the_fingerprint_is_the_plain_concatenation():
+    import hashlib
+    from pathlib import Path
+
+    from stock_machine.agent_intelligence import strategy_forward as sf
+    root = Path(f.__file__).resolve().parents[1]
+    assert f.missing_sources() == []
+    assert {"agent_intelligence/fair_value_forward.py", "agent_intelligence/inference.py"} <= set(f.DECISION_SOURCES)
+    assert all((root / p).is_file() for p in sf.DECISION_SOURCES)
+    plain = hashlib.sha256(b"".join((root / p).read_bytes() for p in f.DECISION_SOURCES)).hexdigest()
+    assert f.source_fingerprint() == plain
+    assert not any(path in str(f.PROTOCOL) for path in f.DECISION_SOURCES)   # not part of the registered protocol
+    assert f.PROTOCOL_SHA256 == PINNED_PROTOCOL_SHA256
+
+
+def test_a_scored_month_alerts_only_for_exclusions_or_an_unreported_missing_mean():
+    excluded = {"results": [{"status": "EXCLUDED_MISSING_BARS"}, {"status": "SCORED"}], "monthly_mean": 0.1}
+    assert f.outcome_alert(excluded, {"rows": [{}]}) == "OUTCOME_EXCLUDED_MISSING_BARS"
+    no_mean = {"results": [{"status": "NO_DECISION"}], "monthly_mean": None}
+    assert f.outcome_alert(no_mean, {"rows": [{"reason": "NO_DECISION_MISSING_BAR"}]}) is None   # reported at freeze
+    assert f.outcome_alert(no_mean, {"rows": [{"reason": "OTHER"}]}) == "OUTCOME_WITHOUT_MEAN"
+    assert f.outcome_alert({"results": [{"status": "SCORED"}], "monthly_mean": 0.0}, {"rows": [{}]}) is None

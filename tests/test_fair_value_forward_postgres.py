@@ -173,8 +173,9 @@ def test_a_blocked_month_is_checked_once_per_session(tracker):
     with tracker() as conn:   # a repair between runs of the same completed session changes the data
         seed(conn, "VZ", 0.0008, days=["2027-02-01"])
         conn.commit()
-    again = run(at(2027, 5, 3, 10, 45))
-    assert again["status"] != "FAILED" and again["outcomes"]["blocked"] == [] and again["outcomes"]["scored"] == []
+    again = run(at(2027, 5, 3, 10, 45))         # same completed session: not retried, still reported
+    assert again["status"] == "ATTENTION" and again["outcomes"]["blocked"] == ["2026-10-30"]
+    assert again["outcomes"]["scored"] == []
     assert count(tracker, f.CHECK_KIND, "AND payload->>'status'='OUTCOME_BLOCKED_MISSING_BARS'") == 1
     assert run(at(2027, 5, 4, 4, 20))["outcomes"]["scored"] == ["2026-10-30"]     # next session: scored
 
@@ -229,7 +230,8 @@ def scored_outcome(i, value):
                      "monthly_mean": value, "active": True}
 
 
-def test_the_evaluation_is_written_once_and_stays_the_reported_result(tracker):
+def test_the_evaluation_is_written_once_and_stays_the_reported_result(tracker, monkeypatch):
+    monkeypatch.setenv("GITHUB_SHA", "abc123")
     with tracker() as conn:
         for i in range(24):
             session, payload = scored_outcome(i, 0.05 + 0.01 * (i % 3))
@@ -237,6 +239,9 @@ def test_the_evaluation_is_written_once_and_stays_the_reported_result(tracker):
         conn.commit()
     first = run(at(2029, 1, 3, 4, 20))
     assert first["evaluation"]["status"] == "PASS_REQUIRES_INDEPENDENT_REVIEW" and first["evaluation"]["final"]
+    with tracker() as conn:
+        written = f.final_evaluation(conn)
+    assert written["code"] == {"git_sha": "abc123", "decision_sources_sha256": f.source_fingerprint()}
     with tracker() as conn:
         for i in range(24, 30):
             session, payload = scored_outcome(i, -2.0)
@@ -249,6 +254,8 @@ def test_the_evaluation_is_written_once_and_stays_the_reported_result(tracker):
         shown = f.summary(conn, now=at(2029, 7, 3, 12))["evaluation"]
     assert shown["final"] and shown["months"] == 24
     assert shown["post_final_monitoring"]["scored_months_available"] == 30
+    with tracker() as conn:
+        assert f.final_evaluation(conn) == written
 
 
 def test_a_changed_protocol_or_decision_behavior_refuses_to_run(tracker, monkeypatch):
@@ -287,7 +294,7 @@ def test_a_scoring_code_change_never_blocks_the_freeze(tracker, monkeypatch):
     assert result["outcomes"]["errors"] == [{"error": "ProtocolChanged: SCORING_BEHAVIOR_CHANGED"}]
 
 
-def test_a_decision_code_change_is_flagged_and_stays_red_until_reviewed(tracker, monkeypatch):
+def test_a_decision_code_change_is_flagged_and_stays_visible_for_a_week(tracker, monkeypatch):
     assert run(NIGHT)["freeze"]["status"] == "FROZEN"
     monkeypatch.setattr(f, "source_fingerprint", lambda: "f" * 64)
     flagged = run(at(2026, 12, 1, 4, 20))                         # freezes 2026-11-30 with changed code
@@ -295,7 +302,9 @@ def test_a_decision_code_change_is_flagged_and_stays_red_until_reviewed(tracker,
     assert flagged["status"] == "ATTENTION"
     before_open = run(at(2026, 12, 1, 10, 45))                    # replayed, but the change stays visible
     assert before_open["freeze"]["status"] == "REPLAYED" and before_open["status"] == "ATTENTION"
+    assert "DECISION_SOURCES_CHANGED:2026-12-01" not in before_open["sticky_attention"]
     assert "DECISION_SOURCES_CHANGED:2026-11-30" in before_open["sticky_attention"]
+    assert run(at(2026, 12, 10, 4, 20))["status"] == "OK"
 
 
 def test_a_failed_audit_turns_the_run_red(tracker, monkeypatch):
@@ -317,3 +326,68 @@ def test_a_lock_connection_failure_still_returns_a_receipt(tracker, monkeypatch)
     monkeypatch.setattr(db, "connect", down)
     result = run(NIGHT)
     assert result["status"] == "FAILED" and "database unreachable" in result["reason_code"]
+
+
+def test_a_code_change_is_recorded_once_against_the_previous_month(tracker, monkeypatch):
+    assert run(NIGHT)["freeze"]["status"] == "FROZEN"
+    monkeypatch.setattr(f, "source_fingerprint", lambda: "f" * 64)
+    assert run(at(2026, 12, 1, 4, 20))["freeze"]["decision_sources_changed"]
+    later = run(at(2027, 1, 2, 4, 20))                             # same changed code, next month-end
+    assert later["freeze"]["status"] == "FROZEN" and not later["freeze"]["decision_sources_changed"]
+    assert later["status"] == "OK" and later["sticky_attention"] == []
+    assert count(tracker, f.CHECK_KIND, "AND payload->>'status'='DECISION_SOURCES_CHANGED'") == 1
+
+
+def test_a_partial_freeze_stays_visible_for_a_week(tracker):
+    delete_bar(tracker, "VZ", "2026-10-30")
+    final = run(at(2026, 11, 2, 10, 50))
+    assert final["freeze"]["status"] == "FROZEN" and final["status"] == "ATTENTION"
+    replayed = run(at(2026, 11, 2, 12, 30))                       # the later morning runs stay red
+    assert replayed["freeze"]["status"] == "REPLAYED" and replayed["status"] == "ATTENTION"
+    assert replayed["sticky_attention"] == ["FROZEN_WITH_MISSING_BARS:2026-10-30"]
+    assert run(at(2026, 11, 20, 4, 20))["status"] == "OK"
+
+
+def test_an_excluded_outcome_is_recorded_and_reported(tracker):
+    assert run(NIGHT)["freeze"]["status"] == "FROZEN"
+    delete_bar(tracker, "VZ", "2027-02-01")
+    expired = run(at(2027, 5, 12, 4, 20))                         # 10 sessions after the 2027-04-27 due date
+    assert expired["outcomes"]["scored"] == ["2026-10-30"] and expired["outcomes"]["excluded"] == ["2026-10-30"]
+    assert expired["status"] == "ATTENTION" and "OUTCOME_EXCLUDED_MISSING_BARS:2026-10-30" in expired["sticky_attention"]
+    with tracker() as conn:
+        out = research_store.get(conn, f.OUTCOME_KIND, f"{f.FORWARD_ID}:2026-10-30")["payload"]
+        check = research_store.get(conn, f.CHECK_KIND, f"{f.FORWARD_ID}:2026-10-30:OUTCOME_EXCLUDED_MISSING_BARS")
+    assert out["excluded"] == 1 and out["monthly_mean"] is None and out["code"]["decision_sources_sha256"]
+    assert check["payload"]["excluded"] == ["VZ"]
+
+
+def test_a_moved_tracked_file_is_reported_nightly_and_never_costs_a_month(tracker, monkeypatch):
+    assert run(NIGHT)["freeze"]["status"] == "FROZEN"
+    monkeypatch.setattr(f, "DECISION_SOURCES", (*f.DECISION_SOURCES, "backtest/moved_away.py"))
+    quiet_day = run(at(2026, 11, 17, 4, 20))
+    assert quiet_day["status"] == "ATTENTION" and quiet_day["missing_sources"] == ["backtest/moved_away.py"]
+    month_end = run(at(2026, 12, 1, 4, 20))
+    assert month_end["freeze"]["status"] == "FROZEN" and month_end["freeze"]["decision_sources_changed"]
+    with tracker() as conn:
+        check = research_store.get(conn, f.CHECK_KIND, f"{f.FORWARD_ID}:2026-11-30:DECISION_SOURCES_CHANGED")
+    assert check["payload"]["missing_sources"] == ["backtest/moved_away.py"]
+
+
+def test_a_month_frozen_without_any_bar_is_alerted_once_at_the_freeze(tracker):
+    delete_bar(tracker, "VZ", "2026-10-30")
+    final = run(at(2026, 11, 2, 10, 50))                          # final attempt: VZ has no decision
+    assert final["freeze"]["counts"]["NO_DECISION"] == 1 and final["status"] == "ATTENTION"
+    matured = run(at(2027, 4, 28, 4, 20))
+    assert matured["outcomes"]["scored"] == ["2026-10-30"] and matured["outcomes"]["excluded"] == []
+    assert not any(a.startswith("OUTCOME_") for a in matured["sticky_attention"])   # reported at the freeze
+    assert count(tracker, f.CHECK_KIND, "AND payload->>'status' IN "
+                 "('OUTCOME_EXCLUDED_MISSING_BARS','OUTCOME_WITHOUT_MEAN')") == 0
+
+
+def test_a_late_freeze_is_not_alerted_again_when_its_month_matures(tracker):
+    late = run(at(2026, 11, 2, 12, 30), db_now=at(2026, 11, 2, 14, 31))
+    assert late["freeze"]["status"] == "FREEZE_LATE"
+    matured = run(at(2027, 4, 28, 4, 20))
+    assert matured["outcomes"]["invalid"] == ["2026-10-30"] and matured["status"] == "ATTENTION"
+    assert "INVALID_PROSPECTIVE_TIMING:2026-10-30" not in matured["sticky_attention"]   # shown in November
+    assert "FREEZE_LATE:2026-10-30" not in matured["sticky_attention"]
