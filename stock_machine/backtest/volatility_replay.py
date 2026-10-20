@@ -60,8 +60,9 @@ T7_FAMILY = 2.841244       # two-sided 97.5%: two confirmatory hypotheses at fam
 MISSING_SHARE = 0.10       # a feature window may lack up to this share of its returns
 EARNINGS_WINDOW_DAYS = 30  # calendar days spanned by 21 sessions
 EARNINGS_HISTORY = 8       # past releases averaged for the reaction-size term
-# Committed after the development stage has been reviewed; until then the hold-out refuses.
-REGISTERED_PROTOCOL_SHA256 = None
+# Committed after the development stage was reviewed (docs/evidence/volatility-forecast-dev-2026-10-20.md);
+# the hold-out runs once against exactly this protocol, forecasting code and universe.
+REGISTERED_PROTOCOL_SHA256 = "63fbb13b99b8b3270e570bdfbb08a25456bd36b8befad8f8d1257fe0bb93449c"
 MODELS = ("RV21", "RV63", "EWMA", "HAR", "HAR_PLUS")
 HAR_FEATURES = ("lrv5", "lrv21", "lrv63", "lrv252")
 PLUS_FEATURES = HAR_FEATURES + ("lpk21", "lspy21", "loss21", "earn", "earn_size")

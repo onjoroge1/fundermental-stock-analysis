@@ -48,10 +48,18 @@ def test_the_protocol_and_the_forecasting_code_are_pinned():
     assert vr.PROTOCOL["splits"]["holdout_label"] == "PSEUDO_OUT_OF_SAMPLE"
 
 
-def test_the_holdout_refuses_until_registered_and_while_code_or_universe_differ(monkeypatch):
+def test_the_protocol_is_registered_and_the_holdout_is_ready_on_this_code():
+    assert vr.REGISTERED_PROTOCOL_SHA256 == PINNED_PROTOCOL_SHA256 == vr.PROTOCOL_SHA256
+    assert vr.holdout_ready(sorted(AGENT_UNIVERSE)) == (True, "READY")
+
+
+def test_the_holdout_refuses_unless_registered_and_while_code_or_universe_differ(monkeypatch):
     universe = sorted(AGENT_UNIVERSE)
+    monkeypatch.setattr(vr, "REGISTERED_PROTOCOL_SHA256", None)
     assert vr.holdout_ready(universe) == (False, "PROTOCOL_NOT_REGISTERED_FOR_HOLDOUT")
     assert vr.run(None, tickers=universe, stage="holdout", end="2026-10-19")["status"] == "REFUSED"
+    monkeypatch.setattr(vr, "REGISTERED_PROTOCOL_SHA256", "a" * 64)
+    assert vr.holdout_ready(universe) == (False, "PROTOCOL_CHANGED_SINCE_REGISTRATION")
     monkeypatch.setattr(vr, "REGISTERED_PROTOCOL_SHA256", vr.PROTOCOL_SHA256)
     assert vr.holdout_ready(universe) == (True, "READY")
     assert vr.holdout_ready(universe[:10]) == (False, "UNIVERSE_NOT_REGISTERED")
