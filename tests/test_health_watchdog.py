@@ -1,6 +1,8 @@
 """The health watchdog's checks classify real failure patterns correctly."""
 
 import importlib.util
+
+import pytest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -83,13 +85,15 @@ def test_signature_ignores_timestamps_and_counts_but_not_new_problems():
 def fair_value(**over):
     base = {"protocol_registered": True, "completed_session": "2026-10-19", "expected_decision_session": None,
             "freeze_missing": False, "freeze_window_open": False, "freeze_deadline": None, "frozen_months": [],
-            "missed_months": [], "next_due_session": None, "sticky_attention": [], "evaluation": {}}
+            "missed_months": [], "unrecorded_missed_months": [], "next_due_session": None, "sticky_attention": [],
+            "evaluation": {}}
     return {**base, **over}
 
 
 def strategies(**over):
     base = {"protocol_registered": True, "frozen_sessions": 0, "missed_sessions": [], "missed_count": 0,
-            "freeze_missing": False, "sticky_attention": [], "latest_decision_session": None}
+            "unrecorded_missed_sessions": [], "freeze_missing": False, "sticky_attention": [],
+            "latest_decision_session": None}
     return {**base, **over}
 
 
@@ -98,16 +102,18 @@ def learning(fv=None, sf=None):
 
 
 TODAY = datetime(2026, 11, 3, 13, 15, tzinfo=timezone.utc).date()
+NOW = datetime(2026, 11, 3, 13, 15, tzinfo=timezone.utc)
 
 
-def test_a_stopped_schedule_is_flagged_only_when_now_is_given():
-    runs = [{"conclusion": "success", "created_at": "2026-11-01T04:20:00Z", "html_url": "u"}]
-    now = datetime(2026, 11, 3, 13, 15, tzinfo=timezone.utc)
-    stale = wd.check_workflow("fair-value-forward.yml", "warning", runs, now=now)
-    assert stale["severity"] == "warning" and "no completed run since 2026-11-01T04:20:00Z" in stale["summary"]
-    assert wd.check_workflow("fair-value-forward.yml", "warning", runs)["severity"] is None
-    fresh = [{"conclusion": "success", "created_at": "2026-11-03T12:35:00Z"}]
-    assert wd.check_workflow("strategy-forward.yml", "warning", fresh, now=now)["severity"] is None
+@pytest.mark.parametrize("age_hours, stale", [(35.9, False), (36.1, True)])
+def test_a_stopped_schedule_is_flagged_after_36_hours(age_hours, stale):
+    created = (NOW - timedelta(hours=age_hours)).isoformat().replace("+00:00", "Z")
+    runs = [{"conclusion": "success", "created_at": created, "html_url": "u"}]
+    result = wd.check_workflow("fair-value-forward.yml", "warning", runs, now=NOW)
+    assert (result["severity"] == "warning") is stale
+    if stale:
+        assert "no completed run since" in result["summary"]
+    assert wd.check_workflow("fair-value-forward.yml", "warning", runs)["severity"] is None   # without now
 
 
 def test_both_trackers_are_quiet_before_their_first_decisions():
@@ -120,7 +126,16 @@ def test_a_fair_value_month_end_no_run_recorded_means_the_tracker_is_not_running
     dead = fair_value(expected_decision_session="2026-10-30", freeze_missing=True,
                       freeze_deadline="2026-11-02T14:30:00+00:00")
     fv, _ = wd.forward_checks(learning(fv=dead), TODAY)
-    assert fv["severity"] == "warning" and "month-end 2026-10-30 not frozen" in fv["summary"]
+    assert fv["severity"] == "warning" and "no run recorded the loss: 2026-10-30" in fv["summary"]
+    assert fv["keys"] == ["NOT_RUNNING"]
+
+
+def test_a_dead_fair_value_tracker_stays_red_while_the_next_freeze_window_is_open():
+    # 12-01 13:15: the 11-30 window is still open, and 10-30 was never recorded by any run.
+    dead = fair_value(expected_decision_session="2026-11-30", freeze_window_open=True,
+                      missed_months=["2026-10-30"], unrecorded_missed_months=["2026-10-30"])
+    fv, _ = wd.forward_checks(learning(fv=dead), datetime(2026, 12, 1).date())
+    assert fv["severity"] == "warning" and "never" not in fv["summary"] and "2026-10-30" in fv["summary"]
 
 
 def test_a_recorded_fair_value_loss_warns_for_its_week_then_goes_quiet():
@@ -131,32 +146,50 @@ def test_a_recorded_fair_value_loss_warns_for_its_week_then_goes_quiet():
     assert later["severity"] is None            # freeze_missing stays true all month: not an alert by itself
 
 
-def test_unrecorded_strategy_misses_warn_and_age_out():
-    dead = strategies(missed_sessions=["2026-10-26", "2026-10-27"], missed_count=2)
+def test_strategy_sessions_no_run_recorded_mean_the_shadow_is_not_running():
+    dead = strategies(missed_sessions=["2026-10-26", "2026-10-27"], unrecorded_missed_sessions=["2026-10-26", "2026-10-27"],
+                      missed_count=2)
     _, sf = wd.forward_checks(learning(sf=dead), datetime(2026, 10, 29).date())
     assert sf["severity"] == "warning" and "not yet recorded: 2026-10-26, 2026-10-27" in sf["summary"]
-    _, old = wd.forward_checks(learning(sf=dead), datetime(2026, 11, 10).date())
-    assert old["severity"] is None
+    assert sf["keys"] == ["NOT_RUNNING"]
 
 
-def test_recorded_strategy_losses_are_listed_once():
-    sticky = ["FREEZE_MISSED:2026-10-27", "OUTCOME_EXCLUDED_MISSING_BARS:2026-10-28:S1_volume_breakout:VZ"]
+def test_recorded_strategy_losses_are_listed_once_and_isolated_partials_are_information():
+    sticky = ["FREEZE_MISSED:2026-10-27", "OUTCOME_EXCLUDED_MISSING_BARS:2026-10-28:S1_volume_breakout:VZ",
+              "FROZEN_WITH_MISSING_BARS:2026-10-29:1"]
     _, sf = wd.forward_checks(learning(sf=strategies(missed_sessions=["2026-10-27"], missed_count=1,
                                                      sticky_attention=sticky)), datetime(2026, 10, 30).date())
     assert sf["summary"].count("2026-10-27") == 1 and "not yet recorded" not in sf["summary"]
-    assert "S1_volume_breakout:VZ" in sf["summary"]
+    assert "S1_volume_breakout:VZ" in sf["summary"] and "FROZEN_WITH_MISSING_BARS" not in "+".join(sf["keys"])
+    _, partial = wd.forward_checks(learning(sf=strategies(sticky_attention=["FROZEN_WITH_MISSING_BARS:2026-10-29:1"])),
+                                   datetime(2026, 10, 30).date())
+    assert partial["severity"] is None and "isolated partial sessions: FROZEN_WITH_MISSING_BARS" in partial["summary"]
+    _, large = wd.forward_checks(learning(sf=strategies(sticky_attention=["FROZEN_WITH_MISSING_BARS:2026-10-29:9",
+                                                                          "FROZEN_WITHOUT_S4:2026-10-29:1"])),
+                                 datetime(2026, 10, 30).date())
+    assert large["severity"] == "warning" and len(large["keys"]) == 2
+
+
+def test_a_second_problem_on_a_yellow_tracker_changes_the_signature():
+    first = strategies(sticky_attention=["FROZEN_WITHOUT_S4:2026-12-01:1"])
+    worse = strategies(sticky_attention=["FROZEN_WITHOUT_S4:2026-12-01:1"], unrecorded_missed_sessions=["2026-12-03"])
+    before = wd.signature(wd.forward_checks(learning(sf=first), TODAY))
+    after = wd.signature(wd.forward_checks(learning(sf=worse), TODAY))
+    assert before != after and "NOT_RUNNING" in after and " " not in after
+    again = wd.signature(wd.forward_checks(learning(sf=worse), TODAY + timedelta(days=1)))
+    assert again == after                                           # a steady dead state does not re-notify
 
 
 def test_an_unregistered_protocol_or_missing_fields_warn():
     fv, _ = wd.forward_checks(learning(fv=fair_value(protocol_registered=False)), TODAY)
-    assert "protocol not registered" in fv["summary"]
+    assert "protocol not registered" in fv["summary"] and fv["keys"] == ["PROTOCOL_NOT_REGISTERED"]
     old_deployment = {"forward_tests": {"fair_value_sector_pe": {"protocol_registered": True},
                                         "event_strategies": {}}}
     fv, sf = wd.forward_checks(old_deployment, TODAY)
     assert fv["severity"] == sf["severity"] == "warning" and "status fields missing" in fv["summary"]
 
 
-def test_collect_reports_an_unreachable_tracker_route_and_keeps_check_names(monkeypatch):
+def test_collect_feeds_now_to_every_workflow_and_reports_an_unreachable_tracker_route(monkeypatch):
     def fake_get(path, params=None):
         if path == "/api/v1/data-health":
             return {"status": "HEALTHY", "current_count": 54, "latest_market_date": "2026-11-02",
@@ -165,8 +198,17 @@ def test_collect_reports_an_unreachable_tracker_route_and_keeps_check_names(monk
             raise RuntimeError("route down")
         return {"decisions": []}
     monkeypatch.setattr(wd, "_get", fake_get)
-    monkeypatch.setattr(wd, "_workflow_runs", lambda f: [{"conclusion": "success", "created_at": "2026-11-03T04:20:00Z"}])
-    checks = {c["check"]: c for c in wd.collect(datetime(2026, 11, 3, 13, 15, tzinfo=timezone.utc))}
+    monkeypatch.setattr(wd, "_workflow_runs", lambda f: [{"conclusion": "success", "created_at": "2026-11-01T04:20:00Z"}])
+    checks = {c["check"]: c for c in wd.collect(NOW)}
+    assert all("no completed run since" in checks[f]["summary"] for f, _ in wd.WORKFLOWS)   # 57h old: stale
     assert checks["fair_value_forward"]["severity"] == checks["strategy_forward"]["severity"] == "warning"
     assert "unreachable: RuntimeError" in checks["strategy_forward"]["summary"]
     assert "fair_value_forward=warning" in wd.signature(list(checks.values()))
+
+
+def test_the_alert_body_is_refreshed_every_run_and_a_comment_only_on_change():
+    text = (Path(__file__).resolve().parents[1] / ".github/workflows/health-watchdog.yml").read_text()
+    step = text[text.index("elif [ -n \"$open_issue\" ]"):]
+    edit, comment = step.index("gh issue edit"), step.index("gh issue comment")
+    guard = step.index('if [ "$previous" != "$current" ]')
+    assert edit < guard < comment

@@ -42,13 +42,27 @@ def _reading(dev: dict | None, holdout: dict | None, forward_final: dict | None)
 
 # What the health watchdog reads for each forward tracker (scripts/health_watchdog.py FORWARD_FIELDS).
 FAIR_VALUE_KEYS = ("protocol_registered", "completed_session", "expected_decision_session", "freeze_missing",
-                   "freeze_window_open", "freeze_deadline", "frozen_months", "missed_months", "next_due_session",
-                   "sticky_attention", "decision_code_versions", "evaluation")
+                   "freeze_window_open", "freeze_deadline", "frozen_months", "missed_months",
+                   "unrecorded_missed_months", "next_due_session", "sticky_attention", "decision_code_versions",
+                   "evaluation")
+
+
+def with_unrecorded(conn, fair_value: dict, strategies: dict) -> tuple[dict, dict]:
+    """Add the misses no run has recorded: a tracker that stopped running leaves these, and
+    they are what the watchdog and the admin card must not mistake for recorded losses."""
+    recorded = {c["payload"]["decision_session"][:7] for c in fvf.checks_with_status(conn, ("FREEZE_MISSED", "FREEZE_LATE"))}
+    fair_value = {**fair_value, "unrecorded_missed_months": [m for m in fair_value.get("missed_months") or []
+                                                             if m[:7] not in recorded]}
+    logged = {c["payload"]["decision_session"] for c in sf.checks_with_status(conn, ("FREEZE_MISSED", "FREEZE_LATE"))}
+    strategies = {**strategies, "unrecorded_missed_sessions": [s for s in strategies.get("missed_sessions") or []
+                                                               if s not in logged]}
+    return fair_value, strategies
 
 
 def _compact_forward(status: dict) -> dict:
     keys = ("forward_id", "protocol_registered", "first_decision_session", "evaluation_months", "completed_session",
-            "frozen_sessions", "missed_count", "missed_sessions", "freeze_missing", "freeze_window_open",
+            "frozen_sessions", "missed_count", "missed_sessions", "unrecorded_missed_sessions", "freeze_missing",
+            "freeze_window_open",
             "sticky_attention", "decision_code_versions", "evaluation")
     latest = status.get("latest_decision") or {}
     return {**{k: status.get(k) for k in keys},
@@ -135,6 +149,8 @@ def learning_status(conn, *, now: datetime | None = None) -> dict:
     fair_value = fvf.summary(conn, now=now)
     conn.rollback()
     strategies = sf.summary(conn, now=now)
+    conn.rollback()
+    fair_value, strategies = with_unrecorded(conn, fair_value, strategies)
     conn.rollback()
     learned = sum(observations.values()) > 0
     return fvf.clean({

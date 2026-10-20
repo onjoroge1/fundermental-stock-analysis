@@ -118,9 +118,25 @@ def test_learning_status_carries_what_the_watchdog_reads_and_the_real_trading_mo
     fair_value = status["forward_tests"]["fair_value_sector_pe"]
     assert tuple(fair_value) == ev.FAIR_VALUE_KEYS
     strategies = status["forward_tests"]["event_strategies"]
-    assert strategies["missed_sessions"] == ["2026-10-26", "2026-10-27"]          # no run recorded them
-    assert status["trading_mode"]["mode"] in ("RESEARCH", "PAPER", None)
-    assert status["trading_mode"].get("broker_submission") in (False, None)
+    assert strategies["missed_sessions"] == strategies["unrecorded_missed_sessions"] == ["2026-10-26", "2026-10-27"]
+    # every field the watchdog requires is published
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("health_watchdog", ROOT / "scripts" / "health_watchdog.py")
+    wd = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wd)
+    for check, source in wd.FORWARD_SOURCE.items():
+        assert set(wd.FORWARD_FIELDS[check]) <= set(status["forward_tests"][source]), check
+
+
+def test_learning_status_reads_the_real_trading_switch(shadow, monkeypatch):  # noqa: F811
+    from stock_machine import agent_trading
+    monkeypatch.setattr(agent_trading, "get_mode", lambda: {"mode": "PAPER", "version": 3, "updated_at": "x",
+                                                            "broker_submission": False,
+                                                            "live_trading_available": False})
+    with shadow() as conn:
+        mode = ev.learning_status(conn, now=datetime(2026, 10, 29, 13, 15, tzinfo=timezone.utc))["trading_mode"]
+    assert mode == {"mode": "PAPER", "version": 3, "updated_at": "x", "broker_submission": False,
+                    "live_trading_available": False}
 
 
 def test_the_admin_card_reads_both_trackers_and_never_raises(shadow, monkeypatch):  # noqa: F811

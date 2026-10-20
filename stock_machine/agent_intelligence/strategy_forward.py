@@ -75,6 +75,11 @@ STRATEGIES = (*er.CONFIRMATORY, *er.EXPLORATORY)
 LOSS_STATUSES = ("FREEZE_MISSED", "FREEZE_LATE", "INVALID_PROSPECTIVE_TIMING", "FROZEN_WITH_MISSING_BARS",
                  "FROZEN_WITH_UNREAD_FILINGS", "FROZEN_WITHOUT_S4", "OUTCOME_EXCLUDED_MISSING_BARS")
 OK_FREEZE = ("NOTHING_DUE", "FROZEN", "REPLAYED", "MISSED_ALREADY_RECORDED")
+# Partial sessions the protocol permits. Each is recorded and listed for STICKY_DAYS with its
+# count; an isolated one (at most this many stocks without a bar or without their filings,
+# the technical job's rule) never fails a run, a larger one or a universe-wide S4 gap does.
+PARTIAL_STATUSES = ("FROZEN_WITH_MISSING_BARS", "FROZEN_WITH_UNREAD_FILINGS", "FROZEN_WITHOUT_S4")
+MAX_ISOLATED_GAP_TICKERS = 3
 
 # Code the flags and trades depend on (db.py is excluded for the reason given in fair_value_forward).
 DECISION_SOURCES = (
@@ -576,9 +581,18 @@ def sticky_attention(conn, now: datetime) -> list[str]:
         recent = [t for t in (fvf._parse(known) if known else None, fvf._recorded_at(r))
                   if t is not None and timedelta(0) <= now - t <= timedelta(days=STICKY_DAYS)]
         if recent:
-            out.append(":".join(x for x in (p["status"], p["decision_session"], p.get("strategy"), p.get("ticker"))
-                                if x))
+            count = str(len(p.get("missing") or [])) if p["status"] in PARTIAL_STATUSES else None
+            out.append(":".join(x for x in (p["status"], p["decision_session"], p.get("strategy"), p.get("ticker"),
+                                            count) if x))
     return out
+
+
+def isolated_partial(item: str) -> bool:
+    """A sticky label for a partial session small enough not to need action."""
+    status, _, rest = item.partition(":")
+    count = rest.rsplit(":", 1)[-1]
+    return (status in ("FROZEN_WITH_MISSING_BARS", "FROZEN_WITH_UNREAD_FILINGS") and count.isdigit()
+            and int(count) <= MAX_ISOLATED_GAP_TICKERS)
 
 
 def bars_incomplete(conn, session: str, tickers) -> list[str]:
@@ -853,12 +867,14 @@ def _run_locked(receipt, completed, now, clock, fetch_events, db, research_store
                     final = final_evaluation(conn)
                 sticky = sticky_attention(conn, clock())
             gone = missing_sources()   # a moved tracked file shows the night after the merge
+            isolated = (len(freeze.get("missing_bars_at_freeze") or []) <= MAX_ISOLATED_GAP_TICKERS
+                        and len(freeze.get("sec_unavailable") or []) <= MAX_ISOLATED_GAP_TICKERS)
             attention = (freeze["status"] not in OK_FREEZE or freeze.get("newly_missed")
-                         or freeze.get("decision_sources_changed") or freeze.get("sec_unavailable")
-                         or freeze.get("missing_bars_at_freeze")
+                         or freeze.get("decision_sources_changed")
+                         or (not isolated and (freeze.get("sec_unavailable") or freeze.get("missing_bars_at_freeze")))
                          or str(freeze.get("s4_source") or "").startswith("UNAVAILABLE")
                          or stats["invalid"] or stats["errors"] or stats["blocked"] or stats.get("excluded")
-                         or sticky or gone)
+                         or [a for a in sticky if not isolated_partial(a)] or gone)
             receipt.update(status="ATTENTION" if attention else "OK", sticky_attention=sticky,
                            missing_sources=gone, evaluation_final=bool(final))
         except ProtocolChanged as exc:

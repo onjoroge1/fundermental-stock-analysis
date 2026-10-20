@@ -335,12 +335,13 @@ def forward_tracker_summary(now=None):
     try:
         from ..agent_intelligence import fair_value_forward as fvf
         from ..agent_intelligence import strategy_forward as sf
-        from ..agent_intelligence.strategy_evidence import FAIR_VALUE_KEYS, _compact_forward
+        from ..agent_intelligence.strategy_evidence import FAIR_VALUE_KEYS, _compact_forward, with_unrecorded
         with store.connect() as conn:
             fair_value = fvf.summary(conn, now=now)
             conn.rollback()
             strategies = sf.summary(conn, now=now)
             conn.rollback()
+            fair_value, strategies = with_unrecorded(conn, fair_value, strategies)
             receipts = {name: _forward_receipt(conn, event) for name, event in FORWARD_RECEIPTS.items()}
         return fvf.clean({
             "schema_version": "forward-trackers-admin.v1", "status": "OK",

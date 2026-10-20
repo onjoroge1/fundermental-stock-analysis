@@ -30,17 +30,18 @@ WORKFLOWS = (
 )
 # Journal blockers meaning "financial data unverified": still learnable (#120).
 FUNDAMENTAL_BLOCKERS = {"FINANCIAL_DEPENDENCIES_UNVERIFIED", "REQUIRED_DATA_NOT_VERIFIED", "DATA_QUALITY_NOT_PASS"}
-# A schedule that silently stopped (GitHub disables workflows in inactive public repos) stays
-# green forever without this; every watched schedule has a run under 18h old at 13:15 UTC Tue-Sat.
+# Without this a single workflow that stopped being scheduled (disabled, or its trigger stopped
+# firing) stays green forever; every watched schedule has a run under 18h old at 13:15 UTC
+# Tue-Sat. (A repository-wide 60-day inactivity disable also stops this watchdog itself.)
 MAX_RUN_AGE = timedelta(hours=36)
 # Forward trackers, read from GET /api/v1/agent/learning-status (the watchdog has no database).
-FORWARD_RECENT_DAYS = 7      # the trackers' own STICKY_DAYS
+MAX_ISOLATED_GAP_TICKERS = 3  # strategy_forward's rule: a partial session this small needs no action
 FORWARD_LABEL = {"fair_value_forward": "Fair-value forward", "strategy_forward": "Strategy forward shadow"}
 FORWARD_SOURCE = {"fair_value_forward": "fair_value_sector_pe", "strategy_forward": "event_strategies"}
 FORWARD_FIELDS = {
     "fair_value_forward": ("protocol_registered", "expected_decision_session", "freeze_missing", "freeze_deadline",
-                           "frozen_months", "missed_months", "sticky_attention"),
-    "strategy_forward": ("protocol_registered", "frozen_sessions", "missed_sessions", "missed_count",
+                           "frozen_months", "missed_months", "unrecorded_missed_months", "sticky_attention"),
+    "strategy_forward": ("protocol_registered", "frozen_sessions", "missed_count", "unrecorded_missed_sessions",
                          "freeze_missing", "sticky_attention", "latest_decision_session"),
 }
 
@@ -120,34 +121,55 @@ def check_coverage(decisions: list[dict], session: str) -> dict:
     }
 
 
+def _isolated_partial(item: str) -> bool:
+    status, _, rest = item.partition(":")
+    count = rest.rsplit(":", 1)[-1]
+    return (status in ("FROZEN_WITH_MISSING_BARS", "FROZEN_WITH_UNREAD_FILINGS") and count.isdigit()
+            and int(count) <= MAX_ISOLATED_GAP_TICKERS)
+
+
 def check_forward(check: str, status: dict, today) -> dict:
     """One forward tracker's health from its public status. Recorded losses stay visible for
-    the trackers' own week; a loss no run has recorded means the tracker is not running."""
+    the trackers' own week; a miss no run has recorded means the tracker is not running.
+    `keys` (each recorded loss, NOT_RUNNING, PROTOCOL_NOT_REGISTERED) go into the signature,
+    so a new problem on an already-yellow tracker still notifies."""
     label = FORWARD_LABEL[check]
     gaps = [k for k in FORWARD_FIELDS[check] if k not in (status or {})]
     if gaps:
-        return {"check": check, "severity": "warning", "summary": f"{label}: status fields missing ({', '.join(gaps)})"}
-    reasons = [] if status["protocol_registered"] else ["protocol not registered"]
+        return {"check": check, "severity": "warning", "summary": f"{label}: status fields missing ({', '.join(gaps)})",
+                "keys": ["FIELDS_MISSING"]}
+    reasons, keys = ([], []) if status["protocol_registered"] else (["protocol not registered"], ["PROTOCOL_NOT_REGISTERED"])
     sticky = list(status["sticky_attention"] or [])
-    reasons += sticky
+    notes = [item for item in sticky if _isolated_partial(item)]
+    losses = [item for item in sticky if item not in notes]
+    reasons += losses
+    keys += losses
     if check == "fair_value_forward":
         expected = status["expected_decision_session"]
+        unrecorded = list(status["unrecorded_missed_months"] or [])
         if status["freeze_missing"] and expected not in (status["missed_months"] or []):
-            reasons.append(f"month-end {expected} not frozen by {status['freeze_deadline']} and no run recorded the loss")
+            unrecorded.append(expected)
+        if unrecorded:
+            reasons.append(f"not frozen and no run recorded the loss: {', '.join(unrecorded)} (deadline "
+                           f"{status['freeze_deadline']} for {expected})" if expected in unrecorded else
+                           f"not frozen and no run recorded the loss: {', '.join(unrecorded)}")
+            keys.append("NOT_RUNNING")
         ok = (f"{label}: {len(status['frozen_months'] or [])} month(s) frozen, {len(status['missed_months'] or [])} missed; "
               f"latest month-end {expected or 'not yet due'}")
     else:
-        recorded = {item.split(":")[1] for item in sticky if item.count(":") >= 1}
-        since = (today - timedelta(days=FORWARD_RECENT_DAYS)).isoformat()
-        unrecorded = [s for s in status["missed_sessions"] or [] if s >= since and s not in recorded]
+        unrecorded = list(status["unrecorded_missed_sessions"] or [])
         if unrecorded:
             reasons.append("not frozen and not yet recorded: " + ", ".join(unrecorded))
+            keys.append("NOT_RUNNING")
         if status["freeze_missing"]:
             reasons.append("latest session missed its freeze deadline")
+            keys.append("NOT_RUNNING")
         ok = (f"{label}: {status['frozen_sessions']} session(s) frozen, {status['missed_count']} missed; "
-              f"latest {status['latest_decision_session'] or 'none yet'}")
+              f"latest {status['latest_decision_session'] or 'none yet'}"
+              + (f"; isolated partial sessions: {', '.join(notes)}" if notes else ""))
     if reasons:
-        return {"check": check, "severity": "warning", "summary": f"{label} needs attention: " + "; ".join(reasons)}
+        return {"check": check, "severity": "warning", "summary": f"{label} needs attention: " + "; ".join(reasons),
+                "keys": sorted(set(keys))}
     return {"check": check, "severity": None, "summary": ok}
 
 
@@ -174,7 +196,8 @@ def markdown(checks: list[dict], status: str, now: datetime) -> str:
 
 def signature(checks: list[dict]) -> str:
     """Which checks fail and how badly; unchanged signature means nothing new to report."""
-    return ",".join(sorted(f"{c['check']}={c['severity']}" for c in checks if c["severity"])) or "ok"
+    return ",".join(sorted(f"{c['check']}={c['severity']}" + (f"[{'+'.join(c['keys'])}]" if c.get("keys") else "")
+                           for c in checks if c["severity"])) or "ok"
 
 
 def _get(path: str, params: dict | None = None) -> dict:
