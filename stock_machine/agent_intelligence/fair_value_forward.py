@@ -64,7 +64,7 @@ ACTOR = "fair-value-scheduler"
 # Statuses that stay visible to the daily job and the watchdog for STICKY_DAYS. Each is
 # written once per month (a code change once per change, against the previous month).
 LOSS_STATUSES = ("FREEZE_MISSED", "FREEZE_LATE", "INVALID_PROSPECTIVE_TIMING", "DECISION_SOURCES_CHANGED",
-                 "FROZEN_WITH_MISSING_BARS", "OUTCOME_EXCLUDED_MISSING_BARS")
+                 "FROZEN_WITH_MISSING_BARS", "OUTCOME_EXCLUDED_MISSING_BARS", "OUTCOME_WITHOUT_MEAN")
 
 # Code the decision and its scoring depend on, this module included. Reviewed data
 # files are data, refreshed by design; db.py is excluded because every schema
@@ -516,8 +516,11 @@ def sticky_attention(conn, now: datetime) -> list[str]:
         FROM research_evidence_records WHERE kind=ANY(%s) AND payload->>'forward_id'=%s
           AND payload->>'status'=ANY(%s) ORDER BY payload->>'decision_session'""",
                  ([CHECK_KIND, OUTCOME_KIND], FORWARD_ID, list(LOSS_STATUSES)))
+    late = {r["payload"]["decision_session"] for r in rows if r["payload"]["status"] == "FREEZE_LATE"}
     out = []
     for r in rows:
+        if r["payload"]["status"] == "INVALID_PROSPECTIVE_TIMING" and r["payload"]["decision_session"] in late:
+            continue   # the late freeze was already shown for a week when it happened
         known = r["payload"].get("deadline") or r["payload"].get("due_session")
         known_at = _parse(known if "T" in (known or "") else f"{known}T21:00:00+00:00") if known else None
         recent = [t for t in (known_at, _recorded_at(r))
@@ -552,6 +555,17 @@ def _record_loss(conn, session: str, deadline: datetime, status: str = "FREEZE_M
     return written
 
 
+def outcome_alert(result: dict, decision: dict) -> str | None:
+    """The check a scored month needs: stocks excluded for missing bars, or a month without a
+    mean that the freeze did not already report (every stock missing its bar at the freeze)."""
+    if any(x["status"] == "EXCLUDED_MISSING_BARS" for x in result["results"]):
+        return "OUTCOME_EXCLUDED_MISSING_BARS"
+    if result["monthly_mean"] is None and any(r.get("reason") != "NO_DECISION_MISSING_BAR"
+                                              for r in decision["rows"]):
+        return "OUTCOME_WITHOUT_MEAN"
+    return None
+
+
 def score_pending(conn, read_conn, completed: str) -> dict:
     """Score every due month; an error in one month never stops the others."""
     from .. import db, research_store
@@ -560,9 +574,12 @@ def score_pending(conn, read_conn, completed: str) -> dict:
         key, payload = d["request_key"], d["payload"]
         try:
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ("fv-forward-outcome:" + key,))
-            if research_store.get(conn, OUTCOME_KIND, key) or research_store.get(
-                    conn, CHECK_KIND, f"{key}:{completed}"):
-                conn.commit()  # scored already, or already checked and blocked this session
+            if research_store.get(conn, OUTCOME_KIND, key):
+                conn.commit()  # scored already
+                continue
+            if research_store.get(conn, CHECK_KIND, f"{key}:{completed}"):
+                conn.commit()  # checked and blocked this session: retried next session, reported by every run
+                stats["blocked"].append(payload["decision_session"])
                 continue
             if not timing_valid(d):
                 research_store.save(conn, OUTCOME_KIND, key, {
@@ -572,6 +589,7 @@ def score_pending(conn, read_conn, completed: str) -> dict:
                 conn.commit()
                 stats["invalid"].append(payload["decision_session"])
                 continue
+            landed = []   # added to the receipt only once the transaction commits
             tickers = [r["ticker"] for r in payload["rows"] if r["side"] != "NO_DECISION"]
             read_conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             prices = {t: db.fetch_prices(read_conn, t, completed) for t in tickers}
@@ -583,20 +601,23 @@ def score_pending(conn, read_conn, completed: str) -> dict:
                                                          "status": "OUTCOME_BLOCKED_MISSING_BARS",
                                                          "blocked": result["blocked"],
                                                          "due_session": payload["due_session"]})
-                stats["blocked"].append(payload["decision_session"])
+                landed.append("blocked")
             else:
                 research_store.save(conn, OUTCOME_KIND, key, {**result, "decision_record_id": d["record_id"],
                                                               "decision_content_hash": d["content_hash"],
                                                               "code": code_version()})
-                stats["scored"].append(payload["decision_session"])
-                excluded = [x["ticker"] for x in result["results"] if x["status"] == "EXCLUDED_MISSING_BARS"]
-                if excluded or result["monthly_mean"] is None:   # visible once, in the same transaction
-                    _save_check(conn, f"{key}:OUTCOME_EXCLUDED_MISSING_BARS", {
-                        "decision_session": payload["decision_session"], "status": "OUTCOME_EXCLUDED_MISSING_BARS",
-                        "due_session": payload["due_session"], "excluded": excluded,
-                        "month_without_mean": result["monthly_mean"] is None})
-                    stats["excluded"].append(payload["decision_session"])
+                landed.append("scored")
+                status = outcome_alert(result, payload)
+                if status:   # visible once, in the same transaction as the outcome
+                    _save_check(conn, f"{key}:{status}", {
+                        "decision_session": payload["decision_session"], "status": status,
+                        "due_session": payload["due_session"],
+                        "excluded": [x["ticker"] for x in result["results"]
+                                     if x["status"] == "EXCLUDED_MISSING_BARS"]})
+                    landed.append("excluded")
             conn.commit()
+            for name in landed:
+                stats[name].append(payload["decision_session"])
         except Exception as exc:  # this month retries next run
             for c in (conn, read_conn):
                 with suppress(Exception):

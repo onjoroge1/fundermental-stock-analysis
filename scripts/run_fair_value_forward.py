@@ -38,7 +38,7 @@ def main():
                     for _ in [0] if freeze.get("missing_bars_at_freeze")),
                   *(f"invalid timing {m}" for m in outcomes.get("invalid") or []),
                   *(f"outcome blocked by missing bars {m}" for m in outcomes.get("blocked") or []),
-                  *(f"stocks excluded for missing bars {m}" for m in outcomes.get("excluded") or []),
+                  *(f"outcome excluded stocks or has no mean {m}" for m in outcomes.get("excluded") or []),
                   *(f"tracked source missing {p}" for p in receipt.get("missing_sources") or []),
                   *(f"scoring error {e.get('decision_session') or ''} {e['error']}" for e in outcomes.get("errors") or []),
                   *(receipt.get("sticky_attention") or [])]
