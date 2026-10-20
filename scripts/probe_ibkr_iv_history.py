@@ -40,6 +40,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 SERIES = ("OPTION_IMPLIED_VOLATILITY", "HISTORICAL_VOLATILITY")
+# IBKR answers 15 years for every symbol; a longer window sometimes never answers (DIS, whose
+# registrant changed in 2019), so a timed-out longer request is retried once at this length.
+FALLBACK_DURATION = "15 Y"
 BENIGN = {2104, 2106, 2107, 2108, 2158, 2119, 2100}
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 PROVENANCE = ("IBKR TWS reqHistoricalData, 1-day bars; vendor-computed volatility (30-day ATM implied, or 30-day "
@@ -206,7 +209,11 @@ def probe_symbol(session, symbol: str, duration: str, sessions_between) -> dict:
     for what in SERIES:
         head, head_errors = session.head_timestamp(symbol, what)
         rows, errors = session.daily_bars(symbol, what, duration)
-        out["series"][what] = {"coverage": coverage(rows, head, sessions_between),
+        used = duration
+        if not rows and any(e and e[0] == "TIMEOUT" for e in errors) and duration != FALLBACK_DURATION:
+            rows, retry_errors = session.daily_bars(symbol, what, FALLBACK_DURATION)
+            used, errors = FALLBACK_DURATION, ([] if rows else errors + retry_errors)
+        out["series"][what] = {"coverage": coverage(rows, head, sessions_between), "duration_used": used,
                                "errors": [list(e) for e in head_errors + errors], "rows": rows}
     return out
 

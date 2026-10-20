@@ -1,0 +1,1382 @@
+{
+ "coverage": {
+  "AAL": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5259,
+    "first": "2005-11-08",
+    "head_timestamp": "2005-11-09",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.44764525,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.94
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5192,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 9,
+    "median_close": 0.47325083,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9929,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "AAPL": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5272,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.26653299,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 4661,
+    "first": "2008-04-01",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 2,
+    "median_close": 0.27002538,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9983,
+    "years": 18.55
+   },
+   "errors": ""
+  },
+  "ABNB": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 1440,
+    "first": "2021-01-26",
+    "head_timestamp": "2021-01-27",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 0,
+    "median_close": 0.39068751,
+    "non_positive_bars": 0,
+    "session_coverage": 1.0,
+    "years": 5.73
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 1467,
+    "first": "2020-12-16",
+    "head_timestamp": "2020-12-16",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 0,
+    "median_close": 0.43778718,
+    "non_positive_bars": 0,
+    "session_coverage": 1.0,
+    "years": 5.84
+   },
+   "errors": ""
+  },
+  "ADBE": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5272,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.29163058,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5213,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 3,
+    "median_close": 0.29878999,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9969,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "ADI": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5273,
+    "first": "2005-10-25",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.27854999,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5227,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.27967708,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9996,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "AMAT": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5271,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.32793558,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9977,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5224,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.33757141,
+    "non_positive_bars": 0,
+    "session_coverage": 0.999,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "AMD": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5273,
+    "first": "2005-10-25",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.50576182,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5139,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 86,
+    "median_close": 0.52382701,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9828,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "AMZN": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5272,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.31455337,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5222,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.3313486,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9987,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "AVGO": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 2652,
+    "first": "2016-03-15",
+    "head_timestamp": "2016-03-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.32479243,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9951,
+    "years": 10.6
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 2694,
+    "first": "2016-02-02",
+    "head_timestamp": "2016-02-02",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.33339641,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9996,
+    "years": 10.71
+   },
+   "errors": ""
+  },
+  "BKNG": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5273,
+    "first": "2005-10-25",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.30707648,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5173,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 10,
+    "median_close": 0.3251258,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9893,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "CMCSA": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5272,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.2475312,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5224,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.24156239,
+    "non_positive_bars": 0,
+    "session_coverage": 0.999,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "CMG": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5176,
+    "first": "2006-03-10",
+    "head_timestamp": "2006-03-11",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.30348884,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.61
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5182,
+    "first": "2006-02-03",
+    "head_timestamp": "2006-02-03",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 5,
+    "median_close": 0.33711105,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9946,
+    "years": 20.71
+   },
+   "errors": ""
+  },
+  "COST": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5272,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.19206567,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5224,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.20030454,
+    "non_positive_bars": 0,
+    "session_coverage": 0.999,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "CRM": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5268,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.34912805,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5226,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.37543211,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9994,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "CSCO": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5272,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.24400706,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5225,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.24856304,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9992,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "DAL": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 4861,
+    "first": "2007-06-08",
+    "head_timestamp": "2007-06-09",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.37438439,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9977,
+    "years": 19.36
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 4895,
+    "first": "2007-05-04",
+    "head_timestamp": "2007-05-04",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.39429103,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9996,
+    "years": 19.46
+   },
+   "errors": ""
+  },
+  "DELL": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 1936,
+    "first": "2019-02-06",
+    "head_timestamp": "2019-02-07",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 0,
+    "median_close": 0.37767042,
+    "non_positive_bars": 0,
+    "session_coverage": 1.0,
+    "years": 7.7
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 1958,
+    "first": "2019-01-04",
+    "head_timestamp": "2019-01-04",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.37613059,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9995,
+    "years": 7.79
+   },
+   "errors": ""
+  },
+  "DIS": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5266,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.22165575,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9975,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 3766,
+    "first": "2011-10-25",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.22538626,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9995,
+    "years": 14.99
+   },
+   "errors": ""
+  },
+  "F": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5268,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.30890205,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5089,
+    "first": "2006-01-10",
+    "head_timestamp": "2006-01-10",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 63,
+    "median_close": 0.32484005,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9736,
+    "years": 20.77
+   },
+   "errors": ""
+  },
+  "GM": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 3962,
+    "first": "2010-12-31",
+    "head_timestamp": "2011-01-01",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.30275861,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9972,
+    "years": 15.8
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 3996,
+    "first": "2010-11-29",
+    "head_timestamp": "2010-11-29",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.29986945,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9997,
+    "years": 15.89
+   },
+   "errors": ""
+  },
+  "GOOGL": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5272,
+    "first": "2005-10-25",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.26021493,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9977,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5217,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 4,
+    "median_close": 0.27189857,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9977,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "HD": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5256,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 12,
+    "median_close": 0.21057535,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9956,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5225,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.2192587,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9992,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "HIMS": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 1723,
+    "first": "2019-10-25",
+    "head_timestamp": "2019-10-26",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 31,
+    "median_close": 0.70828879,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9823,
+    "years": 6.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 1787,
+    "first": "2019-09-10",
+    "head_timestamp": "2019-09-10",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.74349845,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9994,
+    "years": 7.11
+   },
+   "errors": ""
+  },
+  "HPQ": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5268,
+    "first": "2005-10-25",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.28836044,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9977,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5224,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.29991708,
+    "non_positive_bars": 0,
+    "session_coverage": 0.999,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "IBM": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5267,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.19622479,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9977,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5222,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 3,
+    "median_close": 0.20581299,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9987,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "INTC": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5272,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.29613894,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5224,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 2,
+    "median_close": 0.28285198,
+    "non_positive_bars": 0,
+    "session_coverage": 0.999,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "INTU": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5272,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.26407244,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5223,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 2,
+    "median_close": 0.27059686,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9989,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "KLAC": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5272,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.33063425,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5225,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.33595221,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9992,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "LOW": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5268,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.2443563,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5225,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.25726227,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9992,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "LRCX": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5273,
+    "first": "2005-10-25",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.35897025,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5226,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.3708285,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9994,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "LUV": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5268,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.31236269,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5227,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.31772827,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9996,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "MCD": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5267,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.16798404,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9977,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5224,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 3,
+    "median_close": 0.17560381,
+    "non_positive_bars": 0,
+    "session_coverage": 0.999,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "META": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 3584,
+    "first": "2012-07-02",
+    "head_timestamp": "2012-07-03",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.33358691,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9969,
+    "years": 14.3
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 3619,
+    "first": "2012-05-29",
+    "head_timestamp": "2012-05-29",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.33160259,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9997,
+    "years": 14.39
+   },
+   "errors": ""
+  },
+  "MSFT": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5270,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.23584756,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9975,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5224,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.22951363,
+    "non_positive_bars": 0,
+    "session_coverage": 0.999,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "MU": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5261,
+    "first": "2005-10-25",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 12,
+    "median_close": 0.44189868,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9956,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5190,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 22,
+    "median_close": 0.45705883,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9925,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "NFLX": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5272,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.42584955,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5219,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 2,
+    "median_close": 0.42604004,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9981,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "NKE": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5267,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.25273804,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9977,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5221,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 3,
+    "median_close": 0.25059498,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9985,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "NOW": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 3555,
+    "first": "2012-08-13",
+    "head_timestamp": "2012-08-14",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.35931949,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9969,
+    "years": 14.18
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 3568,
+    "first": "2012-08-07",
+    "head_timestamp": "2012-08-07",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.38716337,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9992,
+    "years": 14.2
+   },
+   "errors": ""
+  },
+  "NVDA": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5272,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.40224415,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5223,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.43362806,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9989,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "ORCL": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5269,
+    "first": "2005-10-25",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.25399213,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5226,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.24910278,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9994,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "PLTR": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 1490,
+    "first": "2020-11-11",
+    "head_timestamp": "2020-11-12",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 0,
+    "median_close": 0.61431171,
+    "non_positive_bars": 0,
+    "session_coverage": 1.0,
+    "years": 5.94
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 1517,
+    "first": "2020-10-06",
+    "head_timestamp": "2020-10-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 0,
+    "median_close": 0.58849976,
+    "non_positive_bars": 0,
+    "session_coverage": 1.0,
+    "years": 6.04
+   },
+   "errors": ""
+  },
+  "QCOM": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5260,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 12,
+    "median_close": 0.31260081,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9956,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5224,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.30496517,
+    "non_positive_bars": 0,
+    "session_coverage": 0.999,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "RIVN": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 1209,
+    "first": "2021-12-23",
+    "head_timestamp": "2021-12-24",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 0,
+    "median_close": 0.7120828,
+    "non_positive_bars": 0,
+    "session_coverage": 1.0,
+    "years": 4.82
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 1236,
+    "first": "2021-11-16",
+    "head_timestamp": "2021-11-16",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 0,
+    "median_close": 0.72514752,
+    "non_positive_bars": 0,
+    "session_coverage": 1.0,
+    "years": 4.93
+   },
+   "errors": ""
+  },
+  "SBUX": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5271,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.24916628,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9977,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5222,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.26070704,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9987,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "SOFI": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 1445,
+    "first": "2021-01-13",
+    "head_timestamp": "2021-01-14",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 1,
+    "median_close": 0.65583942,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 5.76
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 1479,
+    "first": "2020-11-30",
+    "head_timestamp": "2020-11-30",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 0,
+    "median_close": 0.65720463,
+    "non_positive_bars": 0,
+    "session_coverage": 1.0,
+    "years": 5.89
+   },
+   "errors": ""
+  },
+  "SPY": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5269,
+    "first": "2005-10-25",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.13423484,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9968,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5225,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.14323568,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9992,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "T": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5214,
+    "first": "2006-01-13",
+    "head_timestamp": "2006-01-14",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.19749475,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.76
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5225,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.19006548,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9992,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "TGT": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5237,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 31,
+    "median_close": 0.25161095,
+    "non_positive_bars": 0,
+    "session_coverage": 0.992,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5225,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.25265867,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9992,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "TMUS": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 4866,
+    "first": "2007-06-01",
+    "head_timestamp": "2007-06-02",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.30210776,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9977,
+    "years": 19.38
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 4866,
+    "first": "2007-05-03",
+    "head_timestamp": "2007-05-03",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 12,
+    "median_close": 0.32083968,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9935,
+    "years": 19.47
+   },
+   "errors": ""
+  },
+  "TSLA": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 4062,
+    "first": "2010-08-10",
+    "head_timestamp": "2010-08-11",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.50696828,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9973,
+    "years": 16.19
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 4092,
+    "first": "2010-07-08",
+    "head_timestamp": "2010-07-08",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.52520809,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9988,
+    "years": 16.28
+   },
+   "errors": ""
+  },
+  "TXN": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5273,
+    "first": "2005-10-25",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.27556558,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5225,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.26438993,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9992,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "UAL": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5170,
+    "first": "2006-03-17",
+    "head_timestamp": "2006-03-18",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.42405573,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9977,
+    "years": 20.59
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5197,
+    "first": "2006-02-13",
+    "head_timestamp": "2006-02-13",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 2,
+    "median_close": 0.44204155,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9987,
+    "years": 20.68
+   },
+   "errors": ""
+  },
+  "UBER": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 1841,
+    "first": "2019-06-24",
+    "head_timestamp": "2019-06-25",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 0,
+    "median_close": 0.4192775,
+    "non_positive_bars": 0,
+    "session_coverage": 1.0,
+    "years": 7.32
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 1871,
+    "first": "2019-05-13",
+    "head_timestamp": "2019-05-13",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 0,
+    "median_close": 0.44689915,
+    "non_positive_bars": 0,
+    "session_coverage": 1.0,
+    "years": 7.44
+   },
+   "errors": ""
+  },
+  "VZ": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5268,
+    "first": "2005-10-26",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.1845094,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5223,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.17674677,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9989,
+    "years": 20.79
+   },
+   "errors": ""
+  },
+  "WMT": {
+   "HISTORICAL_VOLATILITY": {
+    "bars": 5273,
+    "first": "2005-10-25",
+    "head_timestamp": "2005-02-16",
+    "last": "2026-10-19",
+    "longest_gap_sessions": 7,
+    "median_close": 0.17646103,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9979,
+    "years": 20.98
+   },
+   "OPTION_IMPLIED_VOLATILITY": {
+    "bars": 5225,
+    "first": "2006-01-06",
+    "head_timestamp": "2006-01-06",
+    "last": "2026-10-20",
+    "longest_gap_sessions": 1,
+    "median_close": 0.18349344,
+    "non_positive_bars": 0,
+    "session_coverage": 0.9992,
+    "years": 20.79
+   },
+   "errors": ""
+  }
+ },
+ "duration": "21 Y",
+ "run_date": "2026-10-20",
+ "symbols": 55
+}

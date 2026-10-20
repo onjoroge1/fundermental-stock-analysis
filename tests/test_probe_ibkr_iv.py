@@ -86,3 +86,20 @@ def test_the_probe_is_read_only_and_local_by_default():
     for forbidden in ("placeOrder", "cancelOrder", "reqGlobalCancel", "exerciseOptions", "db.connect"):
         assert forbidden not in text
     assert "127.0.0.1" in probe.LOCAL_HOSTS and "--allow-remote" in text
+
+
+def test_a_long_request_that_times_out_is_retried_once_at_fifteen_years(tmp_path):
+    days = session_dates("2011-10-25", "2011-12-30")
+
+    class Slow(FakeSession):
+        def daily_bars(self, symbol, what, duration):
+            self.calls.append(("bars", symbol, what, duration))
+            if duration != probe.FALLBACK_DURATION and what == "OPTION_IMPLIED_VOLATILITY":
+                return [], [("TIMEOUT", "no answer in 60s")]
+            return bars(days), []
+    session = Slow({("DIS", w): bars(days) for w in probe.SERIES})
+    out = probe.probe_symbol(session, "DIS", "21 Y", session_dates)
+    iv = out["series"]["OPTION_IMPLIED_VOLATILITY"]
+    assert iv["duration_used"] == "15 Y" and iv["coverage"]["bars"] == len(days) and iv["errors"] == []
+    assert out["series"]["HISTORICAL_VOLATILITY"]["duration_used"] == "21 Y"
+    assert probe.complete(out, "21 Y")
