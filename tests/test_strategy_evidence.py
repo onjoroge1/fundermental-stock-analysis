@@ -110,3 +110,36 @@ def test_routes_are_read_only_and_bounded_to_the_universe(shadow, monkeypatch): 
     assert signals.json()["ticker"] == "VZ" and signals.json()["signals"] is None    # nothing frozen yet
     assert meta["routes"]["strategy_signals"] == "/api/v1/stocks/{ticker}/strategy-signals"
     assert db.connect is not None
+
+
+def test_learning_status_carries_what_the_watchdog_reads_and_the_real_trading_mode(shadow):  # noqa: F811
+    with shadow() as conn:
+        status = ev.learning_status(conn, now=datetime(2026, 10, 29, 13, 15, tzinfo=timezone.utc))
+    fair_value = status["forward_tests"]["fair_value_sector_pe"]
+    assert tuple(fair_value) == ev.FAIR_VALUE_KEYS
+    strategies = status["forward_tests"]["event_strategies"]
+    assert strategies["missed_sessions"] == ["2026-10-26", "2026-10-27"]          # no run recorded them
+    assert status["trading_mode"]["mode"] in ("RESEARCH", "PAPER", None)
+    assert status["trading_mode"].get("broker_submission") in (False, None)
+
+
+def test_the_admin_card_reads_both_trackers_and_never_raises(shadow, monkeypatch):  # noqa: F811
+    from stock_machine.admin_panel import operations, store
+    run(datetime(2026, 10, 27, 4, 20, tzinfo=timezone.utc))
+    card = operations.forward_tracker_summary(now=datetime(2026, 10, 27, 12, 0, tzinfo=timezone.utc))
+    assert card["status"] == "OK" and card["strategies"]["frozen_sessions"] == 1
+    assert card["strategies"]["latest_receipt"]["freeze_status"] == "FROZEN"
+    assert card["fair_value"]["protocol_registered"] is False and card["use"] == "INFORMATION_ONLY"
+
+    def down():
+        raise RuntimeError("db down")
+    monkeypatch.setattr(store, "connect", down)
+    assert operations.forward_tracker_summary() == {"status": "UNAVAILABLE", "reason": "RuntimeError",
+                                                    "broker_submission": False}
+
+
+def test_the_admin_page_renders_the_card_with_text_only():
+    html = (ROOT / "webui/admin.html").read_text()
+    script = (ROOT / "webui/admin.js").read_text()
+    assert 'id="forward-fair-value"' in html and 'id="forward-strategies"' in html
+    assert "renderForward(data.forward_trackers" in script and "innerHTML" not in script

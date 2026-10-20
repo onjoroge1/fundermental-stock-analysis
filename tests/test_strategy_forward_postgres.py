@@ -239,3 +239,47 @@ def test_only_main_may_write(shadow, monkeypatch):
     monkeypatch.setenv("GITHUB_REF", "refs/heads/feature")
     assert run(FIRST_NIGHT)["status"] == "REFUSED_NON_MAIN"
     assert count(shadow, f.DECISION_KIND) == 0
+
+
+def test_a_partial_session_stays_visible_for_a_week(shadow):
+    sql(shadow, "DELETE FROM prices_daily WHERE ticker='VZ' AND date='2026-10-26'")
+    run(at(2026, 10, 27, 11, 50))                                  # final attempt: frozen without VZ
+    replayed = run(at(2026, 10, 27, 13, 15))
+    assert replayed["freeze"]["status"] == "REPLAYED" and replayed["status"] == "ATTENTION"
+    assert replayed["sticky_attention"] == ["FROZEN_WITH_MISSING_BARS:2026-10-26"]
+    assert "FROZEN_WITH_MISSING_BARS:2026-10-26" not in run(at(2026, 11, 4, 5, 20))["sticky_attention"]
+
+
+def test_an_excluded_trade_is_recorded_with_provenance_and_reported(shadow, monkeypatch):
+    monkeypatch.setenv("GITHUB_SHA", "abc123")
+    run(FIRST_NIGHT)
+    run(BREAKOUT_NIGHT)
+    sql(shadow, "DELETE FROM prices_daily WHERE ticker='VZ' AND date='2026-11-10'")
+    expired = run(WINDOW_DONE)                       # the window has completed, 10+ sessions after the 11-10 gap
+    assert expired["outcomes"]["excluded"] >= 1 and expired["status"] == "ATTENTION"
+    assert any(a.startswith("OUTCOME_EXCLUDED_MISSING_BARS:2026-10-27:S1_volume_breakout:VZ")
+               for a in expired["sticky_attention"])
+    with shadow() as conn:
+        trade = research_store.get(conn, f.OUTCOME_KIND, f.outcome_key("S1_volume_breakout", "VZ", "2026-10-27"))
+    assert trade["payload"]["status"] == "EXCLUDED_MISSING_BARS"
+    assert trade["payload"]["code"]["git_sha"] == "abc123" and trade["payload"]["code"]["decision_sources_sha256"]
+
+
+def test_a_late_freeze_is_listed_once(shadow):
+    run(FIRST_NIGHT)
+    late = run(at(2026, 10, 28, 12, 35), db_now=at(2026, 10, 28, 13, 31))
+    assert late["freeze"]["status"] == "FREEZE_LATE" and late["outcomes"]["invalid"] == ["2026-10-27"]
+    with shadow() as conn:   # both the late marker and the invalid-timing check exist; one is listed
+        assert f.summary(conn, now=at(2026, 10, 28, 14, 0))["sticky_attention"] == ["FREEZE_LATE:2026-10-27"]
+    assert count(shadow, f.CHECK_KIND, "AND payload->>'status'='INVALID_PROSPECTIVE_TIMING'") == 1
+
+
+def test_a_moved_tracked_file_is_reported_nightly_and_never_costs_a_session(shadow, monkeypatch):
+    run(FIRST_NIGHT)
+    monkeypatch.setattr(f, "DECISION_SOURCES", (*f.DECISION_SOURCES, "backtest/moved_away.py"))
+    nightly = run(BREAKOUT_NIGHT)
+    assert nightly["freeze"]["status"] == "FROZEN" and nightly["freeze"]["decision_sources_changed"]
+    assert nightly["missing_sources"] == ["backtest/moved_away.py"] and nightly["status"] == "ATTENTION"
+    with shadow() as conn:
+        check = research_store.get(conn, f.CHECK_KIND, f"{f.FORWARD_ID}:2026-10-27:DECISION_SOURCES_CHANGED")
+    assert check["payload"]["missing_sources"] == ["backtest/moved_away.py"]

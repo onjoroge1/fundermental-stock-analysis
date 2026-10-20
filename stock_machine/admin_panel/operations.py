@@ -312,3 +312,42 @@ def progress_summary():
 def technical_setup_summary():
     from ..agent_intelligence.technical_setup_store import summary
     return summary()
+
+
+FORWARD_RECEIPTS = {"fair_value": "FAIR_VALUE_FORWARD_STAGE_FINISHED", "strategies": "STRATEGY_FORWARD_STAGE_FINISHED"}
+
+
+def _forward_receipt(conn, event: str) -> dict | None:
+    row = conn.execute("SELECT details,occurred_at FROM operator_audit WHERE event=%s ORDER BY id DESC LIMIT 1",
+                       (event,)).fetchone()
+    if not row:
+        return None
+    details = row[0] or {}
+    return {"status": details.get("status"), "completed_session": details.get("completed_session"),
+            "freeze_status": (details.get("freeze") or {}).get("status"), "reason_code": details.get("reason_code"),
+            "sticky_attention": details.get("sticky_attention") or [],
+            "finished_at": row[1].isoformat() if row[1] else None}
+
+
+def forward_tracker_summary(now=None):
+    """Both pre-registered forward trackers for the owner page. Never raises: a failure here
+    must not take the whole dashboard down."""
+    try:
+        from ..agent_intelligence import fair_value_forward as fvf
+        from ..agent_intelligence import strategy_forward as sf
+        from ..agent_intelligence.strategy_evidence import FAIR_VALUE_KEYS, _compact_forward
+        with store.connect() as conn:
+            fair_value = fvf.summary(conn, now=now)
+            conn.rollback()
+            strategies = sf.summary(conn, now=now)
+            conn.rollback()
+            receipts = {name: _forward_receipt(conn, event) for name, event in FORWARD_RECEIPTS.items()}
+        return fvf.clean({
+            "schema_version": "forward-trackers-admin.v1", "status": "OK",
+            "fair_value": {**{k: fair_value.get(k) for k in FAIR_VALUE_KEYS}, "forward_id": fair_value.get("forward_id"),
+                           "latest_receipt": receipts["fair_value"]},
+            "strategies": {**_compact_forward(strategies), "latest_receipt": receipts["strategies"]},
+            "use": "INFORMATION_ONLY", "broker_submission": False,
+        })
+    except Exception as exc:
+        return {"status": "UNAVAILABLE", "reason": type(exc).__name__, "broker_submission": False}

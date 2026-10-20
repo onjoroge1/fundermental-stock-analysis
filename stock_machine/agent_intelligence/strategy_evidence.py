@@ -40,9 +40,16 @@ def _reading(dev: dict | None, holdout: dict | None, forward_final: dict | None)
     return "NO_EDGE_IN_DEVELOPMENT_CONFIRMATION_PENDING"
 
 
+# What the health watchdog reads for each forward tracker (scripts/health_watchdog.py FORWARD_FIELDS).
+FAIR_VALUE_KEYS = ("protocol_registered", "completed_session", "expected_decision_session", "freeze_missing",
+                   "freeze_window_open", "freeze_deadline", "frozen_months", "missed_months", "next_due_session",
+                   "sticky_attention", "decision_code_versions", "evaluation")
+
+
 def _compact_forward(status: dict) -> dict:
     keys = ("forward_id", "protocol_registered", "first_decision_session", "evaluation_months", "completed_session",
-            "frozen_sessions", "missed_count", "freeze_missing", "freeze_window_open", "sticky_attention", "evaluation")
+            "frozen_sessions", "missed_count", "missed_sessions", "freeze_missing", "freeze_window_open",
+            "sticky_attention", "decision_code_versions", "evaluation")
     latest = status.get("latest_decision") or {}
     return {**{k: status.get(k) for k in keys},
             "latest_decision_session": latest.get("decision_session"), "latest_counts": latest.get("counts"),
@@ -149,10 +156,20 @@ def learning_status(conn, *, now: datetime | None = None) -> dict:
         "direction_test": {k: direction.get(k) for k in ("status", "protocol_id", "decisions", "blocks",
                                                          "required_blocks", "mean_paired_difference")},
         "forward_tests": {
-            "fair_value_sector_pe": {k: fair_value.get(k) for k in ("protocol_registered", "frozen_months",
-                                                                     "missed_months", "next_due_session",
-                                                                     "evaluation")},
+            "fair_value_sector_pe": {k: fair_value.get(k) for k in FAIR_VALUE_KEYS},
             "event_strategies": _compact_forward(strategies),
         },
+        "trading_mode": _trading_mode(),
         "promotion": "NOT_AUTHORIZED", "broker_submission": False,
     })
+
+
+def _trading_mode() -> dict:
+    """The owner's real RESEARCH/PAPER switch (agent-lab's policy.mode is a fixed research label)."""
+    try:
+        from ..agent_trading import get_mode
+        mode = get_mode()
+        return {k: mode.get(k) for k in ("mode", "version", "updated_at", "broker_submission",
+                                         "live_trading_available")}
+    except Exception as exc:
+        return {"mode": None, "status": "UNAVAILABLE", "reason": type(exc).__name__}
