@@ -317,3 +317,45 @@ def test_a_lock_connection_failure_still_returns_a_receipt(tracker, monkeypatch)
     monkeypatch.setattr(db, "connect", down)
     result = run(NIGHT)
     assert result["status"] == "FAILED" and "database unreachable" in result["reason_code"]
+
+
+def test_a_code_change_is_recorded_once_against_the_previous_month(tracker, monkeypatch):
+    assert run(NIGHT)["freeze"]["status"] == "FROZEN"
+    monkeypatch.setattr(f, "source_fingerprint", lambda: "f" * 64)
+    assert run(at(2026, 12, 1, 4, 20))["freeze"]["decision_sources_changed"]
+    later = run(at(2027, 1, 2, 4, 20))                             # same changed code, next month-end
+    assert later["freeze"]["status"] == "FROZEN" and not later["freeze"]["decision_sources_changed"]
+    assert later["status"] == "OK" and later["sticky_attention"] == []
+    assert count(tracker, f.CHECK_KIND, "AND payload->>'status'='DECISION_SOURCES_CHANGED'") == 1
+
+
+def test_a_partial_freeze_stays_visible_for_a_week(tracker):
+    delete_bar(tracker, "VZ", "2026-10-30")
+    final = run(at(2026, 11, 2, 10, 50))
+    assert final["freeze"]["status"] == "FROZEN" and final["status"] == "ATTENTION"
+    replayed = run(at(2026, 11, 2, 12, 30))                       # the later morning runs stay red
+    assert replayed["freeze"]["status"] == "REPLAYED" and replayed["status"] == "ATTENTION"
+    assert replayed["sticky_attention"] == ["FROZEN_WITH_MISSING_BARS:2026-10-30"]
+    assert run(at(2026, 11, 20, 4, 20))["status"] == "OK"
+
+
+def test_an_excluded_outcome_is_recorded_and_reported(tracker):
+    assert run(NIGHT)["freeze"]["status"] == "FROZEN"
+    delete_bar(tracker, "VZ", "2027-02-01")
+    expired = run(at(2027, 5, 12, 4, 20))                         # 10 sessions after the 2027-04-27 due date
+    assert expired["outcomes"]["scored"] == ["2026-10-30"] and expired["outcomes"]["excluded"] == ["2026-10-30"]
+    assert expired["status"] == "ATTENTION" and "OUTCOME_EXCLUDED_MISSING_BARS:2026-10-30" in expired["sticky_attention"]
+    with tracker() as conn:
+        out = research_store.get(conn, f.OUTCOME_KIND, f"{f.FORWARD_ID}:2026-10-30")["payload"]
+        check = research_store.get(conn, f.CHECK_KIND, f"{f.FORWARD_ID}:2026-10-30:OUTCOME_EXCLUDED_MISSING_BARS")
+    assert out["excluded"] == 1 and out["monthly_mean"] is None and out["code"]["decision_sources_sha256"]
+    assert check["payload"]["excluded"] == ["VZ"] and check["payload"]["month_without_mean"] is True
+
+
+def test_a_moved_tracked_file_is_reported_nightly_and_never_costs_a_month(tracker, monkeypatch):
+    assert run(NIGHT)["freeze"]["status"] == "FROZEN"
+    monkeypatch.setattr(f, "DECISION_SOURCES", (*f.DECISION_SOURCES, "backtest/moved_away.py"))
+    quiet_day = run(at(2026, 11, 17, 4, 20))
+    assert quiet_day["status"] == "ATTENTION" and quiet_day["missing_sources"] == ["backtest/moved_away.py"]
+    month_end = run(at(2026, 12, 1, 4, 20))
+    assert month_end["freeze"]["status"] == "FROZEN" and month_end["freeze"]["decision_sources_changed"]

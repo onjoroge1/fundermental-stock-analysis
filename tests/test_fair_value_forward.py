@@ -347,3 +347,17 @@ def test_routine_migrations_never_flag_decision_code_changes():
     assert "db.py" not in f.DECISION_SOURCES
     assert f.PROTOCOL_SHA256 == PINNED_PROTOCOL_SHA256   # the registered protocol is unaffected
 
+
+
+def test_every_tracked_source_exists_and_the_fingerprint_is_the_plain_concatenation():
+    import hashlib
+    from pathlib import Path
+
+    from stock_machine.agent_intelligence import strategy_forward as sf
+    root = Path(f.__file__).resolve().parents[1]
+    assert f.missing_sources() == [] and "agent_intelligence/fair_value_forward.py" in f.DECISION_SOURCES
+    assert all((root / p).is_file() for p in sf.DECISION_SOURCES)
+    plain = hashlib.sha256(b"".join((root / p).read_bytes() for p in f.DECISION_SOURCES)).hexdigest()
+    assert f.source_fingerprint() == plain
+    assert not any(path in str(f.PROTOCOL) for path in f.DECISION_SOURCES)   # not part of the registered protocol
+    assert f.PROTOCOL_SHA256 == PINNED_PROTOCOL_SHA256

@@ -34,7 +34,12 @@ def main():
         outcomes = receipt.get("outcomes") or {}
         detail = [str(receipt.get("reason_code") or freeze.get("status")),
                   *(f"newly missed {m}" for m in freeze.get("newly_missed") or []),
+                  *(f"frozen without bars for {', '.join(freeze.get('missing_bars_at_freeze'))}"
+                    for _ in [0] if freeze.get("missing_bars_at_freeze")),
                   *(f"invalid timing {m}" for m in outcomes.get("invalid") or []),
+                  *(f"outcome blocked by missing bars {m}" for m in outcomes.get("blocked") or []),
+                  *(f"stocks excluded for missing bars {m}" for m in outcomes.get("excluded") or []),
+                  *(f"tracked source missing {p}" for p in receipt.get("missing_sources") or []),
                   *(f"scoring error {e.get('decision_session') or ''} {e['error']}" for e in outcomes.get("errors") or []),
                   *(receipt.get("sticky_attention") or [])]
         print("::warning::fair-value forward needs attention: " + "; ".join(detail), file=sys.stderr)
