@@ -1,5 +1,6 @@
 """Daily health watchdog: checks that prices, nightly jobs, research coverage and the two
-pre-registered forward trackers (fair value, event strategies) are sound.
+pre-registered forward trackers (fair value, event strategies) are sound, and lists reviewed
+financials that a newer filing has superseded (they need a re-review).
 
 Writes a JSON summary and a Markdown report; the workflow turns problems into
 one GitHub issue labelled `health-alert` (GitHub notifies the owner by email
@@ -14,7 +15,7 @@ import argparse
 import json
 import os
 import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 BASE_URL = os.environ.get("STOCK_MACHINE_API_BASE_URL", "https://fundermental-stock-analysis.vercel.app")
 UNIVERSE = 54
@@ -40,6 +41,10 @@ MAX_ISOLATED_GAP_TICKERS = 3  # strategy_forward's rule: a partial session this 
 # a fallback provider once replaced SPY's 15 years with 5, silently breaking every replay.
 BENCHMARK = "SPY"
 BENCHMARK_MIN_YEARS = 14
+# Reviewed debt and balance fields, read from GET /api/v1/financial-reviews (tracker item 53).
+REVIEW_FIELDS = ("issuers", "due", "not_binding", "awaiting_normalization", "filed_not_normalized")
+REVIEW_GRACE_DAYS = 7  # a re-review normally lands in the owner's weekly batch; only a lagging one alerts
+REVIEW_STUCK_DAYS = 3  # a filing still not normalized after this is a pipeline problem (items 40, 47), not a review
 FORWARD_LABEL = {"fair_value_forward": "Fair-value forward", "strategy_forward": "Strategy forward shadow"}
 FORWARD_SOURCE = {"fair_value_forward": "fair_value_sector_pe", "strategy_forward": "event_strategies"}
 FORWARD_FIELDS = {
@@ -177,6 +182,51 @@ def check_forward(check: str, status: dict, today) -> dict:
     return {"check": check, "severity": None, "summary": ok}
 
 
+def check_reviews(status: dict, today) -> dict:
+    """Reviewed financials a newer filing superseded (item 53). Every due issuer is listed; it becomes a
+    signature key only once its re-review is more than REVIEW_GRACE_DAYS past the filing, so the issue
+    stays closed through a normal filing wave and notifies only for a lagging re-review, a review that
+    no longer binds its own period, or a filing the nightly has not normalized for REVIEW_STUCK_DAYS."""
+    gaps = [k for k in REVIEW_FIELDS if k not in (status or {})]
+    if gaps:
+        return {"check": "financial_reviews", "severity": "warning",
+                "summary": f"Financial reviews: status fields missing ({', '.join(gaps)})", "keys": ["FIELDS_MISSING"]}
+
+    def age(filed) -> int:
+        return (today - date.fromisoformat(str(filed)[:10])).days if filed else 0
+    due, broken = status["due"] or [], status["not_binding"] or []
+    filed = status["filed_not_normalized"] or []
+    overdue = [d for d in due if age(d.get("filed_at")) > REVIEW_GRACE_DAYS]
+    stuck = [f for f in filed if age(f.get("filed_at")) > REVIEW_STUCK_DAYS]
+    keys = sorted({f"{d['ticker']}:{d['period_end']}" for d in overdue}
+                  | {f"{b['ticker']}:{b['period_end']}:NOT_BINDING" for b in broken}
+                  | {f"{f['ticker']}:{f['report_date']}:NOT_NORMALIZED" for f in stuck})
+    parts = []
+    if due:
+        parts.append(f"{len(due)} reviewed issuer(s) need a re-review after a newer filing"
+                     + (f" ({len(overdue)} more than {REVIEW_GRACE_DAYS} days after filing)" if overdue else "")
+                     + ": " + ", ".join(f"{d['ticker']} {d['period_end']} ({d['form']} filed {d['filed_at']})" for d in due))
+    if broken:
+        parts.append("review no longer binds its own period: " + ", ".join(f"{b['ticker']} {b['period_end']}"
+                                                                          for b in broken))
+    if filed:
+        parts.append("newer filing not yet normalized: " + ", ".join(
+            f"{f['ticker']} {f['form']} filed {f['filed_at']}" for f in filed))
+    if status["awaiting_normalization"]:
+        parts.append("re-reviewed, awaiting the nightly normalization: " + ", ".join(status["awaiting_normalization"]))
+    if status.get("draft_command"):
+        parts.append(f"draft with `{status['draft_command']}`")
+    if status.get("custom_tickers"):
+        parts.append("owner re-selects face lines (custom): " + ", ".join(status["custom_tickers"]))
+    if status.get("requires"):
+        parts.append("needs " + status["requires"])
+    if not parts:
+        return {"check": "financial_reviews", "severity": None,
+                "summary": f"Financial reviews: none of {status['issuers']} reviewed issuers needs a re-review"}
+    return {"check": "financial_reviews", "severity": "warning" if keys else None,
+            "summary": "Financial reviews: " + "; ".join(parts), **({"keys": keys} if keys else {})}
+
+
 def check_benchmark_history(dates: list[str], today) -> dict:
     first = min(dates) if dates else None
     need = (today - timedelta(days=round(365.25 * BENCHMARK_MIN_YEARS))).isoformat()
@@ -259,6 +309,11 @@ def collect(now: datetime) -> list[dict]:
     except Exception as exc:
         checks += [{"check": c, "severity": "warning", "summary": f"Forward-tracker status unreachable: {type(exc).__name__}"}
                    for c in FORWARD_LABEL]
+    try:
+        checks.append(check_reviews(_get("/api/v1/financial-reviews"), now.date()))
+    except Exception as exc:
+        checks.append({"check": "financial_reviews", "severity": "warning",
+                       "summary": f"Financial-review status unreachable: {type(exc).__name__}"})
     if session:
         try:
             decisions = []

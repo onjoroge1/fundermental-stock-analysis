@@ -329,6 +329,24 @@ def _forward_receipt(conn, event: str) -> dict | None:
             "finished_at": row[1].isoformat() if row[1] else None}
 
 
+def review_coverage_summary(now=None):
+    """Reviewed debt and balance fields a newer filing superseded, for the owner page (item 53).
+    Never raises: a failure here must not take the whole dashboard down."""
+    try:
+        from .. import review_coverage
+        with store.connect() as conn:
+            scan = review_coverage.scan(conn, now=now)
+        return {"schema_version": "financial-reviews-admin.v1", "status": "OK",
+                **{k: scan[k] for k in ("generated_at", "issuers", "counts", "due", "not_binding",
+                                        "awaiting_normalization", "filed_not_normalized", "draft_command",
+                                        "promote_commands", "repair_promote_commands", "promote_note",
+                                        "custom_tickers", "custom", "custom_command",
+                                        "sec_contact", "requires")},
+                "use": "INFORMATION_ONLY", "broker_submission": False}
+    except Exception as exc:
+        return {"status": "UNAVAILABLE", "reason": type(exc).__name__, "broker_submission": False}
+
+
 def forward_tracker_summary(now=None):
     """Both pre-registered forward trackers for the owner page. Never raises: a failure here
     must not take the whole dashboard down."""
