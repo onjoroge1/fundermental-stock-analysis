@@ -1,0 +1,148 @@
+{
+ "protocol_sha256": "50f81997e6e72271eb3d133375034843e8b1066cf7a9f388eb525cec2e478509",
+ "result": {
+  "excluded": {
+   "dev": {
+    "CALIBRATION_UNTRAINED": 549,
+    "PRE_LISTING": 4
+   },
+   "panel": {
+    "NO_BAR": 354,
+    "STOCK_HISTORY": 98,
+    "TARGET_MISSING_BARS": 3
+   }
+  },
+  "inputs": {
+   "end": "2026-10-19",
+   "implied_vol_sha256": "37e9e03bec8806754df868b9c808adea159594e553d8ece69716f82aa05fdffa",
+   "prices_sha256": "2f8bc6ff4e45eb7bb4525cf56b5f22d5cf68a452db207c35e6d2d5b6a8db147f"
+  },
+  "protocol_id": "implied-vol-comparison.v1",
+  "protocol_sha256": "50f81997e6e72271eb3d133375034843e8b1066cf7a9f388eb525cec2e478509",
+  "splits": {
+   "dev": {
+    "combined_coefficient_on_our_forecast": {
+     "median": -0.23036817571649726,
+     "share_negative": 1.0
+    },
+    "first_month": "2018-06",
+    "forecast_to_realized": {
+     "COMBINED": 1.0088023651010798,
+     "HAR_PLUS": 1.0106567967020803,
+     "IV_CAL": 1.0608331647729432,
+     "IV_RAW": 0.8846139347512685
+    },
+    "hypotheses": {
+     "V1": {
+      "block_se": 0.0951474991449918,
+      "blocks": 8,
+      "lower": -0.4168343603644415,
+      "mean": -0.1918463003462144,
+      "mean_without_largest_month": -0.12442665990404392,
+      "median_month": 0.00711345049622926,
+      "months": 67,
+      "role": "descriptive",
+      "statement": "variance premium: the mean short-variance payoff at IV - 1 point on every stock-month (the options market prices more movement than happens)",
+      "stock_months": 3363,
+      "upper": 0.033141759672012716,
+      "worst_month": -4.018073996968815
+     },
+     "V2": {
+      "block_se": 0.1642776739338919,
+      "blocks": 8,
+      "lower": -0.5754707197996904,
+      "mean": -0.18701578935143529,
+      "mean_without_largest_month": -0.0367631891232467,
+      "median_month": -0.03206311202253304,
+      "months": 67,
+      "role": "descriptive",
+      "statement": "our forecast against the market's: QLIKE(IV_CAL) - QLIKE(HAR_PLUS)",
+      "stock_months": 3363,
+      "upper": 0.2014391410968199,
+      "worst_month": -9.572937108891923
+     },
+     "V3": {
+      "block_se": 0.00761495523770344,
+      "blocks": 8,
+      "lower": -0.014565298379893682,
+      "mean": 0.0034412075341055787,
+      "mean_without_largest_month": -0.0007011324047897001,
+      "median_month": -0.00035431848453450877,
+      "months": 67,
+      "role": "confirmatory",
+      "statement": "adding our forecast to the calibrated implied volatility lowers the loss (QLIKE(IV_CAL) - QLIKE(COMBINED) > 0) and COMBINED also beats the raw quote (V7 > 0): our forecast carries information the options market has not priced",
+      "stock_months": 3363,
+      "upper": 0.021447713448104838,
+      "worst_month": -0.0495953121559027
+     },
+     "V4": {
+      "block_se": 0.038262257195655326,
+      "blocks": 8,
+      "lower": -0.23834180276862035,
+      "mean": -0.14786595110960107,
+      "mean_without_largest_month": -0.13600455864203248,
+      "median_month": -0.10166882112436404,
+      "months": 67,
+      "role": "confirmatory",
+      "statement": "the relative-value variance book (short the third of stocks where IV is richest against our forecast, long the cheapest third) earns more than 0 after costs",
+      "stock_months": 3363,
+      "upper": -0.057390099450581794,
+      "worst_month": -0.6976534756036386
+     },
+     "V5": {
+      "block_se": 0.006630777758850991,
+      "blocks": 8,
+      "lower": -0.012056503865408616,
+      "mean": 0.0036227923618366515,
+      "mean_without_largest_month": 0.001004889092522988,
+      "median_month": -0.00035946035098505865,
+      "months": 67,
+      "role": "descriptive",
+      "statement": "V3 in months with an expected earnings release",
+      "stock_months": 1126,
+      "upper": 0.019302088589081917,
+      "worst_month": -0.06448417743527496
+     },
+     "V6": {
+      "block_se": 0.10096201367050711,
+      "blocks": 8,
+      "lower": -0.34448183725548925,
+      "mean": -0.10574463664188007,
+      "mean_without_largest_month": -0.07372977936353045,
+      "median_month": 0.000612881222843642,
+      "months": 46,
+      "role": "descriptive",
+      "statement": "V4 in months with an expected earnings release",
+      "stock_months": 1126,
+      "upper": 0.13299256397172915,
+      "worst_month": -1.435638386941392
+     },
+     "V7": {
+      "block_se": 0.012365772781815698,
+      "blocks": 8,
+      "lower": -0.028682501991579942,
+      "mean": 0.0005579011068482199,
+      "mean_without_largest_month": -0.01009577878659137,
+      "median_month": -0.011442205574736868,
+      "months": 67,
+      "role": "descriptive",
+      "statement": "COMBINED against the unfitted quote: QLIKE(IV_RAW) - QLIKE(COMBINED)",
+      "stock_months": 3363,
+      "upper": 0.029798304205276384,
+      "worst_month": -0.10392300644667997
+     }
+    },
+    "mean_iv_over_realized_vol": 1.0930839503704723,
+    "mean_qlike": {
+     "COMBINED": 0.19711196880842768,
+     "HAR_PLUS": 0.37301076568306113,
+     "IV_CAL": 0.20001135165074763,
+     "IV_RAW": 0.19616347928198258
+    },
+    "months": 67,
+    "stock_months": 3363
+   }
+  },
+  "stage": "dev"
+ }
+}
