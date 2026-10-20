@@ -114,6 +114,19 @@ STATEMENT_FIELDS = {
 }
 
 
+def _financial_integrity(latest_q: dict | None, latest_filing: dict | None, cik, as_of: str) -> dict:
+    """The latest quarter's integrity check, with any review a newer filing superseded named next to
+    its generic reason (diagnostic only), and a newer filing not yet normalized withholding it."""
+    from .financial_integrity import balance_sheet_check
+    from .review_coverage import annotate
+    financial_integrity = annotate(balance_sheet_check(latest_q), cik, latest_q, as_of=as_of)
+    financial_integrity["latest_financial_filing"] = latest_filing
+    if latest_filing and latest_filing["report_date"] > (latest_q or {}).get("period_end", ""):
+        financial_integrity["status"] = "WITHHELD"
+        financial_integrity["reasons"].append("NEWER_FINANCIAL_FILING_NOT_NORMALIZED")
+    return financial_integrity
+
+
 def build_bundle(ticker: str, as_of: str | None = None, *, connection=None) -> dict:
     """Assemble the Claude-facing bundle. as_of: ISO timestamp (default now)."""
     ticker = ticker.upper()
@@ -438,12 +451,7 @@ def build_bundle(ticker: str, as_of: str | None = None, *, connection=None) -> d
                    if latest_q and latest_q["fields"].get(f) is not None)
     completeness = round(n_fields / len(CRITICAL_FIELDS), 2) if latest_q else 0.0
 
-    from .financial_integrity import balance_sheet_check
-    financial_integrity = balance_sheet_check(latest_q)
-    financial_integrity["latest_financial_filing"] = latest_filing
-    if latest_filing and latest_filing["report_date"] > (latest_q or {}).get("period_end", ""):
-        financial_integrity["status"] = "WITHHELD"
-        financial_integrity["reasons"].append("NEWER_FINANCIAL_FILING_NOT_NORMALIZED")
+    financial_integrity = _financial_integrity(latest_q, latest_filing, company["cik"], as_of)
     status = "PASS" if not missing_critical and not stale and financial_integrity["status"] == "VERIFIED" else (
         "WARN" if latest_q and prices else "FAIL")
 

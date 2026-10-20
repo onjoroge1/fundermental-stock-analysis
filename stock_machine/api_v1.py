@@ -215,6 +215,7 @@ def api_meta() -> dict[str, Any]:
             "strategy_evidence": "/api/v1/strategies",
             "strategy_signals": "/api/v1/stocks/{ticker}/strategy-signals",
             "agent_learning_status": "/api/v1/agent/learning-status",
+            "financial_review_coverage": "/api/v1/financial-reviews",
             "bearish_opportunities": "/api/v1/opportunities/bearish",
             "bear_plan": "/api/v1/stocks/{ticker}/bear-plan",
             "legacy_live_options": "/api/options/generate/{ticker}",
@@ -252,6 +253,15 @@ def agent_learning_status() -> dict[str, Any]:
     from .agent_intelligence import strategy_evidence as evidence
     with db.connect() as conn:
         return evidence.learning_status(conn)
+
+
+@router.get("/financial-reviews")
+def financial_reviews() -> dict[str, Any]:
+    """Reviewed debt and balance fields against each issuer's latest stored filing: which a newer filing
+    has superseded and need a re-review. Read-only, no SEC call; information only."""
+    from . import review_coverage
+    with db.connect() as conn:
+        return review_coverage.scan(conn)
 
 
 @router.get("/stocks/{ticker}/research")

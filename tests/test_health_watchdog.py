@@ -221,3 +221,68 @@ def test_a_truncated_benchmark_history_is_flagged():
     short = wd.check_benchmark_history(["2021-10-20", "2026-10-19"], today)
     assert short["severity"] == "warning" and "Price History Repair" in short["summary"]
     assert wd.check_benchmark_history([], today)["severity"] == "warning"
+
+
+
+def reviews_status(due=(), not_binding=(), awaiting=(), filed=(), **over):
+    base = {"issuers": 52, "due": [{"ticker": t, "period_end": p, "form": "10-Q", "filed_at": f, "kinds": ["total_debt"]}
+                                   for t, p, f in due],
+            "not_binding": [{"ticker": t, "period_end": p, "kinds": ["total_debt"]} for t, p in not_binding],
+            "awaiting_normalization": list(awaiting),
+            "filed_not_normalized": [{"ticker": t, "form": "10-Q", "filed_at": f, "report_date": "2026-09-30"}
+                                     for t, f in filed],
+            "draft_command": None, "custom_tickers": [], "requires": None}
+    return {**base, **over}
+
+
+REVIEW_DAY = datetime(2026, 10, 24, tzinfo=timezone.utc).date()
+
+
+def test_due_reviews_are_listed_but_alert_only_once_a_re_review_lags_a_week():
+    fresh = wd.check_reviews(reviews_status(due=[("GM", "2026-09-30", "2026-10-21")], awaiting=["AAL"],
+                                            draft_command="python d --tickers GM", custom_tickers=["F"],
+                                            requires="SEC_USER_AGENT (item 47)"), REVIEW_DAY)
+    assert fresh["severity"] is None and "keys" not in fresh                  # within the weekly batch
+    assert "GM 2026-09-30 (10-Q filed 2026-10-21)" in fresh["summary"] and "`python d --tickers GM`" in fresh["summary"]
+    assert "custom): F" in fresh["summary"] and "SEC_USER_AGENT" in fresh["summary"] and "AAL" in fresh["summary"]
+    late = wd.check_reviews(reviews_status(due=[("GM", "2026-09-30", "2026-10-16")]), REVIEW_DAY)
+    assert late["severity"] == "warning" and late["keys"] == ["GM:2026-09-30"]
+    assert "1 more than 7 days after filing" in late["summary"]
+    quiet = wd.check_reviews(reviews_status(), REVIEW_DAY)
+    assert quiet["severity"] is None and "none of 52" in quiet["summary"]
+
+
+def test_a_broken_review_or_a_stuck_normalization_alerts_at_once_and_keys_have_no_spaces():
+    broken = wd.check_reviews(reviews_status(not_binding=[("TMUS", "2026-06-30")]), REVIEW_DAY)
+    assert broken["keys"] == ["TMUS:2026-06-30:NOT_BINDING"]
+    waiting = wd.check_reviews(reviews_status(filed=[("NFLX", "2026-10-22")]), REVIEW_DAY)
+    assert waiting["severity"] is None and "NFLX 10-Q filed 2026-10-22" in waiting["summary"]
+    stuck = wd.check_reviews(reviews_status(filed=[("NFLX", "2026-10-20")]), REVIEW_DAY)
+    assert stuck["keys"] == ["NFLX:2026-09-30:NOT_NORMALIZED"]
+    assert " " not in "+".join(broken["keys"] + stuck["keys"])               # the workflow greps the signature
+
+
+def test_the_review_signature_changes_only_when_the_lagging_set_does():
+    def sig(*due, broken=()):
+        return wd.signature([wd.check_reviews(reviews_status(due=due, not_binding=broken), REVIEW_DAY)])
+    gm, nflx = ("GM", "2026-09-30", "2026-10-15"), ("NFLX", "2026-09-30", "2026-10-22")
+    assert sig(gm) == sig(gm, nflx) == "financial_reviews=warning[GM:2026-09-30]"   # a fresh one: no comment
+    assert sig(nflx) == "ok" and sig(gm) != sig()                             # a re-review clears it
+
+
+def test_missing_review_fields_or_an_unreachable_route_warn(monkeypatch):
+    missing = wd.check_reviews({"issuers": 52}, REVIEW_DAY)
+    assert missing["severity"] == "warning" and missing["keys"] == ["FIELDS_MISSING"]
+
+    def fake_get(path, params=None):
+        if path == "/api/v1/financial-reviews":
+            raise RuntimeError("route down")
+        if path == "/api/v1/data-health":
+            return {"status": "HEALTHY", "current_count": 54, "latest_market_date": "2026-11-02",
+                    "expected_market_date": None}
+        return {}
+    monkeypatch.setattr(wd, "_get", fake_get)
+    monkeypatch.setattr(wd, "_workflow_runs", lambda f: [])
+    checks = {c["check"]: c for c in wd.collect(NOW)}
+    assert checks["financial_reviews"]["severity"] == "warning"
+    assert "unreachable: RuntimeError" in checks["financial_reviews"]["summary"]

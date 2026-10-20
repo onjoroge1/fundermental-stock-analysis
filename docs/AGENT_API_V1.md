@@ -114,6 +114,20 @@ GET /api/options/generate/{ticker}?month=YYYYMM&strikes=...
 GET /api/options/scan/{ticker}?month=YYYYMM&strategy=bear_put_spread&strikes=...&objective=expected_value&defined_risk=true&horizon=12m
 ```
 
+## Financial review coverage
+
+```text
+GET /api/v1/financial-reviews
+```
+
+Every issuer with reviewed debt, liabilities or cash (each review is pinned to one SEC filing) against its latest
+stored quarter and filing. Each row has a `state`: `DUE` (a newer filing superseded the review: re-review),
+`NOT_BINDING` (the review for this period no longer validates: repair), `AWAITING_NORMALIZATION` (re-reviewed;
+the next nightly applies it), `REVIEW_AHEAD_OF_DATA`, `NO_LONGER_NEEDED` (the newer period verifies without a
+review), `CURRENT`, `NO_QUARTER` or `NOT_IN_DATABASE`. The response also gives the drafter commands
+(`draft_command`, `promote_commands`, `repair_promote_commands`, `custom_command`) and `filed_not_normalized`. It is read-only and makes no
+SEC call. Information only: a stock whose review is superseded is already withheld by the research contract.
+
 ## System validation endpoints
 
 Agents should also consult:
