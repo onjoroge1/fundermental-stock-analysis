@@ -98,6 +98,20 @@ def replace_periods(conn: psycopg.Connection, ticker: str,
     conn.commit()
 
 
+HISTORY_TRUNCATION_TOLERANCE_DAYS = 31
+HISTORY_SPAN_SHARE = 0.9
+
+
+def _add_days(day: str, days: int) -> str:
+    from datetime import date, timedelta
+    return (date.fromisoformat(str(day)[:10]) + timedelta(days=days)).isoformat()
+
+
+def _span_days(start: str, end: str) -> int:
+    from datetime import date
+    return (date.fromisoformat(str(end)[:10]) - date.fromisoformat(str(start)[:10])).days
+
+
 def replace_prices(conn: psycopg.Connection, ticker: str, rows: list[dict]) -> None:
     from .data_quality import assess_dataset
     from .market_calendar import latest_completed_session
@@ -107,10 +121,18 @@ def replace_prices(conn: psycopg.Connection, ticker: str, rows: list[dict]) -> N
     if quality["status"] == "FAIL":
         raise ValueError(f"invalid price refresh for {ticker}; existing history retained")
     with conn.cursor() as cur:
-        cur.execute("SELECT max(date)::text FROM prices_daily WHERE ticker=%s", (ticker,))
-        previous = cur.fetchone()[0]
+        cur.execute("SELECT min(date)::text, max(date)::text FROM prices_daily WHERE ticker=%s", (ticker,))
+        first, previous = cur.fetchone()
         if previous and quality["max_record_date"] < min(previous, cutoff):
             raise ValueError(f"price refresh for {ticker} regresses the latest completed date")
+        # A provider with a shorter window (FMP's plan returns about 5 years) must never replace
+        # a longer stored series: the whole series is rewritten, so older history would be lost.
+        # A same-length window that slid forward (Yahoo's 15 years, refreshed late) is fine.
+        dates = sorted(str(r["date"])[:10] for r in rows)
+        if first and dates and dates[0] > _add_days(first, HISTORY_TRUNCATION_TOLERANCE_DAYS) and \
+                _span_days(dates[0], dates[-1]) < HISTORY_SPAN_SHARE * _span_days(first, previous):
+            raise ValueError(f"price refresh for {ticker} would delete history before {dates[0]} "
+                             f"(stored from {first}); existing history retained")
         cur.execute("DELETE FROM prices_daily WHERE ticker = %s", (ticker,))
         cur.executemany(
             """INSERT INTO prices_daily VALUES (%(ticker)s, %(date)s, %(open)s,

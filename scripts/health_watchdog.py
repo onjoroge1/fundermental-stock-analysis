@@ -36,6 +36,10 @@ FUNDAMENTAL_BLOCKERS = {"FINANCIAL_DEPENDENCIES_UNVERIFIED", "REQUIRED_DATA_NOT_
 MAX_RUN_AGE = timedelta(hours=36)
 # Forward trackers, read from GET /api/v1/agent/learning-status (the watchdog has no database).
 MAX_ISOLATED_GAP_TICKERS = 3  # strategy_forward's rule: a partial session this small needs no action
+# The market benchmark's stored history must reach back this far (Yahoo serves about 15 years);
+# a fallback provider once replaced SPY's 15 years with 5, silently breaking every replay.
+BENCHMARK = "SPY"
+BENCHMARK_MIN_YEARS = 14
 FORWARD_LABEL = {"fair_value_forward": "Fair-value forward", "strategy_forward": "Strategy forward shadow"}
 FORWARD_SOURCE = {"fair_value_forward": "fair_value_sector_pe", "strategy_forward": "event_strategies"}
 FORWARD_FIELDS = {
@@ -173,6 +177,16 @@ def check_forward(check: str, status: dict, today) -> dict:
     return {"check": check, "severity": None, "summary": ok}
 
 
+def check_benchmark_history(dates: list[str], today) -> dict:
+    first = min(dates) if dates else None
+    need = (today - timedelta(days=round(365.25 * BENCHMARK_MIN_YEARS))).isoformat()
+    ok = bool(first) and first <= need
+    return {"check": "benchmark_history", "severity": None if ok else "warning",
+            "summary": (f"{BENCHMARK} price history from {first} ({len(dates)} sessions)" if ok else
+                        f"{BENCHMARK} price history starts {first or 'nowhere'}, later than {need}: replays and "
+                        "volatility features need the full history (run Price History Repair)")}
+
+
 def forward_checks(learning: dict, today) -> list[dict]:
     tests = (learning or {}).get("forward_tests") or {}
     return [check_forward(check, tests.get(source), today) for check, source in FORWARD_SOURCE.items()]
@@ -234,6 +248,12 @@ def collect(now: datetime) -> list[dict]:
         except Exception as exc:
             checks.append({"check": file, "severity": "warning",
                            "summary": f"{file}: could not read runs ({type(exc).__name__})"})
+    try:
+        rows = _get(f"/api/prices/{BENCHMARK}", {"days": 5000})
+        checks.append(check_benchmark_history([str(r["date"])[:10] for r in rows], now.date()))
+    except Exception as exc:
+        checks.append({"check": "benchmark_history", "severity": "warning",
+                       "summary": f"{BENCHMARK} price history unreachable: {type(exc).__name__}"})
     try:
         checks += forward_checks(_get("/api/v1/agent/learning-status"), now.date())
     except Exception as exc:

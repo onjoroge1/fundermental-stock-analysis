@@ -212,3 +212,12 @@ def test_the_alert_body_is_refreshed_every_run_and_a_comment_only_on_change():
     edit, comment = step.index("gh issue edit"), step.index("gh issue comment")
     guard = step.index('if [ "$previous" != "$current" ]')
     assert edit < guard < comment
+
+
+def test_a_truncated_benchmark_history_is_flagged():
+    today = datetime(2026, 10, 20).date()
+    full = wd.check_benchmark_history(["2011-10-20", "2026-10-19"], today)
+    assert full["severity"] is None and "from 2011-10-20" in full["summary"]
+    short = wd.check_benchmark_history(["2021-10-20", "2026-10-19"], today)
+    assert short["severity"] == "warning" and "Price History Repair" in short["summary"]
+    assert wd.check_benchmark_history([], today)["severity"] == "warning"
