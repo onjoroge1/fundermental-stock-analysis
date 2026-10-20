@@ -1,0 +1,160 @@
+{
+ "protocol_sha256": "63fbb13b99b8b3270e570bdfbb08a25456bd36b8befad8f8d1257fe0bb93449c",
+ "result": {
+  "excluded": {
+   "NO_BAR": 301,
+   "STOCK_HISTORY": 76,
+   "UNTRAINED": 564
+  },
+  "first_evaluated_month": "2017-06",
+  "protocol_id": "volatility-forecast.v1",
+  "protocol_sha256": "63fbb13b99b8b3270e570bdfbb08a25456bd36b8befad8f8d1257fe0bb93449c",
+  "splits": {
+   "dev": {
+    "forecast_to_realized": {
+     "EWMA": 0.9838404333185203,
+     "HAR": 0.9169335738313629,
+     "HAR_PLUS": 0.9903182932484274,
+     "RV21": 0.9919580292790735,
+     "RV63": 0.9934284736737679
+    },
+    "hypotheses": {
+     "H1": {
+      "block_se": 0.05929705728169201,
+      "blocks": 8,
+      "confirmatory": false,
+      "lower": -0.026807334183346757,
+      "mean": 0.11340791059431694,
+      "months": 79,
+      "statement": "the standard model beats last month's volatility (sanity check, not in the confirmatory family)",
+      "stock_months": 3973,
+      "upper": 0.25362315537198066
+     },
+     "H2": {
+      "block_se": 0.009149756842077897,
+      "blocks": 8,
+      "confirmatory": true,
+      "lower": 0.012751095086263493,
+      "mean": 0.0343868297092051,
+      "months": 79,
+      "statement": "our added inputs (range, market, losses, earnings) improve on the standard model (primary)",
+      "stock_months": 3973,
+      "upper": 0.0560225643321467
+     },
+     "H4": {
+      "block_se": 0.0439204224302638,
+      "blocks": 8,
+      "confirmatory": true,
+      "lower": -0.008805401541329777,
+      "mean": 0.09504988342741033,
+      "months": 79,
+      "statement": "our added inputs improve the forecast in months with an expected earnings release",
+      "stock_months": 1333,
+      "upper": 0.19890516839615044
+     }
+    },
+    "mean_qlike": {
+     "EWMA": 0.4400423580380913,
+     "HAR": 0.4171836299125062,
+     "HAR_PLUS": 0.3825926350022041,
+     "RV21": 0.5302324285585593,
+     "RV63": 0.5076897155090064
+    },
+    "mean_sq_log_error": {
+     "EWMA": 0.17127316679281204,
+     "HAR": 0.14918500212607724,
+     "HAR_PLUS": 0.132114083167276,
+     "RV21": 0.19476996151621334,
+     "RV63": 0.172907146006245
+    },
+    "months": 79,
+    "stock_months": 3973
+   }
+  },
+  "stage": "dev"
+ },
+ "run": {
+  "commit": "8afd751",
+  "github_run_id": 39448135022,
+  "stage": "dev"
+ },
+ "superseded_run": {
+  "commit": "6b14f78",
+  "github_run_id": 39441683589,
+  "reason": "SPY's stored history had been truncated to 2021-10-20 by the 2026-10-20 refresh (item 56); only 14 months were evaluable",
+  "result": {
+   "excluded": {
+    "NO_BAR": 301,
+    "SPY_HISTORY": 3144,
+    "STOCK_HISTORY": 76,
+    "UNTRAINED": 637
+   },
+   "first_evaluated_month": "2022-11",
+   "protocol_id": "volatility-forecast.v1",
+   "protocol_sha256": "63fbb13b99b8b3270e570bdfbb08a25456bd36b8befad8f8d1257fe0bb93449c",
+   "splits": {
+    "dev": {
+     "forecast_to_realized": {
+      "EWMA": 1.0740158040930767,
+      "HAR": 1.3043904592620645,
+      "HAR_PLUS": 1.2494751748220212,
+      "RV21": 1.05956142501468,
+      "RV63": 1.1335569065978381
+     },
+     "hypotheses": {
+      "H1": {
+       "block_se": 0.04373397142933427,
+       "blocks": 8,
+       "confirmatory": false,
+       "lower": -0.004986730909976256,
+       "mean": 0.09842766754714187,
+       "months": 14,
+       "statement": "the standard model beats last month's volatility (sanity check, not in the confirmatory family)",
+       "stock_months": 756,
+       "upper": 0.20184206600426
+      },
+      "H2": {
+       "block_se": 0.012384244522133906,
+       "blocks": 8,
+       "confirmatory": true,
+       "lower": 0.019348032315466262,
+       "mean": 0.04863211413437263,
+       "months": 14,
+       "statement": "our added inputs (range, market, losses, earnings) improve on the standard model (primary)",
+       "stock_months": 756,
+       "upper": 0.07791619595327899
+      },
+      "H4": {
+       "block_se": 0.02882689984710431,
+       "blocks": 8,
+       "confirmatory": true,
+       "lower": -0.06339262379548526,
+       "mean": 0.004772155428573931,
+       "months": 14,
+       "statement": "our added inputs improve the forecast in months with an expected earnings release",
+       "stock_months": 241,
+       "upper": 0.07293693465263311
+      }
+     },
+     "mean_qlike": {
+      "EWMA": 0.26182493020048775,
+      "HAR": 0.2252550790787617,
+      "HAR_PLUS": 0.17355561967457983,
+      "RV21": 0.33267894709329676,
+      "RV63": 0.1949584701815113
+     },
+     "mean_sq_log_error": {
+      "EWMA": 0.12180228373841138,
+      "HAR": 0.10815258988280874,
+      "HAR_PLUS": 0.08611439739223838,
+      "RV21": 0.1440025797990788,
+      "RV63": 0.09942717628480233
+     },
+     "months": 14,
+     "stock_months": 756
+    }
+   },
+   "stage": "dev"
+  }
+ }
+}
