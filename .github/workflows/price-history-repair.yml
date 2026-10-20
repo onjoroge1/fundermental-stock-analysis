@@ -1,0 +1,53 @@
+name: Price History Repair
+
+# Manual: re-fetch the full Yahoo history (about 15 years) for the named tickers
+# and replace their stored series. Yahoo only, because the FMP fallback returns
+# about 5 years on the current plan (that fallback once replaced SPY's 15 years
+# with 5; replace_prices now refuses such a refresh).
+on:
+  workflow_dispatch:
+    inputs:
+      tickers:
+        description: "space-separated tickers, e.g. SPY"
+        required: true
+        default: "SPY"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: price-history-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: github.ref == 'refs/heads/main'
+    environment: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      PRICE_SOURCE: yahoo
+      TICKERS: ${{ inputs.tickers }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e .
+      - name: Validate tickers
+        run: |
+          if ! printf '%s' "$TICKERS" | grep -Eq '^[A-Z][A-Z0-9.-]{0,9}( [A-Z][A-Z0-9.-]{0,9}){0,19}$'; then
+            echo "tickers must be 1-20 upper-case symbols separated by single spaces" >&2
+            exit 1
+          fi
+      - name: Verify schema
+        run: |
+          python - <<'PY'
+          from stock_machine import db
+          with db.connect() as conn:
+              db.init_schema(conn)
+          PY
+      - name: Re-fetch full history from Yahoo
+        run: python scripts/refresh_prices.py $TICKERS --force
