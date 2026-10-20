@@ -40,21 +40,30 @@ VOL_PROTOCOL_SHA256 = "63fbb13b99b8b3270e570bdfbb08a25456bd36b8befad8f8d1257fe0b
 COST_VOL_POINTS = 0.01      # one volatility point per side: short at IV - 1, long at IV + 1
 TERCILE_MIN_STOCKS = 9
 MIN_TRAIN_MONTHS = 12
+IV_BOUNDS = (0.05, 3.0)     # an implied volatility outside this range is not a usable print
+IV_DROP_SHARE = 0.55        # nor one below this share of the median of the previous five prints (a bad tick)
+# First session as the operating company; before it IBKR's history is the SPAC shell's.
+LISTED = {"HIMS": "2021-01-21", "SOFI": "2021-06-01"}
 DEV = ("2017-06", "2023-12")
 HOLDOUT = vr.HOLDOUT
 REGISTERED_PROTOCOL_SHA256 = None
-BEHAVIOR_SHA256 = "2c8564ec4d7d0318bedcf02135c8458ae5ee156d1f91e99b529cf18f51e679d1"
+# The sha256 of the exact price and implied-volatility files, committed with the registration: the
+# hold-out is deterministic on them, so a rerun can only repeat its answer, and other files are refused.
+REGISTERED_INPUTS = None
+BEHAVIOR_SHA256 = "9276ba8306e0f721e0abd071b4b4199ded441965e44fea110bb963d59f506ee2"
 HYPOTHESES = {
     "V1": ("descriptive", "all", "variance premium: the mean short-variance payoff at IV - 1 point on every "
                                  "stock-month (the options market prices more movement than happens)"),
     "V2": ("descriptive", "all", "our forecast against the market's: QLIKE(IV_CAL) - QLIKE(HAR_PLUS)"),
-    "V3": ("confirmatory", "all", "our forecast adds information the options market has not priced: "
-                                  "QLIKE(IV_CAL) - QLIKE(COMBINED) > 0"),
+    "V3": ("confirmatory", "all", "adding our forecast to the calibrated implied volatility lowers the loss "
+                                  "(QLIKE(IV_CAL) - QLIKE(COMBINED) > 0) and COMBINED also beats the raw quote "
+                                  "(V7 > 0): our forecast carries information the options market has not priced"),
     "V4": ("confirmatory", "all", "the relative-value variance book (short the third of stocks where IV is "
                                   "richest against our forecast, long the cheapest third) earns more than 0 after "
                                   "costs"),
     "V5": ("descriptive", "earnings", "V3 in months with an expected earnings release"),
     "V6": ("descriptive", "earnings", "V4 in months with an expected earnings release"),
+    "V7": ("descriptive", "all", "COMBINED against the unfitted quote: QLIKE(IV_RAW) - QLIKE(COMBINED)"),
 }
 CONFIRMATORY = tuple(k for k, v in HYPOTHESES.items() if v[0] == "confirmatory")
 
@@ -72,10 +81,15 @@ def _protocol() -> dict:
                                   "from two expiries; vendor-computed) from scripts/probe_ibkr_iv_history.py, at "
                                   "exactly the decision session",
             "earnings": f"pinned SEC 8-K item 2.02 dataset (sha256 {vr.EARNINGS_SHA256})",
-            "hashes": "the sha256 of the price and implied-volatility files used are recorded with each result",
+            "hashes": "the sha256 of the price and implied-volatility files are recorded with each result; the "
+                      "hold-out runs only on the files registered with the protocol (REGISTERED_INPUTS)",
         },
         "decisions": "the volatility replay's month-end stock-months with a HAR_PLUS forecast and an implied "
-                     "volatility at that session (others are counted, by reason)",
+                     "volatility at that session (others are counted, by reason and split)",
+        "listed_from": LISTED,
+        "iv_plausibility": f"a decision-session print outside {list(IV_BOUNDS)}, or below {IV_DROP_SHARE} x the "
+                           "median of the five previous prints, is excluded (IV_IMPLAUSIBLE); only earlier prints "
+                           "are used",
         "models": {
             "IV_CAL": "pooled OLS of log realized vol on log IV",
             "HAR_PLUS": "volatility-forecast.v1 (registered code), its own variance forecast",
@@ -89,7 +103,7 @@ def _protocol() -> dict:
             "payoff": "variance-swap payoff normalized by its strike K: short 1 - RV/K, long RV/K - 1; RV is the "
                       "realized variance over the 21 sessions; uncapped",
             "strike": f"short K = (IV - {COST_VOL_POINTS:g})^2, long K = (IV + {COST_VOL_POINTS:g})^2: one "
-                      "volatility point of cost per side",
+                      "volatility point of cost per side (the IV bounds keep K positive)",
             "book": f"each month rank stocks by log(HAR_PLUS variance / IV^2); short the lowest third, long the "
                     f"highest third (equal weight within each leg, the two legs added); months with fewer than "
                     f"{TERCILE_MIN_STOCKS} stocks are skipped",
@@ -100,7 +114,10 @@ def _protocol() -> dict:
                      "(the volatility replay's)",
         "hypotheses": {k: {"role": v[0], "sample": v[1], "statement": v[2]} for k, v in HYPOTHESES.items()},
         "family": {"hypotheses": list(CONFIRMATORY), "t_critical": vr.T7_FAMILY,
-                   "test": "hold-out mean of block means > 0 and its family-wise lower bound > 0"},
+                   "test": "hold-out mean of block means > 0 and its family-wise lower bound > 0; for V3 the same "
+                           "must also hold for V7 (an intersection-union test, no further correction)"},
+        "robustness": "each hypothesis also reports its median month, its mean without its largest-magnitude month, "
+                      "its worst month, and (V3) the sign of COMBINED's coefficient on our forecast across refits",
         "splits": {"dev": list(DEV), "holdout": list(HOLDOUT), "assignment": "by decision month",
                    "holdout_label": "PSEUDO_OUT_OF_SAMPLE"},
         "behavior_sha256": BEHAVIOR_SHA256,
@@ -111,6 +128,9 @@ def _protocol() -> dict:
             "The trade proxy ignores bid/ask beyond one volatility point, skew, early exercise and hedging costs; "
             "short-variance payoffs have a heavy left tail.",
             "The universe is today's coverage list: survivorship-biased.",
+            "Pre-registration review: a reviewer computed development figures (through 2023-12) on these files "
+            "before the final design, and a verifier computed one hold-out stock-month (AAPL 2026-07, the "
+            "implausible print) to size that data issue; no hold-out aggregate or verdict was computed.",
         ],
         "use": "evidence for review; never changes trading",
     }
@@ -136,8 +156,23 @@ def load_iv(directory) -> tuple[dict, str]:
     for path in paths:
         data = json.loads(path.read_text())
         rows = data["series"]["OPTION_IMPLIED_VOLATILITY"]["rows"]
-        out[data["ticker"]] = {r["date"]: r["close"] for r in rows if r["close"] and r["close"] > 0}
+        out[data["ticker"]] = {r["date"]: r["close"] for r in rows if r["close"] is not None}
     return out, _files_sha(paths)
+
+
+def plausible(series: dict, session: str, dates: list[str] | None = None) -> bool:
+    """The print at the session against fixed bounds and the median of the five previous prints
+    (dates: the series' sorted dates, passed in to avoid re-sorting)."""
+    import bisect
+    level = series.get(session)
+    if level is None or not IV_BOUNDS[0] <= level <= IV_BOUNDS[1]:
+        return False
+    dates = dates if dates is not None else sorted(series)
+    i = bisect.bisect_left(dates, session)
+    earlier = [series[d] for d in dates[max(0, i - 5):i]]
+    if len(earlier) >= 3 and level < IV_DROP_SHARE * sorted(earlier)[len(earlier) // 2]:
+        return False
+    return True
 
 
 def load_prices(directory) -> tuple[dict, str]:
@@ -149,24 +184,34 @@ def load_prices(directory) -> tuple[dict, str]:
 # ---- joining and fitting -------------------------------------------------------
 
 def join(prices: dict, spy: list[dict], earnings: dict, iv: dict, end: str) -> dict:
-    """Stock-months with HAR_PLUS, IV and a completed target; exclusions counted by reason."""
+    """Stock-months with HAR_PLUS, a plausible IV and a completed target; exclusions counted by
+    reason and split (the volatility panel's own exclusions are pooled under "panel")."""
     built = vr.panel(prices, spy, earnings, end)
     window_end = {(r["ticker"], r["decision"]): r["window_end"] for r in built["rows"]}
-    dropped = defaultdict(int, built["dropped"])
+    dates = {t: sorted(series) for t, series in iv.items()}
+    dropped = defaultdict(lambda: defaultdict(int))
     rows = []
     for s in vr.forecasts(built["rows"]):
+        bucket = dropped[split_of(s["month"]) or "other"]
         if "HAR_PLUS" not in s["forecast_var"]:
-            dropped["UNTRAINED"] += 1
+            bucket["UNTRAINED"] += 1
             continue
-        level = iv.get(s["ticker"], {}).get(s["decision"])
-        if not level:
-            dropped["NO_IV"] += 1
+        if s["decision"] < LISTED.get(s["ticker"], ""):
+            bucket["PRE_LISTING"] += 1
+            continue
+        series = iv.get(s["ticker"], {})
+        level = series.get(s["decision"])
+        if level is None:
+            bucket["NO_IV"] += 1
+            continue
+        if not plausible(series, s["decision"], dates.get(s["ticker"])):
+            bucket["IV_IMPLAUSIBLE"] += 1
             continue
         rows.append({"ticker": s["ticker"], "decision": s["decision"], "month": s["month"], "earn": s["earn"],
                      "iv": level, "realized_var": s["realized_var"], "har_var": s["forecast_var"]["HAR_PLUS"],
                      "har_log": s["forecast_log_vol"]["HAR_PLUS"],
                      "window_end": window_end[(s["ticker"], s["decision"])]})
-    return {"rows": rows, "dropped": dict(dropped)}
+    return {"rows": rows, "dropped": {"panel": built["dropped"], **{k: dict(v) for k, v in dropped.items()}}}
 
 
 def _fit(train: list[dict], features) -> tuple[list[float], float] | None:
@@ -204,7 +249,7 @@ def calibrated(rows: list[dict]) -> list[dict]:
             for name, (beta, s2) in fits.items():
                 mu = beta[0] + sum(b * f(r) for b, f in zip(beta[1:], FEATURES[name]))
                 var[name] = math.exp(2 * mu + 2 * s2)
-            out.append({**r, "var": var})
+            out.append({**r, "var": var, "combined_har_coef": fits["COMBINED"][0][2]})
     return out
 
 
@@ -253,10 +298,28 @@ def _qlike_gain(model: str, bench: str):
                               for r in group)
 
 
+def verdict(stat: dict, also: dict | None = None) -> str:
+    """SUPPORTED when the mean and its (family-wise) lower bound are both above 0; with `also`
+    (V3's raw-quote condition) the same must hold for it too."""
+    def holds(x):
+        return x is not None and x.get("lower") is not None and x["mean"] > 0 and x["lower"] > 0
+    return "SUPPORTED" if holds(stat) and (also is None or holds(also)) else "NOT_SUPPORTED"
+
+
+def robustness(values: list[float]) -> dict:
+    if not values:
+        return {"median_month": None, "mean_without_largest_month": None, "worst_month": None}
+    largest = max(range(len(values)), key=lambda i: abs(values[i]))
+    rest = values[:largest] + values[largest + 1:]
+    return {"median_month": sorted(values)[len(values) // 2], "worst_month": min(values),
+            "mean_without_largest_month": mean(rest) if rest else None}
+
+
 def evaluate(rows: list[dict], *, stage: str, dropped: dict | None = None, inputs: dict | None = None) -> dict:
     splits = ("dev",) if stage == "dev" else ("dev", "holdout")
     out = {"protocol_id": PROTOCOL["protocol_id"], "protocol_sha256": PROTOCOL_SHA256, "stage": stage,
-           "inputs": inputs or {}, "excluded": dropped or {}, "splits": {}}
+           "inputs": inputs or {}, "excluded": {k: v for k, v in (dropped or {}).items() if k in ("panel", *splits)},
+           "splits": {}}
     measures = {
         "V1": lambda g: mean(short_payoff(r) for r in g),
         "V2": _qlike_gain("HAR_PLUS", "IV_CAL"),
@@ -264,11 +327,14 @@ def evaluate(rows: list[dict], *, stage: str, dropped: dict | None = None, input
         "V4": book,
         "V5": _qlike_gain("COMBINED", "IV_CAL"),
         "V6": book,
+        "V7": _qlike_gain("COMBINED", "IV_RAW"),
     }
     for split in splits:
         chosen = [r for r in rows if split_of(r["month"]) == split]
         models = ("IV_RAW", "IV_CAL", "HAR_PLUS", "COMBINED")
+        coefs = sorted({r["decision"]: r["combined_har_coef"] for r in chosen}.values())
         summary = {"stock_months": len(chosen), "months": len({r["month"] for r in chosen}),
+                   "first_month": min((r["month"] for r in chosen), default=None),
                    "mean_qlike": {m: mean(vr.qlike(r["realized_var"], r["var"][m]) for r in chosen) if chosen else None
                                   for m in models},
                    "forecast_to_realized": {m: (mean(r["var"][m] for r in chosen) /
@@ -276,6 +342,9 @@ def evaluate(rows: list[dict], *, stage: str, dropped: dict | None = None, input
                                             for m in models},
                    "mean_iv_over_realized_vol": mean(r["iv"] / math.sqrt(r["realized_var"]) for r in chosen)
                    if chosen else None,
+                   "combined_coefficient_on_our_forecast": {
+                       "median": coefs[len(coefs) // 2] if coefs else None,
+                       "share_negative": sum(c < 0 for c in coefs) / len(coefs) if coefs else None},
                    "hypotheses": {}}
         if split == "holdout":
             summary["label"] = "PSEUDO_OUT_OF_SAMPLE"
@@ -284,14 +353,23 @@ def evaluate(rows: list[dict], *, stage: str, dropped: dict | None = None, input
             values = _monthly(subset, measures[key])
             confirm = split == "holdout" and role == "confirmatory"
             stat = vr.interval(values, vr.T7_FAMILY if confirm else vr.T7_975)
-            entry = {**stat, "role": role, "statement": statement, "stock_months": len(subset),
-                     "worst_month": min(values) if values else None}
+            entry = {**stat, **robustness(values), "role": role, "statement": statement, "stock_months": len(subset)}
             if confirm:
-                entry["verdict"] = ("SUPPORTED" if stat["lower"] is not None and stat["mean"] > 0 and stat["lower"] > 0
-                                    else "NOT_SUPPORTED")
+                raw = None
+                if key == "V3":
+                    raw = vr.interval(_monthly(subset, measures["V7"]), vr.T7_FAMILY)
+                    entry["raw_quote_condition"] = raw
+                entry["verdict"] = verdict(stat, raw)
             summary["hypotheses"][key] = entry
         out["splits"][split] = summary
     return out
+
+
+VERDICT_CASES = (            # fixed monthly series that exercise the confirmatory rule (behaviour pin)
+    [0.04, 0.05, 0.06, 0.05, 0.04, 0.06, 0.05, 0.05],
+    [0.05, 0.0, 0.05, 0.0, 0.05, 0.0, 0.05, 0.0],          # t = 2.65: passes at 95%, fails family-wise
+    [0.30, -0.05, -0.04, -0.05, -0.03, -0.04, -0.05, -0.04],
+)
 
 
 # ---- behaviour pin and gates ---------------------------------------------------
@@ -339,8 +417,17 @@ def behavior_digest() -> str:
     def r6(x):
         return None if x is None else round(float(x), 6)
     result = evaluate(rows, stage="dev")["splits"]
+    months = sorted({r["month"] for r in rows})
+    as_holdout = {m: f"{2024 + i // 12}-{i % 12 + 1:02d}" for i, m in enumerate(months)}
+    holdout = evaluate([dict(r, month=as_holdout[r["month"]]) for r in rows], stage="holdout")["splits"]["holdout"]
+    first = vr.interval(VERDICT_CASES[0], vr.T7_FAMILY)
+    cases = [[r6(vr.interval(v, vr.T7_FAMILY)["lower"]), verdict(vr.interval(v, vr.T7_FAMILY)),
+              verdict(vr.interval(v, vr.T7_FAMILY), first), verdict(first, vr.interval(v, vr.T7_FAMILY))]
+             for v in VERDICT_CASES]
     return digest({"rows": [[r["ticker"], r["decision"], {m: r6(v) for m, v in sorted(r["var"].items())}] for r in rows],
-                   "evaluation": json.loads(json.dumps(result), parse_float=r6), "dropped": joined["dropped"]})
+                   "evaluation": json.loads(json.dumps(result), parse_float=r6), "dropped": joined["dropped"],
+                   "holdout_path": json.loads(json.dumps(holdout), parse_float=r6),
+                   "verdicts": cases, "t_family": vr.T7_FAMILY, "plausible": [plausible({"a": 0.3, "b": 0.31, "c": 0.29, "d": 0.15}, "d", ["a", "b", "c", "d"]), plausible({"a": 0.3}, "a")]})
 
 
 def holdout_ready(tickers: list[str]) -> tuple[bool, str]:
@@ -366,15 +453,23 @@ def run(*, prices_dir, iv_dir, stage: str, end: str, tickers: list[str]) -> dict
             return {"protocol_id": PROTOCOL["protocol_id"], "stage": stage, "status": "REFUSED", "reason": reason}
     prices, prices_sha = load_prices(prices_dir)
     iv, iv_sha = load_iv(iv_dir)
+    inputs = {"prices_sha256": prices_sha, "implied_vol_sha256": iv_sha}
+    if stage == "holdout" and inputs != REGISTERED_INPUTS:
+        return {"protocol_id": PROTOCOL["protocol_id"], "stage": stage, "status": "REFUSED",
+                "reason": "INPUTS_NOT_REGISTERED" if REGISTERED_INPUTS is None else "INPUTS_CHANGED_SINCE_REGISTRATION"}
     missing = sorted(set(tickers) - set(prices)) + ([] if "SPY" in prices else ["SPY"])
     if missing:
         return {"protocol_id": PROTOCOL["protocol_id"], "stage": stage, "status": "REFUSED",
                 "reason": "PRICES_MISSING", "missing": missing}
     joined = join({t: prices[t] for t in tickers}, prices["SPY"], vr.earnings_events(), iv, end)
     rows = calibrated(joined["rows"])
-    joined["dropped"]["CALIBRATION_UNTRAINED"] = len(joined["rows"]) - len(rows)
+    kept = {(r["ticker"], r["decision"]) for r in rows}
+    for r in joined["rows"]:
+        if (r["ticker"], r["decision"]) not in kept:
+            bucket = joined["dropped"].setdefault(split_of(r["month"]) or "other", {})
+            bucket["CALIBRATION_UNTRAINED"] = bucket.get("CALIBRATION_UNTRAINED", 0) + 1
     if stage == "dev":
-        rows = [r for r in rows if split_of(r["month"]) == "dev"]
-    inputs = {"prices_sha256": prices_sha, "implied_vol_sha256": iv_sha, "end": end}
+        rows = [r for r in rows if split_of(r["month"]) == "dev"]   # the local file never holds hold-out rows
+    inputs = {**inputs, "end": end}
     return {"protocol": PROTOCOL, "result": evaluate(rows, stage=stage, dropped=joined["dropped"], inputs=inputs),
             "rows": rows}

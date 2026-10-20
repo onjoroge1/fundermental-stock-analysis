@@ -11,8 +11,8 @@ from stock_machine.agents.contracts import AGENT_UNIVERSE, digest
 from stock_machine.backtest import implied_vol_replay as ivr
 from stock_machine.backtest import volatility_replay as vr
 
-PINNED_PROTOCOL_SHA256 = "e3935098bfbe8d0f79bf620c404ad928b394c337bfddb3091ba48ff5ef31b3c8"
-PINNED_BEHAVIOR_SHA256 = "2c8564ec4d7d0318bedcf02135c8458ae5ee156d1f91e99b529cf18f51e679d1"
+PINNED_PROTOCOL_SHA256 = "50f81997e6e72271eb3d133375034843e8b1066cf7a9f388eb525cec2e478509"
+PINNED_BEHAVIOR_SHA256 = "9276ba8306e0f721e0abd071b4b4199ded441965e44fea110bb963d59f506ee2"
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -27,6 +27,8 @@ def test_the_protocol_builds_on_the_registered_volatility_replay_and_is_pinned()
 def test_the_holdout_refuses_until_registered(monkeypatch):
     universe = sorted(AGENT_UNIVERSE)
     assert ivr.holdout_ready(universe) == (False, "PROTOCOL_NOT_REGISTERED_FOR_HOLDOUT")
+    monkeypatch.setattr(ivr, "REGISTERED_PROTOCOL_SHA256", "a" * 64)
+    assert ivr.holdout_ready(universe) == (False, "PROTOCOL_CHANGED_SINCE_REGISTRATION")
     monkeypatch.setattr(ivr, "REGISTERED_PROTOCOL_SHA256", ivr.PROTOCOL_SHA256)
     assert ivr.holdout_ready(universe) == (True, "READY")
     assert ivr.holdout_ready(universe[:5]) == (False, "UNIVERSE_NOT_REGISTERED")
@@ -50,10 +52,13 @@ def test_variance_payoffs_include_the_cost_on_each_side():
 
 
 def test_the_book_shorts_rich_implied_vol_and_buys_cheap_and_skips_thin_months():
-    rows = [row(f"S{k}", 0.30, 0.30, 0.20 + 0.02 * k) for k in range(9)]   # our forecast rises with k
+    # Our forecast rises with k; realized volatility does too, so the right legs earn and flipped legs lose.
+    rows = [row(f"S{k}", 0.30, 0.20 + 0.02 * k, 0.20 + 0.02 * k) for k in range(9)]
     rich, cheap = rows[:3], rows[-3:]                                     # IV richest vs forecast at low k
     expected = (sum(ivr.short_payoff(r) for r in rich) / 3) + (sum(ivr.long_payoff(r) for r in cheap) / 3)
-    assert ivr.book(rows) == pytest.approx(expected)
+    flipped = (sum(ivr.long_payoff(r) for r in rich) / 3) + (sum(ivr.short_payoff(r) for r in cheap) / 3)
+    assert ivr.book(rows) == pytest.approx(expected) and expected > 0 > flipped
+    assert ivr.book(list(reversed(rows))) == pytest.approx(expected)         # ranking, not input order
     assert ivr.book(rows[:8]) is None
 
 
@@ -65,7 +70,34 @@ def test_the_join_uses_implied_vol_at_exactly_the_decision_session():
     shifted = {t: {d: v for d, v in series.items() if not d.endswith(("-28", "-29", "-30", "-31"))}
                for t, series in iv.items()}
     fewer = ivr.join(prices, spy, earnings, shifted, "2019-12-31")
-    assert fewer["dropped"]["NO_IV"] > 0 and len(fewer["rows"]) < len(joined["rows"])   # never filled from earlier
+    no_iv = sum(b.get("NO_IV", 0) for k, b in fewer["dropped"].items() if k != "panel")
+    assert no_iv > 0 and len(fewer["rows"]) < len(joined["rows"])                   # never filled from earlier
+
+
+def test_implausible_prints_and_spac_months_are_excluded_and_counted():
+    series = {"2026-07-24": 0.29, "2026-07-27": 0.28, "2026-07-28": 0.30, "2026-07-29": 0.29, "2026-07-30": 0.29,
+              "2026-07-31": 0.146}
+    assert not ivr.plausible(series, "2026-07-31")                        # half the previous prints: a bad tick
+    assert ivr.plausible({**series, "2026-07-31": 0.20}, "2026-07-31")    # an earnings crush is kept
+    assert not ivr.plausible({"2021-01-07": 1.6e-5}, "2021-01-07") and not ivr.plausible({"x": 3.5}, "x")
+    later = {**series, "2026-08-03": 0.01}
+    assert ivr.plausible(later, "2026-07-30")                             # later prints are never used
+    prices, spy, earnings, iv = ivr.behavior_fixture()
+    renamed = {("HIMS" if t == "S0" else t): v for t, v in prices.items()}
+    iv2 = {("HIMS" if t == "S0" else t): v for t, v in iv.items()}
+    joined = ivr.join(renamed, spy, {("HIMS" if t == "S0" else t): v for t, v in earnings.items()}, iv2, "2019-12-31")
+    assert not any(r["ticker"] == "HIMS" for r in joined["rows"])          # all fixture months precede 2021-01-21
+    assert sum(b.get("PRE_LISTING", 0) for k, b in joined["dropped"].items() if k != "panel") > 0
+
+
+def test_the_confirmatory_rule_needs_the_family_wise_bound_and_v3_needs_the_raw_quote_too():
+    clear, between, crash = (vr.interval(v, vr.T7_FAMILY) for v in ivr.VERDICT_CASES)
+    assert vr.interval(ivr.VERDICT_CASES[1], vr.T7_975)["lower"] > 0 > between["lower"]
+    assert ivr.verdict(clear) == "SUPPORTED" and ivr.verdict(between) == "NOT_SUPPORTED"
+    assert ivr.verdict(crash) == "NOT_SUPPORTED"                          # one large month is not enough
+    assert ivr.verdict(clear, between) == "NOT_SUPPORTED" and ivr.verdict(clear, clear) == "SUPPORTED"
+    out = ivr.robustness([0.30, -0.05, 0.01])
+    assert out["median_month"] == 0.01 and out["mean_without_largest_month"] == pytest.approx(-0.02)
 
 
 def test_calibration_is_purged_and_needs_a_year_of_joined_data(monkeypatch):
@@ -81,8 +113,12 @@ def test_calibration_is_purged_and_needs_a_year_of_joined_data(monkeypatch):
     out = ivr.calibrated(rows)
     decisions = sorted({r["decision"] for r in out})
     assert decisions and all(last <= d for last, d in zip(seen[::2], decisions))
-    first_joined = min(r["month"] for r in rows)
-    assert min(r["month"] for r in out) > first_joined                  # the first year only trains
+    def completed(decision):
+        return len({r["month"] for r in rows if r["window_end"] and r["window_end"] <= decision})
+    all_decisions = sorted({r["decision"] for r in rows})
+    first = all_decisions.index(decisions[0])
+    assert completed(decisions[0]) >= ivr.MIN_TRAIN_MONTHS > completed(all_decisions[first - 1])
+    assert all(isinstance(r["combined_har_coef"], float) for r in out)
     assert all({"IV_RAW", "IV_CAL", "HAR_PLUS", "COMBINED"} <= set(r["var"]) for r in out)
 
 
@@ -115,10 +151,12 @@ def test_a_local_run_records_input_hashes_and_never_returns_values_in_the_result
     out = ivr.run(prices_dir=pdir, iv_dir=vdir, stage="dev", end="2019-12-31", tickers=tickers)
     result = out["result"]
     assert set(result["splits"]) == {"dev"} and len(result["inputs"]["implied_vol_sha256"]) == 64
-    assert "rows" not in result and "CALIBRATION_UNTRAINED" in result["excluded"]
+    assert "rows" not in result and "CALIBRATION_UNTRAINED" in result["excluded"]["dev"]
+    assert all(ivr.split_of(r["month"]) == "dev" for r in out["rows"])          # no hold-out rows, even locally
     text = json.dumps(result)
-    some_iv = next(iter(ivr.behavior_fixture()[3]["S0"].values()))
-    assert str(round(some_iv, 6))[:8] not in text
+    assert not any(repr(r["iv"]) in text or repr(r["realized_var"]) in text for r in out["rows"][:50])
+    held = ivr.run(prices_dir=pdir, iv_dir=vdir, stage="holdout", end="2019-12-31", tickers=sorted(AGENT_UNIVERSE))
+    assert held["status"] == "REFUSED"
     missing = ivr.run(prices_dir=pdir, iv_dir=vdir, stage="dev", end="2019-12-31", tickers=tickers + ["ZZZ"])
     assert missing["status"] == "REFUSED" and missing["missing"] == ["ZZZ"]
 
@@ -145,3 +183,34 @@ def test_the_price_fetcher_joins_adjusted_closes_without_borrowing_raw_ones(tmp_
     assert s.calls == [("AAPL", "TRADES"), ("AAPL", "ADJUSTED_LAST")]             # resumed, not refetched
     text = (ROOT / "scripts" / "fetch_ibkr_prices.py").read_text()
     assert "placeOrder" not in text and "db.connect" not in text
+
+
+def test_a_registered_holdout_runs_only_on_the_registered_files(tmp_path, monkeypatch):
+    pdir, vdir, tickers = _write_inputs(tmp_path)
+    monkeypatch.setattr(vr, "earnings_events", lambda: ivr.behavior_fixture()[2])
+    monkeypatch.setattr(ivr, "holdout_ready", lambda t: (True, "READY"))
+    refused = ivr.run(prices_dir=pdir, iv_dir=vdir, stage="holdout", end="2019-12-31", tickers=tickers)
+    assert refused["reason"] == "INPUTS_NOT_REGISTERED"
+    _, prices_sha = ivr.load_prices(pdir)
+    _, iv_sha = ivr.load_iv(vdir)
+    monkeypatch.setattr(ivr, "REGISTERED_INPUTS", {"prices_sha256": prices_sha, "implied_vol_sha256": iv_sha})
+    first = ivr.run(prices_dir=pdir, iv_dir=vdir, stage="holdout", end="2019-12-31", tickers=tickers)
+    again = ivr.run(prices_dir=pdir, iv_dir=vdir, stage="holdout", end="2019-12-31", tickers=tickers)
+    assert first["result"] == again["result"]                     # deterministic: a rerun repeats the answer
+    (vdir / "S1.json").write_text((vdir / "S2.json").read_text())
+    changed = ivr.run(prices_dir=pdir, iv_dir=vdir, stage="holdout", end="2019-12-31", tickers=tickers)
+    assert changed["reason"] == "INPUTS_CHANGED_SINCE_REGISTRATION"
+
+
+def test_the_holdout_judges_v3_jointly_with_the_raw_quote_at_the_family_wise_bound():
+    prices, spy, earnings, iv = ivr.behavior_fixture()
+    rows = ivr.calibrated(ivr.join(prices, spy, earnings, iv, "2019-12-31")["rows"])
+    months = sorted({r["month"] for r in rows})
+    relabel = {m: f"{2024 + i // 12}-{i % 12 + 1:02d}" for i, m in enumerate(months)}
+    held = ivr.evaluate([dict(r, month=relabel[r["month"]]) for r in rows], stage="holdout")["splits"]["holdout"]
+    assert held["label"] == "PSEUDO_OUT_OF_SAMPLE"
+    v3, v4, v1 = (held["hypotheses"][k] for k in ("V3", "V4", "V1"))
+    assert v3["verdict"] == ivr.verdict(v3, v3["raw_quote_condition"]) and "verdict" in v4
+    assert "verdict" not in v1 and "raw_quote_condition" not in v4                # descriptive rows are not judged
+    assert v4["upper"] - v4["mean"] == pytest.approx(vr.T7_FAMILY * v4["block_se"])    # family-wise, not 95%
+    assert v1["upper"] - v1["mean"] == pytest.approx(vr.T7_975 * v1["block_se"])
