@@ -50,10 +50,13 @@ implied-volatility print or had one rejected as implausible.
   usually right (earnings, news and events it knows about and history does not).
 - **The relative-value book loses (V4: −0.148 per month, interval entirely below zero).** It shorts variance on
   the third of stocks where implied volatility is richest against our forecast and buys it on the cheapest third.
-  It lost in every development year (−0.13 to −0.21 a month) and made money in 17 of 67 months. Payoffs are in
+  It lost in every development year (−0.13 to −0.20 a month) and made money in 17 of 67 months. Payoffs are in
   units of the variance notional, so −0.15 is a loss of about 15% of the notional a month on this proxy. The
-  short leg is where the damage is: it usually wins a little (median +0.04) and occasionally loses a lot (mean
-  −0.17). These are the stocks where the market knew a move was coming.
+  loss is the cost assumption: selling at IV − 1 point and buying at IV + 1 point costs about 0.15 a month
+  whatever is chosen (selling and buying every stock: −0.147), and before that cost the book made about zero
+  (−0.001 [−0.077, +0.075], descriptive). *Corrected 2026-10-20 after the hold-out review: an earlier version
+  blamed the short leg's choice of stocks, but its short leg (−0.182 a month) lost no more than shorting every
+  stock (V1, −0.192).*
 - **The broad variance premium (V1) is the classic short-volatility profile.** Selling variance at the quote
   minus one point made money in 34 of 67 months (median +0.007) and lost on average (−0.19) through a few crash
   months (February 2020's decisions: −4.0). The proxy understates the true variance-swap strike, which sits
