@@ -24,8 +24,16 @@ def test_the_protocol_builds_on_the_registered_volatility_replay_and_is_pinned()
     assert ivr.PROTOCOL["universe"] == sorted(AGENT_UNIVERSE)
 
 
-def test_the_holdout_refuses_until_registered(monkeypatch):
+def test_the_protocol_and_its_inputs_are_registered_and_the_holdout_is_ready_on_this_code():
+    assert ivr.REGISTERED_PROTOCOL_SHA256 == PINNED_PROTOCOL_SHA256 == ivr.PROTOCOL_SHA256
+    assert set(ivr.REGISTERED_INPUTS) == {"prices_sha256", "implied_vol_sha256"}
+    assert all(len(v) == 64 for v in ivr.REGISTERED_INPUTS.values())
+    assert ivr.holdout_ready(sorted(AGENT_UNIVERSE)) == (True, "READY")
+
+
+def test_the_holdout_refuses_unless_registered(monkeypatch):
     universe = sorted(AGENT_UNIVERSE)
+    monkeypatch.setattr(ivr, "REGISTERED_PROTOCOL_SHA256", None)
     assert ivr.holdout_ready(universe) == (False, "PROTOCOL_NOT_REGISTERED_FOR_HOLDOUT")
     monkeypatch.setattr(ivr, "REGISTERED_PROTOCOL_SHA256", "a" * 64)
     assert ivr.holdout_ready(universe) == (False, "PROTOCOL_CHANGED_SINCE_REGISTRATION")
@@ -156,7 +164,7 @@ def test_a_local_run_records_input_hashes_and_never_returns_values_in_the_result
     text = json.dumps(result)
     assert not any(repr(r["iv"]) in text or repr(r["realized_var"]) in text for r in out["rows"][:50])
     held = ivr.run(prices_dir=pdir, iv_dir=vdir, stage="holdout", end="2019-12-31", tickers=sorted(AGENT_UNIVERSE))
-    assert held["status"] == "REFUSED"
+    assert held["status"] == "REFUSED" and held["reason"] == "INPUTS_CHANGED_SINCE_REGISTRATION"   # not the IBKR files
     missing = ivr.run(prices_dir=pdir, iv_dir=vdir, stage="dev", end="2019-12-31", tickers=tickers + ["ZZZ"])
     assert missing["status"] == "REFUSED" and missing["missing"] == ["ZZZ"]
 
@@ -189,6 +197,7 @@ def test_a_registered_holdout_runs_only_on_the_registered_files(tmp_path, monkey
     pdir, vdir, tickers = _write_inputs(tmp_path)
     monkeypatch.setattr(vr, "earnings_events", lambda: ivr.behavior_fixture()[2])
     monkeypatch.setattr(ivr, "holdout_ready", lambda t: (True, "READY"))
+    monkeypatch.setattr(ivr, "REGISTERED_INPUTS", None)
     refused = ivr.run(prices_dir=pdir, iv_dir=vdir, stage="holdout", end="2019-12-31", tickers=tickers)
     assert refused["reason"] == "INPUTS_NOT_REGISTERED"
     _, prices_sha = ivr.load_prices(pdir)

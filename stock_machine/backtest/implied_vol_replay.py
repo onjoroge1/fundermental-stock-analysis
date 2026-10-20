@@ -46,10 +46,13 @@ IV_DROP_SHARE = 0.55        # nor one below this share of the median of the prev
 LISTED = {"HIMS": "2021-01-21", "SOFI": "2021-06-01"}
 DEV = ("2017-06", "2023-12")
 HOLDOUT = vr.HOLDOUT
-REGISTERED_PROTOCOL_SHA256 = None
+# Committed after the development stage was reviewed (docs/evidence/implied-vol-comparison-dev-2026-10-20.md);
+# the hold-out runs once against exactly this protocol, comparison code and universe.
+REGISTERED_PROTOCOL_SHA256 = "50f81997e6e72271eb3d133375034843e8b1066cf7a9f388eb525cec2e478509"
 # The sha256 of the exact price and implied-volatility files, committed with the registration: the
 # hold-out is deterministic on them, so a rerun can only repeat its answer, and other files are refused.
-REGISTERED_INPUTS = None
+REGISTERED_INPUTS = {"prices_sha256": "2f8bc6ff4e45eb7bb4525cf56b5f22d5cf68a452db207c35e6d2d5b6a8db147f",
+                     "implied_vol_sha256": "37e9e03bec8806754df868b9c808adea159594e553d8ece69716f82aa05fdffa"}
 BEHAVIOR_SHA256 = "9276ba8306e0f721e0abd071b4b4199ded441965e44fea110bb963d59f506ee2"
 HYPOTHESES = {
     "V1": ("descriptive", "all", "variance premium: the mean short-variance payoff at IV - 1 point on every "
