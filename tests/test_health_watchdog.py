@@ -286,3 +286,34 @@ def test_missing_review_fields_or_an_unreachable_route_warn(monkeypatch):
     checks = {c["check"]: c for c in wd.collect(NOW)}
     assert checks["financial_reviews"]["severity"] == "warning"
     assert "unreachable: RuntimeError" in checks["financial_reviews"]["summary"]
+
+
+def paper_status(**over):
+    base = {"protocol_registered": True, "register_by": "2026-11-10T14:30:00+00:00", "registration_overdue": False,
+            "registered_late": False, "positions_seen": 3, "scored_positions": 1, "paper_mode_share_so_far": 1.0,
+            "exception_share_so_far": 0.0, "superseded_protocols": [], "sticky_attention": [],
+            "evaluation": {"status": "PENDING", "final": False}}
+    return {**base, **over}
+
+
+def test_the_paper_ledger_check_is_quiet_while_registered_and_untouched():
+    ok = wd.check_paper_ledger(paper_status())
+    assert ok["severity"] is None and "3 position(s) seen, 1 scored" in ok["summary"] and "unpaused 100%" in ok["summary"]
+    assert wd.check_paper_ledger(paper_status(paper_mode_share_so_far=0.96))["severity"] is None
+    assert wd.check_paper_ledger(paper_status(paper_mode_share_so_far=0.94))["keys"] == ["MODE_SHARE_BELOW_95PCT"]
+    waiting = wd.check_paper_ledger(paper_status(protocol_registered=False, paper_mode_share_so_far=None))
+    assert waiting["severity"] is None and "not yet registered (register by 2026-11-10" in waiting["summary"]
+
+
+def test_a_missed_registration_a_late_one_or_a_changed_ledger_row_warns_with_stable_keys():
+    overdue = wd.check_paper_ledger(paper_status(protocol_registered=False, registration_overdue=True))
+    assert overdue["severity"] == "warning" and overdue["keys"] == ["NOT_REGISTERED"]
+    assert wd.check_paper_ledger(paper_status(registered_late=True))["keys"] == ["REGISTERED_LATE"]
+    item = "LEDGER_MUTATED:p1:entry_price:2026-11-16"
+    mutated = wd.check_paper_ledger(paper_status(sticky_attention=[item]))
+    assert mutated["keys"] == [item] and " " not in "+".join(mutated["keys"])
+    assert wd.check_paper_ledger({"protocol_registered": True})["keys"] == ["FIELDS_MISSING"]
+    assert wd.check_paper_ledger(paper_status(exception_share_so_far=0.04))["severity"] is None
+    assert wd.check_paper_ledger(paper_status(exception_share_so_far=0.06))["keys"] == ["EXCEPTIONS_ABOVE_5PCT"]
+    assert wd.check_paper_ledger(paper_status(superseded_protocols=["agent-paper-ledger.v0:x"]))["keys"] == \
+        ["SUPERSEDED_PROTOCOL"]

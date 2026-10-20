@@ -1,0 +1,51 @@
+name: Paper Ledger Evaluation
+
+# Nightly, after the paper stage (17:00-22:59 ET): snapshot the agent's paper
+# ledger append-only, score positions whose 20-session window and label are
+# complete, and evaluate once at the pre-registered horizon (item 52). The
+# first run on main registers the protocol: dispatch it before the 2026-11-10
+# open. Read-only toward the ledger; never changes the mode or a trade.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 4 * * 2-6"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: paper-ledger-forward
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    # Evidence is append-only: only main may register the protocol or snapshot.
+    if: github.ref == 'refs/heads/main'
+    environment: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e .
+      - name: Verify schema
+        run: |
+          python - <<'PY'
+          from stock_machine import db
+          with db.connect() as conn:
+              db.init_schema(conn)
+          PY
+      - name: Snapshot the paper ledger, score resolved positions
+        run: python -m scripts.run_paper_ledger_forward
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: paper-ledger-forward-${{ github.run_id }}
+          path: data/paper_ledger_forward/
+          if-no-files-found: warn
+          retention-days: 90

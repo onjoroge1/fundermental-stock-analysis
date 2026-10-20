@@ -122,6 +122,8 @@ def summarize(
             "Rolling five-session review, not a strategy qualification or a new reward horizon.",
             "Overlapping decisions and correlated stocks are not independent samples.",
             "Simulated fill costs are included; borrow fees, slippage and market impact are not measured.",
+            "Not evidence of skill: only the pre-registered paper-ledger evaluation "
+            "(agent-paper-ledger.v1:evaluation.v1) judges this ledger, once.",
         ],
     }
 

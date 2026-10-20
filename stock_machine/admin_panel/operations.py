@@ -314,7 +314,8 @@ def technical_setup_summary():
     return summary()
 
 
-FORWARD_RECEIPTS = {"fair_value": "FAIR_VALUE_FORWARD_STAGE_FINISHED", "strategies": "STRATEGY_FORWARD_STAGE_FINISHED"}
+FORWARD_RECEIPTS = {"fair_value": "FAIR_VALUE_FORWARD_STAGE_FINISHED", "strategies": "STRATEGY_FORWARD_STAGE_FINISHED",
+                    "paper_ledger": "PAPER_LEDGER_FORWARD_STAGE_FINISHED"}
 
 
 def _forward_receipt(conn, event: str) -> dict | None:
@@ -352,6 +353,7 @@ def forward_tracker_summary(now=None):
     must not take the whole dashboard down."""
     try:
         from ..agent_intelligence import fair_value_forward as fvf
+        from ..agent_intelligence import paper_ledger_forward as plf
         from ..agent_intelligence import strategy_forward as sf
         from ..agent_intelligence.strategy_evidence import FAIR_VALUE_KEYS, _compact_forward, with_unrecorded
         with store.connect() as conn:
@@ -360,12 +362,15 @@ def forward_tracker_summary(now=None):
             strategies = sf.summary(conn, now=now)
             conn.rollback()
             fair_value, strategies = with_unrecorded(conn, fair_value, strategies)
+            conn.rollback()
+            paper_ledger = plf.summary(conn, now=now)
             receipts = {name: _forward_receipt(conn, event) for name, event in FORWARD_RECEIPTS.items()}
         return fvf.clean({
             "schema_version": "forward-trackers-admin.v1", "status": "OK",
             "fair_value": {**{k: fair_value.get(k) for k in FAIR_VALUE_KEYS}, "forward_id": fair_value.get("forward_id"),
                            "latest_receipt": receipts["fair_value"]},
             "strategies": {**_compact_forward(strategies), "latest_receipt": receipts["strategies"]},
+            "paper_ledger": {**plf.compact(paper_ledger), "latest_receipt": receipts["paper_ledger"]},
             "use": "INFORMATION_ONLY", "broker_submission": False,
         })
     except Exception as exc:
