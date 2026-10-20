@@ -58,12 +58,27 @@ def test_the_probe_writes_labelled_files_resumes_and_records_errors(tmp_path):
     assert summary["coverage"]["ZZZZ"]["OPTION_IMPLIED_VOLATILITY"]["bars"] == 0
     assert "162" in summary["coverage"]["ZZZZ"]["errors"]
     md = (out_dir / "coverage.md").read_text()
-    assert "| AAPL | 2016-01-04 |" in md and "1 of 2 symbols returned bars" in md
+    assert "| AAPL | 2016-01-04 | 2016-01-04 |" in md and "1 of 2 symbols returned bars" in md
+    assert saved["duration"] == "15 Y"
     again = FakeSession(history)
     probe.run(again, ["AAPL", "ZZZZ"], out_dir, duration="15 Y", force=False, sessions_between=session_dates,
               log=lambda *_: None)
-    assert again.calls == []                                   # resumed: nothing requested twice
+    assert {c[1] for c in again.calls} == {"ZZZZ"}             # complete AAPL kept; the empty symbol retried
+    longer = FakeSession(history)
+    probe.run(longer, ["AAPL"], out_dir, duration="21 Y", force=False, sessions_between=session_dates,
+              log=lambda *_: None)
+    assert {c[1] for c in longer.calls} == {"AAPL"}            # a different duration is fetched again
     assert {c[2] for c in session.calls} == set(probe.SERIES)
+
+
+def test_a_timed_out_series_is_not_treated_as_complete():
+    ok = {"duration": "21 Y", "series": {w: {"coverage": {"bars": 10}, "errors": []} for w in probe.SERIES}}
+    assert probe.complete(ok, "21 Y") and not probe.complete(ok, "15 Y")
+    timed_out = {**ok, "series": {**ok["series"], "HISTORICAL_VOLATILITY": {"coverage": {"bars": 10},
+                                                                            "errors": [["TIMEOUT", "no answer"]]}}}
+    assert not probe.complete(timed_out, "21 Y")
+    legacy = {"series": ok["series"]}                          # files written before the duration was recorded
+    assert probe.complete(legacy, "21 Y")
 
 
 def test_the_probe_is_read_only_and_local_by_default():

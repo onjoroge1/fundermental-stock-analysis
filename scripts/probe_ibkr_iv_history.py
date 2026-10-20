@@ -64,17 +64,28 @@ class TWSSession:
     """One read-only connection for the whole probe."""
 
     def __init__(self, host: str, port: int, client_id: int, timeout: float, spacing: float):
-        from ibapi.client import EClient
-        from ibapi.wrapper import EWrapper
+        try:
+            from ibapi.client import EClient
+            from ibapi.wrapper import EWrapper
+        except ModuleNotFoundError:
+            raise ProbeError("IBKR's Python API (ibapi) is not installed in this Python. Use the environment that "
+                             "has it, e.g. ~/.venvs/stock-analyzer-2026/bin/python, or install IBKR's own TWS API "
+                             "release (PyPI's ibapi is an old 9.x version)") from None
 
         class _Wrapper(EWrapper):
             def __init__(self):
                 EWrapper.__init__(self)
                 self.ready = threading.Event()
                 self.done, self.bars, self.heads, self.errors = {}, {}, {}, {}
+                self.closed, self.farm_broken = False, False
 
             def nextValidId(self, orderId):
                 self.ready.set()
+
+            def connectionClosed(self):
+                self.closed = True
+                for event in list(self.done.values()):
+                    event.set()
 
             def error(self, reqId, errorTime, errorCode=None, errorString="", advancedOrderRejectJson=""):
                 code, text = errorCode, errorString
@@ -82,6 +93,10 @@ class TWSSession:
                     code, text = errorTime, (errorCode or "")
                 if code in BENIGN:
                     return
+                if code in (1100, 2110, 2103, 2105, 2157):     # connectivity or a data farm lost
+                    self.farm_broken = True
+                elif code in (1101, 1102):                     # restored
+                    self.farm_broken = False
                 self.errors.setdefault(reqId, []).append((code, str(text)[:200]))
                 if reqId in self.done:
                     self.done[reqId].set()
@@ -113,7 +128,17 @@ class TWSSession:
         c.symbol, c.secType, c.currency, c.exchange = symbol, "STK", "USD", "SMART"
         return c
 
-    def _request(self, send) -> tuple[int, threading.Event]:
+    def _check_connected(self):
+        if self.wrapper.closed or not self.client.isConnected():
+            raise ProbeError("lost the TWS/Gateway connection; rerun the same command to resume")
+
+    def _request(self, send, cancel=None) -> tuple[int, threading.Event]:
+        self._check_connected()
+        restored_by = time.monotonic() + 300
+        while self.wrapper.farm_broken and time.monotonic() < restored_by:   # wait for IBKR to reconnect
+            time.sleep(5)
+        if self.wrapper.farm_broken:
+            raise ProbeError("IBKR's data connection is broken (see the Gateway window); rerun to resume")
         wait = self.spacing - (time.monotonic() - self.last)
         if wait > 0:
             time.sleep(wait)
@@ -124,6 +149,12 @@ class TWSSession:
         self.last = time.monotonic()
         if not event.wait(self.timeout):
             self.wrapper.errors.setdefault(self.next_id, []).append(("TIMEOUT", f"no answer in {self.timeout:.0f}s"))
+            if cancel:   # an unanswered request must not hold up the ones after it
+                try:
+                    cancel(self.next_id)
+                except Exception:
+                    pass
+        self._check_connected()
         return self.next_id, event
 
     def head_timestamp(self, symbol: str, what: str) -> tuple[str | None, list]:
@@ -136,7 +167,8 @@ class TWSSession:
 
     def daily_bars(self, symbol: str, what: str, duration: str) -> tuple[list[dict], list]:
         rid, _ = self._request(lambda r: self.client.reqHistoricalData(
-            r, self._contract(symbol), "", duration, "1 day", what, 1, 1, False, []))
+            r, self._contract(symbol), "", duration, "1 day", what, 1, 1, False, []),
+            cancel=self.client.cancelHistoricalData)
         rows = [{"date": parse_bar_date(b.date), "open": float(b.open), "high": float(b.high),
                  "low": float(b.low), "close": float(b.close)} for b in self.wrapper.bars.get(rid, [])]
         return sorted(rows, key=lambda r: r["date"]), self.wrapper.errors.get(rid, [])
@@ -170,7 +202,7 @@ def coverage(rows: list[dict], head: str | None, sessions_between) -> dict:
 
 def probe_symbol(session, symbol: str, duration: str, sessions_between) -> dict:
     out = {"ticker": symbol, "retrieved_at": datetime.now(timezone.utc).isoformat(), "provenance": PROVENANCE,
-           "series": {}}
+           "duration": duration, "series": {}}
     for what in SERIES:
         head, head_errors = session.head_timestamp(symbol, what)
         rows, errors = session.daily_bars(symbol, what, duration)
@@ -182,11 +214,12 @@ def probe_symbol(session, symbol: str, duration: str, sessions_between) -> dict:
 def markdown(summary: dict) -> str:
     lines = [f"# IBKR volatility history probe, {summary['run_date']}", "",
              f"{summary['symbols']} symbols; duration requested {summary['duration']}. {PROVENANCE}.", "",
-             "| Symbol | Implied vol from | Bars | Session coverage | Longest gap | Historical vol from | Errors |",
-             "|---|---|---|---|---|---|---|"]
+             "| Symbol | Implied vol from | IBKR earliest | Bars | Session coverage | Longest gap | Historical vol from | Errors |",
+             "|---|---|---|---|---|---|---|---|"]
     for t, row in sorted(summary["coverage"].items()):
         iv, hv = row.get("OPTION_IMPLIED_VOLATILITY") or {}, row.get("HISTORICAL_VOLATILITY") or {}
-        lines.append(f"| {t} | {iv.get('first') or '—'} | {iv.get('bars', 0)} | {iv.get('session_coverage') or '—'} | "
+        lines.append(f"| {t} | {iv.get('first') or '—'} | {iv.get('head_timestamp') or '—'} | {iv.get('bars', 0)} | "
+                     f"{iv.get('session_coverage') or '—'} | "
                      f"{iv.get('longest_gap_sessions') if iv.get('longest_gap_sessions') is not None else '—'} | "
                      f"{hv.get('first') or '—'} | {row.get('errors') or ''} |")
     firsts = sorted(r["OPTION_IMPLIED_VOLATILITY"]["first"] for r in summary["coverage"].values()
@@ -196,14 +229,22 @@ def markdown(summary: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def complete(data: dict, duration: str) -> bool:
+    """A saved symbol may be kept on resume: same duration, bars in both series, nothing timed out."""
+    return (data.get("duration", duration) == duration
+            and all(data["series"].get(w, {}).get("coverage", {}).get("bars") for w in SERIES)
+            and not any(e and e[0] == "TIMEOUT" for w in SERIES for e in data["series"].get(w, {}).get("errors", [])))
+
+
 def run(session, symbols: list[str], out_dir: Path, *, duration: str, force: bool, sessions_between,
         log=print) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     summary = {"run_date": out_dir.name, "duration": duration, "symbols": len(symbols), "coverage": {}}
     for k, symbol in enumerate(symbols, 1):
         path = out_dir / f"{symbol}.json"
-        if path.exists() and not force:
-            data = json.loads(path.read_text())
+        saved = json.loads(path.read_text()) if path.exists() and not force else None
+        if saved and complete(saved, duration):
+            data = saved
             log(f"[{k}/{len(symbols)}] {symbol}: already probed, kept")
         else:
             data = probe_symbol(session, symbol, duration, sessions_between)
@@ -229,9 +270,11 @@ def main() -> int:
                         help="4001 IB Gateway live, 4002 Gateway paper, 7496 TWS live, 7497 TWS paper")
     parser.add_argument("--client-id", type=int, default=int(os.environ.get("IBKR_TWS_PROBE_CLIENT_ID", "29")))
     parser.add_argument("--tickers", help="comma-separated; default the covered universe and SPY")
-    parser.add_argument("--duration", default="15 Y")
-    parser.add_argument("--spacing", type=float, default=10.0, help="seconds between historical requests")
-    parser.add_argument("--timeout", type=float, default=120.0)
+    parser.add_argument("--duration", default="21 Y",
+                        help="daily bars; IBKR's implied-vol history starts 2006-01-06 (21 Y verified for MSFT)")
+    parser.add_argument("--spacing", type=float, default=11.0,
+                        help="seconds between requests (IBKR allows about 60 historical requests per 10 minutes)")
+    parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--out", default="data/ibkr_iv")
     parser.add_argument("--force", action="store_true", help="probe symbols already written")
     parser.add_argument("--allow-remote", action="store_true", help="connect to a non-local TWS host")
@@ -240,8 +283,11 @@ def main() -> int:
         raise SystemExit(f"refusing non-local host {args.host}; pass --allow-remote if that is intended")
     symbols = ([t.strip().upper() for t in args.tickers.split(",")] if args.tickers
                else sorted(set(AGENT_UNIVERSE) | {"SPY"}))
-    out_dir = Path(args.out) / datetime.now(timezone.utc).date().isoformat()
-    session = TWSSession(args.host, args.port, args.client_id, args.timeout, args.spacing)
+    out_dir = Path(args.out) / datetime.now().date().isoformat()   # local date: an evening rerun resumes
+    try:
+        session = TWSSession(args.host, args.port, args.client_id, args.timeout, args.spacing)
+    except ProbeError as exc:
+        raise SystemExit(str(exc)) from None
     try:
         summary = run(session, symbols, out_dir, duration=args.duration, force=args.force,
                       sessions_between=session_dates)

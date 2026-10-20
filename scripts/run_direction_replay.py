@@ -42,7 +42,7 @@ def main() -> int:
     args = parser.parse_args()
     tickers = [t.strip().upper() for t in args.tickers.split(",")] if args.tickers else sorted(AGENT_UNIVERSE)
     with db.connect() as conn:
-        conn.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
+        conn.read_only = True   # before any statement, so every transaction (the first included) is read-only
         if args.suite in ("events", "volatility"):
             module = event_replay if args.suite == "events" else volatility_replay
             out = module.run(conn, tickers=tickers, stage=args.stage, end=latest_completed_session())
