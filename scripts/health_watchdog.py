@@ -28,6 +28,7 @@ WORKFLOWS = (
     ("company-events-refresh.yml", "warning"),
     ("fair-value-forward.yml", "warning"),
     ("strategy-forward.yml", "warning"),
+    ("paper-ledger-forward.yml", "warning"),
 )
 # Journal blockers meaning "financial data unverified": still learnable (#120).
 FUNDAMENTAL_BLOCKERS = {"FINANCIAL_DEPENDENCIES_UNVERIFIED", "REQUIRED_DATA_NOT_VERIFIED", "DATA_QUALITY_NOT_PASS"}
@@ -182,6 +183,55 @@ def check_forward(check: str, status: dict, today) -> dict:
     return {"check": check, "severity": None, "summary": ok}
 
 
+PAPER_LEDGER_FIELDS = ("protocol_registered", "register_by", "registration_overdue", "registered_late",
+                       "positions_seen", "scored_positions", "paper_mode_share_so_far", "exception_share_so_far",
+                       "superseded_protocols", "sticky_attention", "evaluation")
+PAPER_EXCEPTION_WARN = 0.05   # half the protocol's 10% data rule: drift toward DATA_COMPROMISED shows early
+PAPER_MODE_WARN = 0.95        # half the protocol's 10% mode budget: drift toward MODE_INTERRUPTED shows early
+
+
+def check_paper_ledger(status: dict) -> dict:
+    """The pre-registered paper-ledger evaluation (item 52): registered in time, and no ledger row
+    changed after its snapshot. Coverage only; the evaluation itself reports no interim estimate."""
+    label = "Paper-ledger evaluation"
+    gaps = [k for k in PAPER_LEDGER_FIELDS if k not in (status or {})]
+    if gaps:
+        return {"check": "paper_ledger_forward", "severity": "warning",
+                "summary": f"{label}: status fields missing ({', '.join(gaps)})", "keys": ["FIELDS_MISSING"]}
+    reasons, keys = [], []
+    if status["registration_overdue"]:
+        reasons.append(f"protocol not registered before {status['register_by']} (dispatch paper-ledger-forward.yml)")
+        keys.append("NOT_REGISTERED")
+    if status["registered_late"]:
+        reasons.append("protocol registered after the deadline: no verdict will be issued")
+        keys.append("REGISTERED_LATE")
+    share = status["paper_mode_share_so_far"]
+    if share is not None and share < PAPER_MODE_WARN:
+        reasons.append(f"PAPER on with capture unpaused for only {share:.0%} of window sessions so far "
+                       "(the protocol voids the verdict below 90%)")
+        keys.append("MODE_SHARE_BELOW_95PCT")
+    if (status["exception_share_so_far"] or 0) > PAPER_EXCEPTION_WARN:
+        reasons.append(f"{status['exception_share_so_far']:.1%} of positions excluded or copied late "
+                       "(the protocol voids the verdict above 10%)")
+        keys.append("EXCEPTIONS_ABOVE_5PCT")
+    for superseded in status["superseded_protocols"] or []:
+        reasons.append(f"an earlier paper-ledger protocol was never finalized: {superseded}")
+        keys.append("SUPERSEDED_PROTOCOL")
+    sticky = list(status["sticky_attention"] or [])
+    reasons += sticky
+    keys += sticky
+    if reasons:
+        return {"check": "paper_ledger_forward", "severity": "warning",
+                "summary": f"{label} needs attention: " + "; ".join(reasons), "keys": sorted(set(keys))}
+    evaluation = (status["evaluation"] or {}).get("status")
+    return {"check": "paper_ledger_forward", "severity": None,
+            "summary": (f"{label}: " + ("registered" if status["protocol_registered"] else
+                                        f"not yet registered (register by {status['register_by']})")
+                        + f"; {status['positions_seen']} position(s) seen, {status['scored_positions']} scored"
+                        + (f"; PAPER on and capture unpaused {share:.0%} of window sessions" if share is not None else "")
+                        + f"; evaluation {evaluation}")}
+
+
 def check_reviews(status: dict, today) -> dict:
     """Reviewed financials a newer filing superseded (item 53). Every due issuer is listed; it becomes a
     signature key only once its re-review is more than REVIEW_GRACE_DAYS past the filing, so the issue
@@ -305,10 +355,12 @@ def collect(now: datetime) -> list[dict]:
         checks.append({"check": "benchmark_history", "severity": "warning",
                        "summary": f"{BENCHMARK} price history unreachable: {type(exc).__name__}"})
     try:
-        checks += forward_checks(_get("/api/v1/agent/learning-status"), now.date())
+        learning = _get("/api/v1/agent/learning-status")
+        checks += forward_checks(learning, now.date())
+        checks.append(check_paper_ledger(((learning or {}).get("forward_tests") or {}).get("paper_ledger")))
     except Exception as exc:
         checks += [{"check": c, "severity": "warning", "summary": f"Forward-tracker status unreachable: {type(exc).__name__}"}
-                   for c in FORWARD_LABEL]
+                   for c in (*FORWARD_LABEL, "paper_ledger_forward")]
     try:
         checks.append(check_reviews(_get("/api/v1/financial-reviews"), now.date()))
     except Exception as exc:

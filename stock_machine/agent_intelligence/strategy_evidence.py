@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ..backtest import event_replay as er
 from . import fair_value_forward as fvf
+from . import paper_ledger_forward as plf
 from . import strategy_forward as sf
 from . import strategy_signals as ss
 
@@ -140,8 +141,6 @@ def learning_status(conn, *, now: datetime | None = None) -> dict:
     receipt = row[0] if row and isinstance(row[0], dict) else {}
     pooled = learning.pooled_state(conn)
     arms = learning.current_arms(pooled)
-    paper = receipt.get("paper") or {}
-    shadow = receipt.get("shadow") or {}
     direction = receipt.get("direction_challenger") or {}
     cumulative = receipt.get("shadow_cumulative") or {}
     observations = {action: int((arm or {}).get("observations") or 0) for action, arm in sorted(arms.items())}
@@ -152,6 +151,8 @@ def learning_status(conn, *, now: datetime | None = None) -> dict:
     conn.rollback()
     fair_value, strategies = with_unrecorded(conn, fair_value, strategies)
     conn.rollback()
+    paper_ledger = plf.summary(conn, now=now)
+    conn.rollback()
     learned = sum(observations.values()) > 0
     return fvf.clean({
         "schema_version": "agent-learning-status.v1",
@@ -161,11 +162,14 @@ def learning_status(conn, *, now: datetime | None = None) -> dict:
         "learning_stage": {k: receipt.get(k) for k in ("key", "status", "started_at", "finished_at", "paper_scored",
                                                        "shadow_scored", "paper_blocked", "shadow_blocked",
                                                        "paper_status", "shadow_status")} if receipt else None,
-        "paper_outcomes": {k: paper.get(k) for k in ("latest_completed_session", "horizon_sessions", "scored",
-                                                     "pending", "excluded", "blocked")} if paper else None,
+        # counterfactual labels scored by the learning stage (not paper-ledger trades); the stage
+        # receipt keeps counters only, so these are read from them
+        "paper_outcomes": {"session": receipt.get("session"), "scored": receipt.get("paper_scored"),
+                           "blocked": receipt.get("paper_blocked"), "status": receipt.get("paper_status"),
+                           "meaning": "counterfactual learning labels, not paper-ledger trades"} if receipt else None,
         "shadow_outcomes": {"cumulative_outcomes": cumulative.get("outcomes"),
                             "latest_due_session": cumulative.get("latest_due_session"),
-                            "scored_this_stage": shadow.get("scored")},
+                            "scored_this_stage": receipt.get("shadow_scored")},
         "bandit": {"state_sequence": (pooled or {}).get("sequence"), "arms_trained": len(arms),
                    "observations_by_action": observations,
                    "rule": "acts only when P(net edge > 0) >= 0.80; otherwise abstains (FLAT)"},
@@ -174,6 +178,7 @@ def learning_status(conn, *, now: datetime | None = None) -> dict:
         "forward_tests": {
             "fair_value_sector_pe": {k: fair_value.get(k) for k in FAIR_VALUE_KEYS},
             "event_strategies": _compact_forward(strategies),
+            "paper_ledger": plf.compact(paper_ledger),
         },
         "trading_mode": _trading_mode(),
         "promotion": "NOT_AUTHORIZED", "broker_submission": False,

@@ -90,12 +90,13 @@ def test_learning_status_says_nothing_is_learned_until_an_arm_has_observations(s
             "arms": {"LONG_STOCK": {"observations": 2}, "FLAT": {"observations": 0}}})
         conn.execute("INSERT INTO operator_audit(actor,event,details) VALUES ('agent-scheduler',"
                      "'AGENT_STAGE_FINISHED',%s)", (json.dumps({"stage": "learning", "status": "OK",
-                                                                 "paper_scored": 2, "paper": {"scored": 2}}),))
+                                                                 "paper_scored": 2, "shadow_scored": 5}),))
         conn.commit()
         status = ev.learning_status(conn, now=NOW)
     assert status["learned_from_outcomes"] is True
     assert status["bandit"]["observations_by_action"] == {"FLAT": 0, "LONG_STOCK": 2}
-    assert status["learning_stage"]["paper_scored"] == 2 and status["paper_outcomes"]["scored"] == 2
+    assert status["learning_stage"]["paper_scored"] == 2 and status["paper_outcomes"]["scored"] == 2   # stored shape
+    assert status["shadow_outcomes"]["scored_this_stage"] == 5
 
 
 def test_routes_are_read_only_and_bounded_to_the_universe(shadow, monkeypatch):  # noqa: F811
