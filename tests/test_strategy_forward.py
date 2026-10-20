@@ -408,3 +408,14 @@ def test_the_runner_exits_nonzero_unless_the_freeze_is_ok():
     assert exit_code({"status": "OK", "freeze": {"status": "FROZEN"}}) == 0
     assert exit_code({"status": "OK", "freeze": {"status": "FREEZE_PENDING_DATA"}}) == 1
     assert exit_code({"status": "ATTENTION", "freeze": {"status": "FROZEN"}}) == 1
+
+
+def test_every_tracked_source_exists_and_the_fingerprint_is_the_plain_concatenation():
+    import hashlib
+    from pathlib import Path
+    root = Path(f.__file__).resolve().parents[1]
+    assert f.missing_sources() == []
+    assert {"agent_intelligence/fair_value_forward.py", "agent_intelligence/inference.py"} <= set(f.DECISION_SOURCES)
+    plain = hashlib.sha256(b"".join((root / p).read_bytes() for p in f.DECISION_SOURCES)).hexdigest()
+    assert f.source_fingerprint() == plain
+    assert not any(path in str(f.PROTOCOL) for path in f.DECISION_SOURCES)

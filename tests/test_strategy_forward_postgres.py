@@ -126,7 +126,8 @@ def test_missing_bars_wait_until_a_final_attempt(shadow):
     assert run(at(2026, 10, 27, 10, 50))["freeze"]["status"] == "FREEZE_PENDING_DATA"   # 2h40 before: waits
     final = run(at(2026, 10, 27, 11, 50))                      # within 2h of the 13:30 UTC open
     assert final["freeze"]["status"] == "FROZEN" and final["freeze"]["missing_bars_at_freeze"] == ["VZ"]
-    assert final["status"] == "ATTENTION"                       # a stock without a decision is never green
+    assert final["status"] == "OK"                    # isolated (<= 3 stocks): recorded and listed, not a failure
+    assert final["sticky_attention"] == ["FROZEN_WITH_MISSING_BARS:2026-10-26:1"]
     assert frozen(shadow, "2026-10-26")["with_bar"] == []
 
 
@@ -239,3 +240,84 @@ def test_only_main_may_write(shadow, monkeypatch):
     monkeypatch.setenv("GITHUB_REF", "refs/heads/feature")
     assert run(FIRST_NIGHT)["status"] == "REFUSED_NON_MAIN"
     assert count(shadow, f.DECISION_KIND) == 0
+
+
+def test_a_partial_session_is_listed_for_a_week_and_fails_runs_only_when_not_isolated(shadow, monkeypatch):
+    sql(shadow, "DELETE FROM prices_daily WHERE ticker='VZ' AND date='2026-10-26'")
+    run(at(2026, 10, 27, 11, 50))                                  # final attempt: frozen without VZ
+    replayed = run(at(2026, 10, 27, 13, 15))
+    assert replayed["freeze"]["status"] == "REPLAYED" and replayed["status"] == "OK"
+    assert replayed["sticky_attention"] == ["FROZEN_WITH_MISSING_BARS:2026-10-26:1"]
+    monkeypatch.setattr(f, "MAX_ISOLATED_GAP_TICKERS", 0)          # as if the gap were systemic
+    assert run(at(2026, 10, 27, 13, 20))["status"] == "ATTENTION"
+    assert not any(a.startswith("FROZEN_WITH_MISSING_BARS") for a in run(at(2026, 11, 4, 5, 20))["sticky_attention"])
+
+
+def test_unread_filings_and_a_universe_wide_s4_gap_are_listed_and_s4_fails_runs(shadow, monkeypatch):
+    def sec_down(ciks, session, budget_seconds):
+        return {}, sorted(ciks)
+
+    def broken(conn, tickers, month_ends):
+        raise RuntimeError("fundamentals unavailable")
+    monkeypatch.setattr(er, "_s4_eligibility", broken)
+    frozen_run = run(at(2026, 10, 27, 11, 50), fetch=sec_down)
+    assert frozen_run["freeze"]["status"] == "FROZEN" and frozen_run["status"] == "ATTENTION"
+    later = run(at(2026, 10, 27, 13, 15))
+    assert sorted(later["sticky_attention"]) == ["FROZEN_WITHOUT_S4:2026-10-26:1",
+                                                 "FROZEN_WITH_UNREAD_FILINGS:2026-10-26:1"]
+    assert later["status"] == "ATTENTION"                         # the S4 gap is universe-wide
+
+
+def test_the_receipt_counts_an_excluded_trade_only_once_it_is_committed(shadow, monkeypatch):
+    run(FIRST_NIGHT)
+    run(BREAKOUT_NIGHT)
+    sql(shadow, "DELETE FROM prices_daily WHERE ticker='VZ' AND date='2026-11-10'")
+    real = f._save_check
+
+    def failing(conn, key, payload):
+        if key.endswith(":OUTCOME_EXCLUDED_MISSING_BARS"):
+            raise RuntimeError("connection dropped")
+        return real(conn, key, payload)
+    monkeypatch.setattr(f, "_save_check", failing)
+    broken = run(WINDOW_DONE)
+    assert broken["outcomes"]["excluded"] == 0 and broken["outcomes"]["errors"]
+    assert count(shadow, f.OUTCOME_KIND) == 0                     # the outcome rolled back with its check
+    monkeypatch.setattr(f, "_save_check", real)
+    assert run(at(2026, 11, 26, 12, 35))["outcomes"]["excluded"] >= 1
+
+
+def test_an_excluded_trade_is_recorded_with_provenance_and_reported(shadow, monkeypatch):
+    monkeypatch.setenv("GITHUB_SHA", "abc123")
+    run(FIRST_NIGHT)
+    run(BREAKOUT_NIGHT)
+    sql(shadow, "DELETE FROM prices_daily WHERE ticker='VZ' AND date='2026-11-10'")
+    expired = run(WINDOW_DONE)                       # the window has completed, 10+ sessions after the 11-10 gap
+    assert expired["outcomes"]["excluded"] >= 1 and expired["status"] == "ATTENTION"
+    assert any(a.startswith("OUTCOME_EXCLUDED_MISSING_BARS:2026-10-27:S1_volume_breakout:VZ")
+               for a in expired["sticky_attention"])
+    with shadow() as conn:
+        trade = research_store.get(conn, f.OUTCOME_KIND, f.outcome_key("S1_volume_breakout", "VZ", "2026-10-27"))
+    assert trade["payload"]["status"] == "EXCLUDED_MISSING_BARS"
+    assert trade["payload"]["code"]["git_sha"] == "abc123" and trade["payload"]["code"]["decision_sources_sha256"]
+
+
+def test_a_late_freeze_is_listed_once(shadow):
+    run(FIRST_NIGHT)
+    late = run(at(2026, 10, 28, 12, 35), db_now=at(2026, 10, 28, 13, 31))
+    assert late["freeze"]["status"] == "FREEZE_LATE" and late["outcomes"]["invalid"] == ["2026-10-27"]
+    with shadow() as conn:   # both the late marker and the invalid-timing check exist; one is listed
+        assert f.summary(conn, now=at(2026, 10, 28, 14, 0))["sticky_attention"] == ["FREEZE_LATE:2026-10-27"]
+    assert count(shadow, f.CHECK_KIND, "AND payload->>'status'='INVALID_PROSPECTIVE_TIMING'") == 1
+
+
+def test_a_moved_tracked_file_is_reported_nightly_and_never_costs_a_session(shadow, monkeypatch):
+    run(FIRST_NIGHT)
+    monkeypatch.setattr(f, "DECISION_SOURCES", (*f.DECISION_SOURCES, "backtest/moved_away.py"))
+    nightly = run(BREAKOUT_NIGHT)
+    assert nightly["freeze"]["status"] == "FROZEN" and nightly["freeze"]["decision_sources_changed"]
+    assert nightly["missing_sources"] == ["backtest/moved_away.py"] and nightly["status"] == "ATTENTION"
+    with shadow() as conn:
+        check = research_store.get(conn, f.CHECK_KIND, f"{f.FORWARD_ID}:2026-10-27:DECISION_SOURCES_CHANGED")
+    assert check["payload"]["missing_sources"] == ["backtest/moved_away.py"]
+    second_night = run(at(2026, 10, 29, 4, 20))                   # fingerprint no longer changes
+    assert not second_night["freeze"]["decision_sources_changed"] and second_night["status"] == "ATTENTION"

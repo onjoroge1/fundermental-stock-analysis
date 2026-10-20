@@ -56,9 +56,14 @@ surfaces.
 close through the existing read-only HTTPS bridge. It refuses unauthenticated
 or competing sessions, persists only surfaces with positive observed ATM IV,
 and fails unless at least eight names succeed. Partial collection can no longer
-look like a successful full-universe run. Production activation requires
-`IBKR_BRIDGE_BASE_URL` and `IBKR_BRIDGE_TOKEN` in the GitHub Production
-environment and a running authenticated TWS/IB Gateway bridge.
+look like a successful full-universe run. Since #53 the GitHub job only calls
+the app, so production activation requires (see `docs/IBKR_CLOUD_BRIDGE.md`):
+`STOCK_MACHINE_ADMIN_TOKEN` in the GitHub Production environment identical to
+Vercel's; `IBKR_PROVIDER=remote_bridge`, `IBKR_BRIDGE_BASE_URL` and
+`IBKR_BRIDGE_TOKEN` in Vercel; and a running authenticated TWS/IB Gateway
+bridge with its tunnel. As of 2026-10-19 no capture run has succeeded: every
+run since 2026-09-17 gets HTTP 401 (the two admin tokens differ), and Vercel has
+no bridge configured (`/api/options/expirations/SPY` returns 503).
 
 The LSTM now predicts cumulative 5/10/20-session returns directly with three
 Gaussian heads. It never feeds sampled predictions back into its features and

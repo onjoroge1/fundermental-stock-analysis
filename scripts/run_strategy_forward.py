@@ -6,8 +6,9 @@ Writes data/strategy_forward/<completed session>.json and prints the receipt.
 Exit 1 when attention is needed, so the scheduled job and the health watchdog
 surface it: a freeze waiting for data or SEC filings, a missed or late freeze,
 invalid timing, a blocked or failed trade, a decision-code change, a loss
-recorded in the last week, a protocol change, a refused non-main run, failure
-or contention.
+recorded in the last week (an isolated partial session of at most three stocks
+is listed but does not fail the run), a protocol change, a refused non-main
+run, failure or contention.
 """
 import json
 import sys

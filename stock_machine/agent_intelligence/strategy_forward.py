@@ -69,13 +69,22 @@ CHECK_KIND = fvf.CHECK_KIND
 EVALUATION_KIND = fvf.EVALUATION_KIND
 ACTOR = "strategy-forward-scheduler"
 STRATEGIES = (*er.CONFIRMATORY, *er.EXPLORATORY)
-# Losses stay visible for STICKY_DAYS; a code change is reported on the run that records it.
-LOSS_STATUSES = ("FREEZE_MISSED", "FREEZE_LATE", "INVALID_PROSPECTIVE_TIMING")
+# Losses stay visible for STICKY_DAYS, each written once (so later green runs cannot hide them
+# from the watchdog); a code change is reported on the run that records it (tracked files
+# change often, and every decision keeps its fingerprint).
+LOSS_STATUSES = ("FREEZE_MISSED", "FREEZE_LATE", "INVALID_PROSPECTIVE_TIMING", "FROZEN_WITH_MISSING_BARS",
+                 "FROZEN_WITH_UNREAD_FILINGS", "FROZEN_WITHOUT_S4", "OUTCOME_EXCLUDED_MISSING_BARS")
 OK_FREEZE = ("NOTHING_DUE", "FROZEN", "REPLAYED", "MISSED_ALREADY_RECORDED")
+# Partial sessions the protocol permits. Each is recorded and listed for STICKY_DAYS with its
+# count; an isolated one (at most this many stocks without a bar or without their filings,
+# the technical job's rule) never fails a run, a larger one or a universe-wide S4 gap does.
+PARTIAL_STATUSES = ("FROZEN_WITH_MISSING_BARS", "FROZEN_WITH_UNREAD_FILINGS", "FROZEN_WITHOUT_S4")
+MAX_ISOLATED_GAP_TICKERS = 3
 
 # Code the flags and trades depend on (db.py is excluded for the reason given in fair_value_forward).
 DECISION_SOURCES = (
     "agent_intelligence/strategy_forward.py", "agent_intelligence/strategy_signals.py",
+    "agent_intelligence/fair_value_forward.py", "agent_intelligence/inference.py",
     "agent_intelligence/technical_setups.py", "agent_intelligence/features.py", "agent_intelligence/reward.py",
     "backtest/event_replay.py", "backtest/direction_replay.py", "backtest/fair_value_replay.py",
     "backtest/engine.py", "events/earnings_announcements.py", "features/metrics.py", "features/scoring.py",
@@ -177,9 +186,22 @@ def evaluation_end() -> str:
     return fvf.month_end_session(f"{year:04d}-{month:02d}-01")
 
 
-def source_fingerprint() -> str:
+def missing_sources() -> list[str]:
     root = Path(__file__).resolve().parents[1]
-    return hashlib.sha256(b"".join((root / p).read_bytes() for p in DECISION_SOURCES)).hexdigest()
+    return [p for p in DECISION_SOURCES if not (root / p).is_file()]
+
+
+def source_fingerprint() -> str:
+    """Hash of the tracked code; a moved or deleted file hashes as a marker (recorded as a
+    code change) instead of raising and costing the session."""
+    root = Path(__file__).resolve().parents[1]
+    parts = []
+    for p in DECISION_SOURCES:
+        try:
+            parts.append((root / p).read_bytes())
+        except FileNotFoundError:
+            parts.append(b"\0MISSING:" + p.encode() + b"\0")
+    return hashlib.sha256(b"".join(parts)).hexdigest()
 
 
 # ---- SEC earnings announcements ------------------------------------------------
@@ -548,14 +570,29 @@ def final_evaluation(conn) -> dict | None:
 
 
 def sticky_attention(conn, now: datetime) -> list[str]:
+    rows = checks_with_status(conn, LOSS_STATUSES)
+    late = {r["payload"]["decision_session"] for r in rows if r["payload"]["status"] == "FREEZE_LATE"}
     out = []
-    for r in checks_with_status(conn, LOSS_STATUSES):
-        known = r["payload"].get("deadline")
+    for r in rows:
+        p = r["payload"]
+        if p["status"] == "INVALID_PROSPECTIVE_TIMING" and p["decision_session"] in late:
+            continue   # the same late freeze, already listed
+        known = p.get("deadline")
         recent = [t for t in (fvf._parse(known) if known else None, fvf._recorded_at(r))
                   if t is not None and timedelta(0) <= now - t <= timedelta(days=STICKY_DAYS)]
         if recent:
-            out.append(f"{r['payload']['status']}:{r['payload']['decision_session']}")
+            count = str(len(p.get("missing") or [])) if p["status"] in PARTIAL_STATUSES else None
+            out.append(":".join(x for x in (p["status"], p["decision_session"], p.get("strategy"), p.get("ticker"),
+                                            count) if x))
     return out
+
+
+def isolated_partial(item: str) -> bool:
+    """A sticky label for a partial session small enough not to need action."""
+    status, _, rest = item.partition(":")
+    count = rest.rsplit(":", 1)[-1]
+    return (status in ("FROZEN_WITH_MISSING_BARS", "FROZEN_WITH_UNREAD_FILINGS") and count.isdigit()
+            and int(count) <= MAX_ISOLATED_GAP_TICKERS)
 
 
 def bars_incomplete(conn, session: str, tickers) -> list[str]:
@@ -659,7 +696,14 @@ def _freeze(conn, read_conn, session: str, now: datetime, clock, protocol: dict,
     if late:
         _save_check(conn, f"{key}:FREEZE_LATE", {"decision_session": session, "status": "FREEZE_LATE",
                                                  "deadline": deadline.isoformat()})
-    sources = source_fingerprint()
+    partial = {"FROZEN_WITH_MISSING_BARS": payload["missing_bars_at_freeze"],
+               "FROZEN_WITH_UNREAD_FILINGS": payload["sec_unavailable"],
+               "FROZEN_WITHOUT_S4": [s4_source] if str(s4_source or "").startswith("UNAVAILABLE") else []}
+    for status, what in partial.items():   # a partial session stays visible to the watchdog for a week
+        if what:
+            _save_check(conn, f"{key}:{status}", {"decision_session": session, "status": status,
+                                                  "deadline": deadline.isoformat(), "missing": what})
+    sources = payload["code"]["decision_sources_sha256"]
     earlier = [d for d in decisions(conn) if d["payload"]["decision_session"] < session]
     previous = (earlier[-1]["payload"].get("code") or {}).get("decision_sources_sha256") if earlier else sources
     changed = previous != sources          # recorded once per change, against the previous decision
@@ -667,7 +711,7 @@ def _freeze(conn, read_conn, session: str, now: datetime, clock, protocol: dict,
         _save_check(conn, f"{key}:DECISION_SOURCES_CHANGED",
                     {"decision_session": session, "status": "DECISION_SOURCES_CHANGED",
                      "deadline": deadline.isoformat(), "previous_sources_sha256": previous,
-                     "sources_sha256": sources})
+                     "sources_sha256": sources, "missing_sources": missing_sources()})
     conn.commit()
     return {"status": "FREEZE_LATE" if late else "FROZEN", "decision_session": session,
             "record_id": saved["record_id"], "content_hash": saved["content_hash"], "counts": payload["counts"],
@@ -722,11 +766,17 @@ def score_pending(conn, read_conn, completed: str) -> dict:
                                        spy=spy, completed=completed, recorded=recorded)
             for key, outcome in new:
                 conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ("strategy-forward:" + key,))
-                if not research_store.get(conn, OUTCOME_KIND, key):
-                    research_store.save(conn, OUTCOME_KIND, key, outcome, ticker=ticker)
+                written = not research_store.get(conn, OUTCOME_KIND, key)
+                if written:
+                    research_store.save(conn, OUTCOME_KIND, key, {**outcome, "code": code_version()}, ticker=ticker)
+                    if outcome["status"] == "EXCLUDED_MISSING_BARS":   # visible once, in the same transaction
+                        _save_check(conn, f"{key}:OUTCOME_EXCLUDED_MISSING_BARS", {
+                            "decision_session": outcome["signal"], "status": "OUTCOME_EXCLUDED_MISSING_BARS",
+                            "strategy": strategy, "ticker": ticker, "first_missing": outcome["first_missing"]})
+                conn.commit()
+                if written:   # counted only once the transaction commits
                     stats[{"SCORED": "scored", "EXCLUDED_MISSING_BARS": "excluded",
                            "NO_FEATURES": "no_features"}[outcome["status"]]] += 1
-                conn.commit()
             if state["state"] == "OPEN":
                 stats["open"] += 1
             elif state["state"] == "BLOCKED":
@@ -741,6 +791,12 @@ def score_pending(conn, read_conn, completed: str) -> dict:
             unresolved.append(signals[0][0])
     stats["unresolved_from"] = min(unresolved) if unresolved else None
     return stats
+
+
+def code_version() -> dict:
+    """Which code recorded an outcome or the evaluation (provenance only; not compared)."""
+    return {"git_sha": os.getenv("GITHUB_SHA"), "decision_sources_sha256": source_fingerprint(),
+            "shadow_behavior_sha256": SHADOW_BEHAVIOR_SHA256}
 
 
 def _ready_for_final(completed: str, stats: dict) -> bool:
@@ -805,17 +861,22 @@ def _run_locked(receipt, completed, now, clock, fetch_events, db, research_store
                 if not final and _ready_for_final(completed, stats):
                     research_store.save(conn, EVALUATION_KIND, f"{FORWARD_ID}:final", clean({
                         "forward_id": FORWARD_ID, "evaluated_through": completed,
-                        **evaluate(list(outcomes(conn).values()), denominators(decisions(conn)))}))
+                        **evaluate(list(outcomes(conn).values()), denominators(decisions(conn))),
+                        "code": code_version()}))
                     conn.commit()
                     final = final_evaluation(conn)
                 sticky = sticky_attention(conn, clock())
+            gone = missing_sources()   # a moved tracked file shows the night after the merge
+            isolated = (len(freeze.get("missing_bars_at_freeze") or []) <= MAX_ISOLATED_GAP_TICKERS
+                        and len(freeze.get("sec_unavailable") or []) <= MAX_ISOLATED_GAP_TICKERS)
             attention = (freeze["status"] not in OK_FREEZE or freeze.get("newly_missed")
-                         or freeze.get("decision_sources_changed") or freeze.get("sec_unavailable")
-                         or freeze.get("missing_bars_at_freeze")
+                         or freeze.get("decision_sources_changed")
+                         or (not isolated and (freeze.get("sec_unavailable") or freeze.get("missing_bars_at_freeze")))
                          or str(freeze.get("s4_source") or "").startswith("UNAVAILABLE")
-                         or stats["invalid"] or stats["errors"] or stats["blocked"] or sticky)
+                         or stats["invalid"] or stats["errors"] or stats["blocked"] or stats.get("excluded")
+                         or [a for a in sticky if not isolated_partial(a)] or gone)
             receipt.update(status="ATTENTION" if attention else "OK", sticky_attention=sticky,
-                           evaluation_final=bool(final))
+                           missing_sources=gone, evaluation_final=bool(final))
         except ProtocolChanged as exc:
             receipt.update(status="PROTOCOL_CHANGED", reason_code=str(exc))
         except Exception as exc:

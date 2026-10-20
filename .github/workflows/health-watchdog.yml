@@ -43,11 +43,12 @@ jobs:
               gh issue close "$open_issue" --comment "All checks pass again; closing."
             fi
           elif [ -n "$open_issue" ]; then
-            # Notify only when which checks fail (or their severity) changes.
+            # Keep the body current on every run (an edit notifies no one); notify (comment)
+            # only when what fails changes: which checks, their severity, or a tracker's losses.
             previous=$(gh issue view "$open_issue" --json body --jq .body | grep -o 'watchdog-signature: [^ ]*' || true)
             current=$(grep -o 'watchdog-signature: [^ ]*' health.md)
+            gh issue edit "$open_issue" --title "Health alert: $status" --body-file health.md
             if [ "$previous" != "$current" ]; then
-              gh issue edit "$open_issue" --title "Health alert: $status" --body-file health.md
               gh issue comment "$open_issue" --body-file health.md
             fi
           else
