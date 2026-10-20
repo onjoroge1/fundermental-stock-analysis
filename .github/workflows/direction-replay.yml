@@ -5,12 +5,12 @@ on:
   workflow_dispatch:
     inputs:
       suite:
-        description: "direction (heuristic), signals (surprise, revisions, value gap), fairvalue or events"
+        description: "direction (heuristic), signals (surprise, revisions, value gap), fairvalue, events or volatility"
         type: choice
-        options: [direction, signals, fairvalue, events]
+        options: [direction, signals, fairvalue, events, volatility]
         default: direction
       stage:
-        description: "events suite only: dev (2016-2023) or holdout (run once)"
+        description: "events and volatility suites: dev (2016-2023) or holdout (run once)"
         type: choice
         options: [dev, holdout]
         default: dev
