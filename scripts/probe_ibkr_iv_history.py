@@ -173,7 +173,9 @@ class TWSSession:
             r, self._contract(symbol), "", duration, "1 day", what, 1, 1, False, []),
             cancel=self.client.cancelHistoricalData)
         rows = [{"date": parse_bar_date(b.date), "open": float(b.open), "high": float(b.high),
-                 "low": float(b.low), "close": float(b.close)} for b in self.wrapper.bars.get(rid, [])]
+                 "low": float(b.low), "close": float(b.close),
+                 "volume": float(b.volume) if b.volume is not None and float(b.volume) >= 0 else 0.0}
+                for b in self.wrapper.bars.get(rid, [])]
         return sorted(rows, key=lambda r: r["date"]), self.wrapper.errors.get(rid, [])
 
     def close(self):

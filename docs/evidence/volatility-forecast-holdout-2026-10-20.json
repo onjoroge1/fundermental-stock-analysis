@@ -1,0 +1,144 @@
+{
+ "protocol_sha256": "63fbb13b99b8b3270e570bdfbb08a25456bd36b8befad8f8d1257fe0bb93449c",
+ "result": {
+  "excluded": {
+   "NO_BAR": 301,
+   "STOCK_HISTORY": 76,
+   "UNTRAINED": 564
+  },
+  "first_evaluated_month": "2017-06",
+  "protocol_id": "volatility-forecast.v1",
+  "protocol_sha256": "63fbb13b99b8b3270e570bdfbb08a25456bd36b8befad8f8d1257fe0bb93449c",
+  "splits": {
+   "dev": {
+    "forecast_to_realized": {
+     "EWMA": 0.9838404333185203,
+     "HAR": 0.9169335738313631,
+     "HAR_PLUS": 0.9903182932484279,
+     "RV21": 0.9919580292790735,
+     "RV63": 0.9934284736737679
+    },
+    "hypotheses": {
+     "H1": {
+      "block_se": 0.059297057281692093,
+      "blocks": 8,
+      "confirmatory": false,
+      "lower": -0.026807334183347076,
+      "mean": 0.11340791059431682,
+      "months": 79,
+      "statement": "the standard model beats last month's volatility (sanity check, not in the confirmatory family)",
+      "stock_months": 3973,
+      "upper": 0.2536231553719807
+     },
+     "H2": {
+      "block_se": 0.00914975684207763,
+      "blocks": 8,
+      "confirmatory": true,
+      "lower": 0.012751095086264395,
+      "mean": 0.03438682970920537,
+      "months": 79,
+      "statement": "our added inputs (range, market, losses, earnings) improve on the standard model (primary)",
+      "stock_months": 3973,
+      "upper": 0.05602256433214634
+     },
+     "H4": {
+      "block_se": 0.04392042243026401,
+      "blocks": 8,
+      "confirmatory": true,
+      "lower": -0.008805401541330068,
+      "mean": 0.09504988342741054,
+      "months": 79,
+      "statement": "our added inputs improve the forecast in months with an expected earnings release",
+      "stock_months": 1333,
+      "upper": 0.19890516839615113
+     }
+    },
+    "mean_qlike": {
+     "EWMA": 0.4400423580380913,
+     "HAR": 0.4171836299125063,
+     "HAR_PLUS": 0.3825926350022039,
+     "RV21": 0.5302324285585593,
+     "RV63": 0.5076897155090064
+    },
+    "mean_sq_log_error": {
+     "EWMA": 0.17127316679281204,
+     "HAR": 0.14918500212607724,
+     "HAR_PLUS": 0.132114083167276,
+     "RV21": 0.19476996151621334,
+     "RV63": 0.172907146006245
+    },
+    "months": 79,
+    "stock_months": 3973
+   },
+   "holdout": {
+    "forecast_to_realized": {
+     "EWMA": 0.9764852743159033,
+     "HAR": 0.9071803894831044,
+     "HAR_PLUS": 0.9681444199644214,
+     "RV21": 1.0066938775911891,
+     "RV63": 0.9736054156483622
+    },
+    "hypotheses": {
+     "H1": {
+      "block_se": 0.035133393931102146,
+      "blocks": 8,
+      "confirmatory": false,
+      "lower": 0.0958609666239963,
+      "mean": 0.17893823311493479,
+      "months": 32,
+      "statement": "the standard model beats last month's volatility (sanity check, not in the confirmatory family)",
+      "stock_months": 1728,
+      "upper": 0.2620154996058733
+     },
+     "H2": {
+      "block_se": 0.014823736020965289,
+      "blocks": 8,
+      "confirmatory": true,
+      "lower": 0.015725774548532058,
+      "mean": 0.05784362557568356,
+      "months": 32,
+      "statement": "our added inputs (range, market, losses, earnings) improve on the standard model (primary)",
+      "stock_months": 1728,
+      "upper": 0.09996147660283505,
+      "verdict": "SUPPORTED"
+     },
+     "H4": {
+      "block_se": 0.021305311492293436,
+      "blocks": 8,
+      "confirmatory": true,
+      "lower": 0.025257905109482268,
+      "mean": 0.08579149355509204,
+      "months": 32,
+      "statement": "our added inputs improve the forecast in months with an expected earnings release",
+      "stock_months": 553,
+      "upper": 0.14632508200070182,
+      "verdict": "SUPPORTED"
+     }
+    },
+    "label": "PSEUDO_OUT_OF_SAMPLE",
+    "mean_qlike": {
+     "EWMA": 0.40823292070608874,
+     "HAR": 0.29418812395037747,
+     "HAR_PLUS": 0.23634449837469393,
+     "RV21": 0.47312635706531225,
+     "RV63": 0.3479605071351604
+    },
+    "mean_sq_log_error": {
+     "EWMA": 0.17160452544245536,
+     "HAR": 0.13481835645562043,
+     "HAR_PLUS": 0.11010639362615746,
+     "RV21": 0.196468978226341,
+     "RV63": 0.15536106008182696
+    },
+    "months": 32,
+    "stock_months": 1728
+   }
+  },
+  "stage": "holdout"
+ },
+ "run": {
+  "commit": "abe9158",
+  "github_run_id": 39451503843,
+  "stage": "holdout"
+ }
+}
