@@ -32,7 +32,9 @@ def _reading(dev: dict | None, holdout: dict | None, forward_final: dict | None)
     if forward_final:
         return "FORWARD_" + forward_final["verdict"]
     if holdout:
-        return "HOLDOUT_" + holdout["verdict"] + "_FORWARD_PENDING"
+        verdict = holdout.get("verdict") or ("EXPLORATORY_POSITIVE" if (holdout.get("lower") or 0) > 0
+                                             else "EXPLORATORY_NOT_SIGNIFICANT")
+        return "HOLDOUT_" + verdict + "_FORWARD_PENDING"
     if dev and dev.get("lower") is not None and dev["lower"] > 0:
         return "DEVELOPMENT_POSITIVE_UNCONFIRMED"
     return "NO_EDGE_IN_DEVELOPMENT_CONFIRMATION_PENDING"

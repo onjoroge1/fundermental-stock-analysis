@@ -29,10 +29,14 @@ _load_dotenv()
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
-# SEC fair-access policy: identify yourself and stay under 10 req/s.
-SEC_USER_AGENT = os.environ.get(
-    "SEC_USER_AGENT", "StockMachine/1.0 public financial statement research"
-)
+# SEC fair-access policy: identify yourself and stay under 10 req/s. The SEC asks
+# for a contact address in the User-Agent; www.sec.gov (archives, company tickers)
+# refuses requests without one, data.sec.gov currently accepts them. Jobs read the
+# SEC_USER_AGENT repository variable; an unset variable arrives as "", which must
+# not become an empty header.
+DEFAULT_SEC_USER_AGENT = "StockMachine/1.0 public financial statement research"
+SEC_USER_AGENT = os.environ.get("SEC_USER_AGENT", "").strip() or DEFAULT_SEC_USER_AGENT
+SEC_CONTACT_CONFIGURED = "@" in SEC_USER_AGENT
 SEC_MIN_REQUEST_INTERVAL_S = 0.15
 
 # Optional paid providers for point-in-time consensus estimates.

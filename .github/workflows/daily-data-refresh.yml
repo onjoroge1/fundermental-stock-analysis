@@ -23,6 +23,7 @@ jobs:
     timeout-minutes: 120
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
       FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
       PRICE_SOURCE: yahoo_fmp
       RESEARCH_ARCHIVE_RAW: 'true'

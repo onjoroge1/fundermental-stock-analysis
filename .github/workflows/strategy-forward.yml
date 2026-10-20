@@ -30,6 +30,7 @@ jobs:
     timeout-minutes: 45
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

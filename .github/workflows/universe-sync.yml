@@ -45,6 +45,7 @@ jobs:
       - name: Ingest missing universe names
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           PRICE_SOURCE: yahoo
         run: python scripts/sync_universe.py

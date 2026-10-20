@@ -760,7 +760,9 @@ def run_daily(*, now: datetime | None = None, clock=None, fetch_events=None) -> 
     if now.tzinfo is None:
         raise ValueError("FORWARD_TIMESTAMP_NOT_AWARE")
     completed = latest_completed_session(now)
+    from ..config import SEC_CONTACT_CONFIGURED
     receipt = {"stage": "strategy_forward", "forward_id": FORWARD_ID, "completed_session": completed,
+               "sec_contact_configured": SEC_CONTACT_CONFIGURED,
                "promotion": "NOT_AUTHORIZED", "broker_submission": False}
     if os.getenv("GITHUB_REF") != "refs/heads/main":
         return {**receipt, "status": "REFUSED_NON_MAIN", "reason_code": os.getenv("GITHUB_REF") or "UNSET"}

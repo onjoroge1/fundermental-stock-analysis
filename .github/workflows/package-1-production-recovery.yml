@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 150
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
       FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
       PRICE_SOURCE: yahoo
     steps:
