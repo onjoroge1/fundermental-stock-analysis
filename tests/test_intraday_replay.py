@@ -3,6 +3,7 @@
 import gzip
 import json
 import math
+import sys
 from collections import Counter
 from pathlib import Path
 from statistics import NormalDist
@@ -14,8 +15,8 @@ from stock_machine.backtest import event_replay as er
 from stock_machine.backtest import intraday_replay as ir
 
 ROOT = Path(__file__).resolve().parents[1]
-PINNED_PROTOCOL_SHA256 = "02f85a4b8a6a190bf73bf66fcd2d81e5446d7c7b12ac9d1a20e4ed85c18aa42f"
-PINNED_BEHAVIOR_SHA256 = "a98e44bf769c19bdf1a5da71107608c803d62d22cd869bace65bdc79ecae656a"
+PINNED_PROTOCOL_SHA256 = "fae9981bfbda872c1689983d944eaf9dd8f640d968237f6e88291e0f0f859b04"
+PINNED_BEHAVIOR_SHA256 = "ac31e0da135e74b8c84d289fcbafe966d31f160d5c82e01461f25729d50fbb3b"
 
 
 def day_of(bars, n=60):
@@ -480,6 +481,23 @@ def test_the_protocol_names_every_rule_and_the_family_z_is_bonferroni_over_five(
     assert ir.Z_FAMILY == pytest.approx(NormalDist().inv_cdf(1 - 0.05 / (2 * len(ir.CONFIRMATORY))), abs=1e-6)
     assert ir.PROTOCOL["universe"] == sorted(AGENT_UNIVERSE) and ir.PROTOCOL["behavior_sha256"] == ir.BEHAVIOR_SHA256
     assert ir.DEV[1] < ir.HOLDOUT[0] and ir.PROTOCOL["splits"]["holdout"] == list(ir.HOLDOUT)
+
+
+def test_the_behavior_pin_is_the_same_with_python_3_11_float_addition(monkeypatch):
+    """Python 3.12 made the built-in sum of floats compensated; CI runs 3.11 and 3.12. Plain left-to-right addition
+    (3.11) in the replay and the shared statistics helper must give the same pin."""
+    from stock_machine.agent_intelligence import inference
+
+    def plain_sum(values, start=0):
+        total = start
+        for v in values:
+            total = total + v
+        return total
+    if sys.version_info >= (3, 12):
+        assert plain_sum([0.1] * 10) != sum([0.1] * 10)          # the emulation really differs here
+    monkeypatch.setattr(inference, "sum", plain_sum, raising=False)
+    monkeypatch.setattr(ir, "sum", plain_sum, raising=False)
+    assert ir.behavior_digest.__wrapped__() == PINNED_BEHAVIOR_SHA256
 
 
 def test_the_draft_protocol_and_behavior_pin_match_this_code_and_nothing_is_registered_yet():

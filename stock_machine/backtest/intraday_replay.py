@@ -121,7 +121,7 @@ WINDOW_OF = {"G1": "FIRST_HOUR", "G2": "FIRST_HOUR", "B1": "FIRST_HOUR", "C1": "
 REGISTERED_PROTOCOL_SHA256 = None
 REGISTERED_DEV_INPUTS = None
 REGISTERED_HOLDOUT_INPUTS = None
-BEHAVIOR_SHA256 = "a98e44bf769c19bdf1a5da71107608c803d62d22cd869bace65bdc79ecae656a"
+BEHAVIOR_SHA256 = "ac31e0da135e74b8c84d289fcbafe966d31f160d5c82e01461f25729d50fbb3b"
 
 
 def _pct(x: float) -> str:
@@ -367,7 +367,7 @@ def daily_features(rows: list[dict], spy_rows: list[dict]) -> dict:
         beta = _beta(returns[-BETA_SESSIONS:], spy_returns[-BETA_SESSIONS:])
         features = {"prior_close_raw": p["close"], "prior_close": pc, "dividend_anomaly": anomaly, "stale": stale,
                     "prior_low": p["low"], "close_before_prior": pp["close"], "daily_open": d["open"],
-                    "daily_close": d["close"], "beta": beta, "atr14": sum(tr) / len(tr) if len(tr) == 14 else None,
+                    "daily_close": d["close"], "beta": beta, "atr14": math.fsum(tr) / len(tr) if len(tr) == 14 else None,
                     "sigma_d": _sd(returns[-20:]) if len(returns) >= 20 else None, "history": i,
                     "overnight": None, "overnight_spy": None, "overnight_sd": None}
         if s and sp:
@@ -402,19 +402,19 @@ def _sd(values: list[float]) -> float | None:
     n = len(values)
     if n < 2:
         return None
-    m = sum(values) / n
-    return math.sqrt(sum((v - m) ** 2 for v in values) / (n - 1))
+    m = math.fsum(values) / n
+    return math.sqrt(math.fsum((v - m) ** 2 for v in values) / (n - 1))
 
 
 def _beta(r: list[float], m: list[float]) -> float:
     n = len(r)
     if n < 20:
         return 1.0
-    mr, mm = sum(r) / n, sum(m) / n
-    var = sum((x - mm) ** 2 for x in m)
+    mr, mm = math.fsum(r) / n, math.fsum(m) / n
+    var = math.fsum((x - mm) ** 2 for x in m)
     if var <= 0:
         return 1.0
-    b = sum((x - mr) * (y - mm) for x, y in zip(r, m)) / var
+    b = math.fsum((x - mr) * (y - mm) for x, y in zip(r, m)) / var
     return min(max(b, BETA_RANGE[0]), BETA_RANGE[1])
 
 
@@ -779,7 +779,7 @@ def window_scale(history: deque, minutes: int) -> float | None:
     """Volatility over a window of `minutes`, from the trailing sessions' realized variance per minute."""
     if len(history) < NORM_MIN:
         return None
-    return max(math.sqrt(sum(history) / len(history) * minutes), MIN_ANNUAL_VOL * math.sqrt(minutes / 390 / 252))
+    return max(math.sqrt(math.fsum(history) / len(history) * minutes), MIN_ANNUAL_VOL * math.sqrt(minutes / 390 / 252))
 
 
 # ---- the run -------------------------------------------------------------------
@@ -811,13 +811,13 @@ class History:
         out = []
         for b in range(EXIT_BAR + 1):
             vals = [r[b] for r in self.ranges if r[b] is not None]
-            out.append(sum(vals) / len(vals) if len(vals) >= NORM_MIN else None)
+            out.append(math.fsum(vals) / len(vals) if len(vals) >= NORM_MIN else None)
         return out
 
     def rv5(self, day) -> float | None:
-        if len(self.volume5) < RV_SESSIONS or not _complete(day, "v", range(OR_BARS)) or sum(self.volume5) <= 0:
+        if len(self.volume5) < RV_SESSIONS or not _complete(day, "v", range(OR_BARS)) or math.fsum(self.volume5) <= 0:
             return None
-        return sum(day["v"][:OR_BARS]) / (sum(self.volume5) / len(self.volume5))
+        return math.fsum(day["v"][:OR_BARS]) / (math.fsum(self.volume5) / len(self.volume5))
 
     def scale(self, strategy: str, day) -> float | None:
         first, last = WINDOWS[WINDOW_OF[strategy]]
@@ -827,7 +827,7 @@ class History:
         self.ranges.append([math.log(day["h"][b] / day["l"][b]) if _complete(day, "hl", [b]) else None
                             for b in range(EXIT_BAR + 1)])
         if _complete(day, "v", range(OR_BARS)):
-            self.volume5.append(sum(day["v"][:OR_BARS]))
+            self.volume5.append(math.fsum(day["v"][:OR_BARS]))
         prefix = day_square_returns(day)
         for w, (first, last) in WINDOWS.items():
             v = window_var(day, prefix, first, last)
@@ -1044,8 +1044,9 @@ def interval(values: list[float], z: float, lag: int | None = None) -> dict:
     if n < 3:
         return {"n": n, "mean": None, "se": None, "lower": None, "upper": None}
     lag = nw_lag(n) if lag is None else lag
-    m = sum(values) / n
+    m = math.fsum(values) / n
     se = inference.newey_west_se(values, lag)
+    se = 0.0 if se < 1e-12 else se                    # numerically zero (constant values)
     t = inference.t_quantile(n - 1, z)
     return {"n": n, "mean": m, "se": se, "lower": m - t * se, "upper": m + t * se, "lag": lag,
             "detectable_difference_80pct": (t + inference.Z_80) * se if se > 0 else None}
@@ -1159,7 +1160,7 @@ def _claims(name, trades, run, z) -> dict:
 
 def _mean(values) -> float | None:
     values = [v for v in values if v is not None]
-    return sum(values) / len(values) if values else None
+    return math.fsum(values) / len(values) if values else None
 
 
 def _count(items) -> dict:
@@ -1317,7 +1318,7 @@ def synthetic_book(*, reward=0.5, skill=0.3, stocks=20, months=24, cost_drag=0.6
     sessions = [f"{2024 + m // 12}-{m % 12 + 1:02d}-{d:02d}" for m in range(months) for d in range(1, 11)]
     trades = []
     for i, s in enumerate(sessions):
-        wobble = (0.2 if i % 2 else -0.2) + (spike if i < 10 else 0.0)
+        wobble = (0.2 if i % 2 else -0.2) + 0.05 * (i // 10 % 3 - 1) + (spike if i < 10 else 0.0)
         trades.append({"strategy": "G1", "session": s, "month": s[:7], "ticker": f"T{i % stocks}", "side": 1,
                        "reward": reward + wobble, "skill": skill + wobble, "control": reward - skill,
                        "reward_2x": reward - cost_drag + wobble, "reward_gross": reward + 0.1 + wobble,
@@ -1384,12 +1385,13 @@ VERDICT_CASES = {"pass": {}, "no_skill": {"skill": 0.0}, "no_mean": {"reward": 0
 
 @lru_cache(maxsize=1)
 def behavior_digest() -> str:
-    """The replay and both stages' reports on the synthetic fixture, and the verdict and labels on known books."""
+    """The replay and both stages' reports on the synthetic fixture, and the verdict and labels on known books.
+    Floats are summed with math.fsum (exact on every Python version)."""
     result = behavior_run()
 
-    def rounded(x):
-        if isinstance(x, float):
-            return round(x, 9) if math.isfinite(x) else str(x)
+    def rounded(x):                      # 8 significant digits: the shared Newey-West helper sums with the
+        if isinstance(x, float):         # built-in sum, which Python 3.12 made compensated
+            return float(f"{x:.8g}") if math.isfinite(x) else str(x)
         if isinstance(x, dict):
             return {str(k): rounded(v) for k, v in sorted(x.items(), key=lambda kv: str(kv[0]))}
         if isinstance(x, (list, tuple)):
