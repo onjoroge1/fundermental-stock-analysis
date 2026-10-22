@@ -995,26 +995,32 @@ def _no_features(session: str, daily: dict) -> str:
     return "NO_PRIOR_SESSIONS" if session in daily["dates"] else "NO_DAILY_BARS"
 
 
-def _session(ticker, session, day, f, ev, prev_session, hist, spy_day, spy_f, actions=(), daily=None) -> dict:
-    out = {"reason": None, "trades": [], "skips": [], "counts": []}
+def eligibility(ticker, session, day, f, hist, spy_day, spy_f, actions=(), daily=None) -> str | None:
+    """The exclusion reason for a stock-session, or None when it is eligible."""
     if session < LISTED.get(ticker, ""):
-        out["reason"] = "PRE_LISTING"
-    elif f is None:
-        out["reason"] = _no_features(session, daily or {"first": None, "dates": set()})
-    elif f["stale"]:
-        out["reason"] = "STALE_PRIOR_CLOSE"
-    elif session in actions:
-        out["reason"] = "CORPORATE_ACTION"
-    elif f["prior_close_raw"] < PRICE_FLOOR:
-        out["reason"] = "PRICE_FLOOR"
-    elif not day["o"] or day["o"][0] is None:
-        out["reason"] = "MISSING_OPEN_BAR"
-    elif abs(day["o"][0] / f["daily_open"] - 1) > OPEN_MATCH:
-        out["reason"] = "PRICE_MISMATCH"
-    elif len(hist.ranges) < NORM_MIN:
-        out["reason"] = "NO_HISTORY"
-    elif spy_day is None or spy_f is None:
-        out["reason"] = "NO_SPY"
+        return "PRE_LISTING"
+    if f is None:
+        return _no_features(session, daily or {"first": None, "dates": set()})
+    if f["stale"]:
+        return "STALE_PRIOR_CLOSE"
+    if session in actions:
+        return "CORPORATE_ACTION"
+    if f["prior_close_raw"] < PRICE_FLOOR:
+        return "PRICE_FLOOR"
+    if not day["o"] or day["o"][0] is None:
+        return "MISSING_OPEN_BAR"
+    if abs(day["o"][0] / f["daily_open"] - 1) > OPEN_MATCH:
+        return "PRICE_MISMATCH"
+    if len(hist.ranges) < NORM_MIN:
+        return "NO_HISTORY"
+    if spy_day is None or spy_f is None:
+        return "NO_SPY"
+    return None
+
+
+def _session(ticker, session, day, f, ev, prev_session, hist, spy_day, spy_f, actions=(), daily=None) -> dict:
+    out = {"reason": eligibility(ticker, session, day, f, hist, spy_day, spy_f, actions, daily), "trades": [],
+           "skips": [], "counts": []}
     if out["reason"]:
         return out
     if f["dividend_anomaly"]:

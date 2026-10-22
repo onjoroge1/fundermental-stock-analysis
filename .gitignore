@@ -19,3 +19,6 @@ twsapi_macunix*.zip
 # matches a real directory, so match the symlink and the evicted copy explicitly.
 .venv
 .venv.evicted-*/
+
+# the intraday lab log lock (scripts/run_intraday_lab.py)
+docs/evidence/*.lock
