@@ -5,8 +5,10 @@
 
 Inputs are local IBKR files (scripts/fetch_ibkr_intraday.py and scripts/fetch_ibkr_prices.py) and the pinned SEC
 earnings dataset. The hold-out stage refuses to run until the protocol, the replay code and both input sets are
-registered in stock_machine/backtest/intraday_replay.py. Writes data/intraday_replay/<stage>-<run date>.json:
-aggregate statistics and input hashes only (no bars or per-trade prices), the file to record as evidence.
+registered in stock_machine/backtest/intraday_replay.py; both stages refuse an unfinished fetch (preview the finished
+months with scripts/report_intraday_replay.py). Writes data/intraday_replay/<stage>-<run date>.json: aggregate
+statistics and input hashes only (no bars or per-trade prices), the file to record as evidence. Render its summary
+with scripts/report_intraday_replay.py render.
 """
 from __future__ import annotations
 
@@ -22,21 +24,28 @@ from stock_machine.agents.contracts import AGENT_UNIVERSE  # noqa: E402
 from stock_machine.backtest import intraday_replay  # noqa: E402
 
 
-def _fmt(x, digits=3):
-    return "-" if x is None else f"{x:+.{digits}f}"
+def _sci(x) -> str:
+    return "-" if x is None else f"{x:+.2e}"
 
 
 def summary(out: dict) -> str:
+    """A console digest; the committed summary is scripts/report_intraday_replay.py render."""
     lines = [f"{out['label']} {out['months'][0]}..{out['months'][1]}: {out['sessions']} sessions, "
-             f"{out['eligible_stock_days']} eligible stock-days",
-             f"{'':4} {'trades':>7} {'reward':>8} {'lower':>8} {'upper':>8} {'skill':>8} {'s.lower':>8} "
-             f"{'net bps':>8} {'verdict':<22} {'label'}"]
+             f"{out['eligible_stock_days']} eligible stock-days (book values per eligible stock-day)",
+             f"{'':4} {'trades':>7} {'reward':>10} {'lower':>10} {'upper':>10} {'skill':>10} {'s.lower':>10} "
+             f"{'net bps':>8} {'verdict':<22} {'labels'}"]
     for name, r in out["strategies"].items():
-        lines.append(f"{name:4} {r['coverage']['trades']:>7} {_fmt(r['reward']['mean'], 4):>8} "
-                     f"{_fmt(r['reward']['lower'], 4):>8} {_fmt(r['reward']['upper'], 4):>8} "
-                     f"{_fmt(r['direction_skill']['mean'], 4):>8} {_fmt(r['direction_skill']['lower'], 4):>8} "
-                     f"{_fmt(r['per_trade']['mean_net_bps'], 1):>8} {r.get('verdict', '-'):<22} "
-                     f"{r['labels']['robustness']}")
+        if not r["coverage"]["trades"]:
+            lines.append(f"{name:4} {0:>7} no trades{'':>51} {r.get('verdict', '-'):<22}")
+            continue
+        labels = r["labels"]
+        shown = ("-" if not (r["reward"]["lower"] or 0) > 0 else
+                 labels["robustness"] + (", COST_SENSITIVE" if labels.get("cost_sensitive") else ""))
+        net = r["per_trade"]["mean_net_bps"]
+        lines.append(f"{name:4} {r['coverage']['trades']:>7} {_sci(r['reward']['mean']):>10} "
+                     f"{_sci(r['reward']['lower']):>10} {_sci(r['reward']['upper']):>10} "
+                     f"{_sci(r['direction_skill']['mean']):>10} {_sci(r['direction_skill']['lower']):>10} "
+                     f"{'-' if net is None else f'{net:+.1f}':>8} {r.get('verdict', '-'):<22} {shown}")
     return "\n".join(lines)
 
 
@@ -46,20 +55,15 @@ def main() -> int:
     parser.add_argument("--dev-root", default="data/ibkr_intraday/v1")
     parser.add_argument("--holdout-root", default="data/ibkr_intraday/v1-holdout")
     parser.add_argument("--prices-dir", default="data/ibkr_prices/2026-10-20")
-    parser.add_argument("--allow-incomplete", action="store_true",
-                        help="development only: run on a partial fetch, labelled a preview")
     args = parser.parse_args()
-    if args.allow_incomplete and args.stage != "dev":
-        raise SystemExit("--allow-incomplete is for development previews only")
     out = intraday_replay.run(dev_root=args.dev_root, holdout_root=args.holdout_root, prices_dir=args.prices_dir,
-                              stage=args.stage, tickers=sorted(AGENT_UNIVERSE), allow_incomplete=args.allow_incomplete)
+                              stage=args.stage, tickers=sorted(AGENT_UNIVERSE))
     if out["status"] != "OK":
         print(json.dumps(out, indent=1), file=sys.stderr)
         return 2
     directory = Path("data/intraday_replay")
     directory.mkdir(parents=True, exist_ok=True)
-    stem = f"{args.stage}-preview" if out.get("missing_ticker_months") else args.stage
-    path = directory / f"{stem}-{date.today().isoformat()}.json"
+    path = directory / f"{args.stage}-{date.today().isoformat()}.json"
     path.write_text(json.dumps(out, indent=1, sort_keys=True, default=str))
     print(summary(out))
     print(f"wrote {path} (aggregates only)", file=sys.stderr)

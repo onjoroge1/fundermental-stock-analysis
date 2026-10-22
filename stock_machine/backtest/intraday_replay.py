@@ -68,6 +68,8 @@ BETA_RANGE = (0.0, 3.0)
 MIN_ANNUAL_VOL = 0.05      # scale floor: 5% annual volatility over the window
 SSR_DROP = 0.10            # Reg SHO Rule 201 trigger
 SSR_PREOPEN = 0.92         # an open this far below the prior close: assume a pre-market trigger
+TICK_EPS = 1e-9            # "strictly through" a level: by more than float noise (derived levels are not on the cent)
+ENTRY_DELAY = 5            # a missing entry minute moves a market entry to the next traded minute, up to 5 later
 # G1
 G1_GAP = 0.03
 G1_SIGNAL = (3, 9)
@@ -121,7 +123,7 @@ WINDOW_OF = {"G1": "FIRST_HOUR", "G2": "FIRST_HOUR", "B1": "FIRST_HOUR", "C1": "
 REGISTERED_PROTOCOL_SHA256 = None
 REGISTERED_DEV_INPUTS = None
 REGISTERED_HOLDOUT_INPUTS = None
-BEHAVIOR_SHA256 = "ac31e0da135e74b8c84d289fcbafe966d31f160d5c82e01461f25729d50fbb3b"
+BEHAVIOR_SHA256 = "a3dab1b2ccb94184f8faf2c0523a54c6d9a74a7012057c83241f29d209d547d4"
 
 
 def _pct(x: float) -> str:
@@ -140,8 +142,10 @@ def _protocol() -> dict:
                     "after costs, with direction skill beyond a random-direction twin of the same bracket",
         "universe": sorted(AGENT_UNIVERSE), "hedge": "SPY", "listed": LISTED,
         "corporate_actions": {k: list(v) for k, v in CORPORATE_ACTIONS.items()},
-        "data": "IBKR TRADES 1-minute bars, regular hours, fetched a week per request (split-adjusted, rounded to "
-                "cents, not dividend-adjusted; a bar with no trades is a missing minute); IBKR daily TRADES and "
+        "data": "IBKR TRADES 1-minute bars, regular hours, fetched a week per request (split-adjusted, and for T and "
+                "CMCSA also spin-off-adjusted; rounded to cents; not dividend-adjusted; a bar with no trades is a "
+                "missing minute; stray prints are kept); the 09:30 open is the first consolidated print, which is also "
+                "IBKR's daily open; IBKR daily TRADES and "
                 "ADJUSTED_LAST bars for the prior close, the dividend factor, beta, ATR and the official close; the "
                 "pinned SEC 8-K item 2.02 dataset for earnings sessions",
         "inputs": {"daily_prices_sha256": DAILY_PRICES_SHA256,
@@ -154,7 +158,9 @@ def _protocol() -> dict:
                                    "tests, its minute bars were never seen"},
         "conventions": {
             "calendar": "SPY's daily sessions; every ticker-session is eligible or excluded with a reason, including "
-                        "sessions without minute bars (PRE_LISTING, NO_DAILY_BARS, NO_MINUTE_BARS)",
+                        "sessions without minute bars: PRE_LISTING, BEFORE_FIRST_DAILY_BAR (not yet listed, or IBKR's "
+                        "daily history starts later), NO_PRIOR_SESSIONS (the first two daily rows), NO_DAILY_BARS (a "
+                        "missing daily row), NO_MINUTE_BARS",
             "prior_close": "split-adjusted TRADES close of the prior session times the dividend factor "
                            "(ADJUSTED_LAST/close of the prior session over that of the session, set to 1 within the "
                            "rounding bound 0.0002 + 0.01/adjusted price + 0.01/price, and above 1 plus the bound "
@@ -163,14 +169,18 @@ def _protocol() -> dict:
             "eligible": f"listed; prior daily rows current; not a listed corporate action; prior close of at least "
                         f"{PRICE_FLOOR:g} split-adjusted (cent rounding of the adjusted bars; stocks that split later "
                         f"lose early years: excluded counts are reported per ticker); the 09:30 bar traded, its open "
-                        f"within {_pct(OPEN_MATCH)} of the daily open; at least {NORM_MIN} prior sessions of bars; "
+                        f"within {_pct(OPEN_MATCH)} of the daily open (a split guard: they are the same print), so "
+                        "an NYSE opening that printed after 09:30 is MISSING_OPEN_BAR; at least "
+                        f"{NORM_MIN} prior sessions of bars; "
                         "SPY's session present. Every strategy draws only on eligible stock-days, which are each "
                         "session's denominator",
-            "fills": "a signal is known at its bar's close and a market entry fills at the next bar's open; a stop entry "
-                     "is live from the next bar and fills when price trades strictly through the level, at the level or "
-                     "at the bar's open if it opens through; protective stops and targets likewise, at the level or the "
-                     "open; a stop and a target in the same bar: the stop. Inside a bar prices are taken to run open, "
-                     "low, high, close (an up bar) or open, high, low, close (a down bar): a stop entry's fill bar is "
+            "fills": "a signal is known at its bar's close and a market entry fills at the next bar's open (the next "
+                     f"traded minute, up to {ENTRY_DELAY} later, if that one did not trade); a stop entry is live from "
+                     "the next bar and fills when price trades strictly through the level (by more than float noise, "
+                     f"{TICK_EPS:g}), at the level or at the bar's open if it opens through; protective stops and targets "
+                     "likewise, at the level or the open; a stop and a target in the same bar: the stop. Inside a bar "
+                     "prices are taken to run open, low, high, close (an up bar, close at or above the open) or open, "
+                     "high, low, close (a down bar): a stop entry's fill bar is "
                      "checked for the stop only, along that path after the fill, and a C1 bar through both levels "
                      "fills the level its path reaches first. The whole-bar check is reported as a diagnostic. "
                      f"First-hour entries on bars 1-{ENTRY_LAST} ({_clock(1)}-{_clock(ENTRY_LAST)}), forced exit at "
@@ -183,8 +193,12 @@ def _protocol() -> dict:
                                "restricted",
             "one_trade": "at most one trade per stock, strategy and session; no adds, partials or re-entries",
             "skips": "counted by strategy and reason: RULE_201, ENTRY_BEYOND_STOP and ENTRY_BEYOND_TARGET (a G1 or G2 "
-                     "entry open already past its stop or target), UNSCORABLE (no volatility scale yet, or SPY's bar "
-                     "missing); the stock-day stays in the denominator",
+                     "entry open already past its stop or target), MISSING_MINUTE (G1: a minute up to the signal did "
+                     "not trade; G2: a whole 5-minute bar did not; E1 and M1: the 09:59 minute did not), "
+                     "NO_ENTRY_MINUTE (no traded minute within the entry delay, any strategy), UNSCORABLE (no "
+                     "volatility scale yet, or SPY's bar missing); the stock-day stays in the "
+                     "denominator. 5-minute bars, the opening range and the first 5-minute candle use the minutes that "
+                     "traded",
             "score": f"reward = (side x stock return - side x beta x SPY return over the same minutes - 2 x {cost}) / "
                      "the stock's realized volatility over the strategy's window (the trailing "
                      f"{NORM_SESSIONS} sessions' realized variance per minute, at least {NORM_MIN} sessions, times the "
@@ -197,20 +211,22 @@ def _protocol() -> dict:
             "twin": "every trade has a mirror taken the other way at the same fill, with stop and target reflected "
                     "through the entry, the same exits and costs: control = (own + mirror) / 2, direction skill = "
                     "(own - mirror) / 2",
-            "unit": "one value per session: the sum of that session's rewards over its eligible stock-days (M1: over "
-                    "one); sessions without a trade score 0",
+            "unit": "one value per session: the sum of that session's rewards divided by its eligible stock-days (M1, "
+                    "one SPY trade, by one); sessions without a trade score 0",
         },
         "strategies": {
-            "G1": f"gap of at least {_pct(G1_GAP)}; at the close of bars {G1_SIGNAL[0]}-{G1_SIGNAL[1]}, the first bar "
+            "G1": f"gap of at least {_pct(G1_GAP)}; at the close of bars {G1_SIGNAL[0]}-{G1_SIGNAL[1]} "
+                  f"({_clock(G1_SIGNAL[0])}-{_clock(G1_SIGNAL[1])}), the first bar "
                   "that follows a counter-move (from the first bar closing against the gap), makes no new counter-move "
                   "extreme and closes beyond the previous bar's extreme in the gap direction, while the counter-move "
                   f"has filled less than {G1_RETRACE:g} of the gap: enter with the gap at the next open; stop at the "
                   f"counter-move extreme, target {G1_TARGET_R:g}R, exit by 10:30",
             "G2": f"gap from {_pct(G2_GAP[0])} to below {_pct(G2_GAP[1])}; the first 5-minute bar "
                   f"{G2_FIVE_MINUTE[0]}-{G2_FIVE_MINUTE[1]} ({_clock(5 * G2_FIVE_MINUTE[0])}-"
-                  f"{_clock(5 * G2_FIVE_MINUTE[1] + 4)}) closing against the gap beyond the previous 5-minute bar's "
-                  "extreme before price has traded through the prior close, with the prior close at least "
-                  f"{G2_MIN_RR:g}R away: enter against the gap at the next open; stop at that 5-minute bar's extreme, "
+                  f"{_clock(5 * G2_FIVE_MINUTE[1] + 4)}) closing against the gap (a down bar after a gap up, an up "
+                  "bar after a gap down) beyond the previous 5-minute bar's low (high), before price has traded "
+                  f"through the prior close, with the prior close at least {G2_MIN_RR:g}R from that bar's close (R = "
+                  "its extreme minus its close): enter against the gap at the next open; stop at that bar's extreme, "
                   "target the prior close, exit by 10:30",
             "B1": f"gap of at least {_pct(B1_GAP)}; the range of the first {OR_BARS} minutes; a stop entry beyond it "
                   f"in the gap's direction (bars {OR_BARS}-{ENTRY_LAST}); stop at the other side; exit by 10:30",
@@ -220,29 +236,35 @@ def _protocol() -> dict:
                   f"{C1_RESOLUTION:g} dollars; stop entries both ways beyond the run's high and low for "
                   f"{C1_ORDER_LIFE} bars up to bar {ENTRY_LAST} (one cancels the other); stop at the other side; exit "
                   "by 10:30; after the orders expire, a later run may arm them again",
-            "X1": f"14-day ATR (split-adjusted) of at least {X1_ATR_MIN:g}; first-5-minute volume over its "
-                  f"{RV_SESSIONS}-session mean of at least {X1_RV_MIN:g}; the {X1_TOP} highest of the session among "
+            "X1": f"14-day ATR (split-adjusted) of at least {X1_ATR_MIN:g}; first-5-minute volume (a minute without "
+                  f"trades counts as zero) over its {RV_SESSIONS}-session mean of at least {X1_RV_MIN:g}; the "
+                  f"{X1_TOP} highest of the session among "
                   "those; direction of the first 5-minute candle (none on a doji); a stop entry beyond its range from "
                   f"{_clock(OR_BARS)}; stop {X1_ATR_STOP:g} x ATR from the fill; exit at the official close",
         },
         "exploratory": {
             "E1": f"pinned PRIMARY 8-K 2.02 events accepted before 09:30 on the session or at 16:00 or later before "
-                  f"it (others, about 15%, are not traded): at {_clock(E1_BAR)}, the residual move from the prior "
+                  f"it (others, about 15%, are not traded; an 8-K filed after the close of the reaction day labels "
+                  f"the next session, so a few events trade a session late): at {_clock(E1_BAR)}, the residual move "
+                  "from the prior "
                   f"close of at least {E1_THRESHOLD:g} daily sigma (20 sessions): enter with it at {_clock(E1_BAR)}, "
                   "exit at the close",
             "M1": f"SPY: the sign of the move from the prior close to {_clock(E1_BAR)} (none when unchanged); trade "
                   f"SPY with it from {_clock(LAST_HALF_HOUR)} to the close (Gao, Han, Li & Zhou 2018); sessions "
-                  "trading past 15:30",
+                  "trading past 15:30; scored unhedged (SPY is the hedge) over SPY's own volatility",
             "R1": f"stocks with {R1_MIN_HISTORY} sessions of daily history: rank every one with a "
                   f"{_clock(R1_RANK_BAR)} close by its move from the prior close to {_clock(R1_RANK_BAR + 1)}; long "
                   f"the lowest fifth, short the highest fifth from {_clock(LAST_HALF_HOUR)} to the close (Baltussen, "
                   "Da & Soebhag); sessions trading past 15:30",
-            "A1": f"no earnings event that session or the one before: an overnight residual of at least {A1_SIGMA:g} "
-                  f"sigma ({A1_LOOKBACK} sessions) and a gap of at least {_pct(A1_MIN_GAP)}: short at "
+            "A1": f"no earnings event that session or the one before (a late 8-K can label the session after the "
+                  "real reaction, so A1 can now and then fade a real earnings gap: disclosed, not corrected): an "
+                  f"overnight residual (daily open) of at least {A1_SIGMA:g} sigma ({A1_LOOKBACK} sessions) and a "
+                  f"09:30 gap of at least {_pct(A1_MIN_GAP)}: short at "
                   f"{_clock(A1_BAR)}, exit at the close (Berkman, Koch, Tuttle & Zhang 2012)",
             "diagnostics": "costs doubled and zero; the whole-bar fill check; long and short sides; earnings sessions "
                            "and others; each year; exit reasons; stops inside the fill bar; bars through both C1 "
-                           "levels; the unconditional fill rate of 1-3% gaps; exclusions per ticker",
+                           "levels; over every 1-3% gap, the share that reach the prior close (the headline reading of "
+                           "the claim) and that trade through it, by 10:30 and by the close; exclusions per ticker",
         },
         "statistic": "mean of the session values; Newey-West with lag floor(4(n/100)^(2/9)); t(n-1); confirmatory "
                      f"intervals in the hold-out at the family-wise z {Z_FAMILY}, development and exploratory at 95%",
@@ -297,11 +319,13 @@ def days_from_rows(rows) -> dict:
     return days
 
 
-def files_sha(root) -> str:
+def files_sha(root, months: list[str] | None = None) -> str:
     """sha256 over every bar file's path and decompressed content under a root (the registered input hash; the
-    gzip header's write time is left out, so rewriting the same bars keeps the hash)."""
+    gzip header's write time is left out, so rewriting the same bars keeps the hash), or over the given months."""
     h = hashlib.sha256()
     for path in sorted(Path(root).glob("*/*.csv.gz")):
+        if months is not None and path.name[:7] not in months:
+            continue
         content = gzip.decompress(path.read_bytes())
         h.update(f"{path.parent.name}/{path.name}".encode() + b"\0" + hashlib.sha256(content).digest())
     return h.hexdigest()
@@ -420,14 +444,30 @@ def _beta(r: list[float], m: list[float]) -> float:
 
 # ---- fills ---------------------------------------------------------------------
 
+def above(x: float, level: float) -> bool:
+    return x > level + TICK_EPS
+
+
+def below(x: float, level: float) -> bool:
+    return x < level - TICK_EPS
+
+
 def stop_entry_fill(day, side: int, level: float, b: int) -> float | None:
     o, h, l = day["o"][b], day["h"][b], day["l"][b]
     if o is None:
         return None
-    if side > 0 and h > level:
+    if side > 0 and above(h, level):
         return max(level, o)
-    if side < 0 and l < level:
+    if side < 0 and below(l, level):
         return min(level, o)
+    return None
+
+
+def next_open(day, b: int, last: int) -> tuple[int, float] | None:
+    """The first traded minute from bar b to min(b + ENTRY_DELAY, last): (bar, open)."""
+    for k in range(b, min(b + ENTRY_DELAY, last, len(day["o"]) - 1) + 1):
+        if day["o"][k] is not None:
+            return k, day["o"][k]
     return None
 
 
@@ -441,10 +481,10 @@ def after_fill(day, b: int, fill_side: int, level: float) -> list[float]:
     """The prices along bar b's path from the moment a stop order at `level` filled (fill_side +1: bought on the
     way up through it, -1: sold on the way down); from the open when the bar opened through it."""
     path = bar_path(day["o"][b], day["h"][b], day["l"][b], day["c"][b])
-    if (fill_side > 0 and path[0] >= level) or (fill_side < 0 and path[0] <= level):
+    if (fill_side > 0 and not below(path[0], level)) or (fill_side < 0 and not above(path[0], level)):
         return path
     for k in range(1, 4):
-        if (fill_side > 0 and path[k] > level) or (fill_side < 0 and path[k] < level):
+        if (fill_side > 0 and above(path[k], level)) or (fill_side < 0 and below(path[k], level)):
             return [level] + path[k:]
     return [level]
 
@@ -463,15 +503,15 @@ def simulate_exit(day, side: int, entry_bar: int, stop: float | None, target: fl
         later = b > entry_bar
         if entry_by_stop and not later:
             rest = [l, h] if fill_bar == "worst" else after_fill(day, b, fill_side or side, entry)
-            if stop is not None and ((side > 0 and min(rest) < stop) or (side < 0 and max(rest) > stop)):
+            if stop is not None and ((side > 0 and below(min(rest), stop)) or (side < 0 and above(max(rest), stop))):
                 return {"exit": stop, "exit_bar": b, "reason": "STOP", "at_open": False}
             continue
-        if stop is not None and ((side > 0 and l < stop) or (side < 0 and h > stop)):
-            gapped = later and (o <= stop if side > 0 else o >= stop)
+        if stop is not None and ((side > 0 and below(l, stop)) or (side < 0 and above(h, stop))):
+            gapped = later and (not above(o, stop) if side > 0 else not below(o, stop))
             return {"exit": o if gapped else stop, "exit_bar": b, "reason": "STOP", "at_open": gapped}
         if target is not None:
-            if (side > 0 and h > target) or (side < 0 and l < target):
-                gapped = later and (o >= target if side > 0 else o <= target)
+            if (side > 0 and above(h, target)) or (side < 0 and below(l, target)):
+                gapped = later and (not below(o, target) if side > 0 else not above(o, target))
                 return {"exit": o if gapped else target, "exit_bar": b, "reason": "TARGET", "at_open": gapped}
     if close_price is not None:
         return {"exit": close_price, "exit_bar": None, "reason": "CLOSE", "at_open": False}
@@ -509,7 +549,7 @@ def g1(day, f, gap: float) -> dict | None:
     pc, o0 = f["prior_close"], day["o"][0]
     for n in range(G1_SIGNAL[0], G1_SIGNAL[1] + 1):
         if not _complete(day, "ohlc", range(n + 1)):
-            return None
+            return {"skip": "MISSING_MINUTE"}       # the bar-to-bar rules need every minute up to the signal
         counter = [i for i in range(n) if (day["c"][i] > day["o"][i] if side < 0 else day["c"][i] < day["o"][i])]
         if not counter:
             continue
@@ -526,28 +566,45 @@ def g1(day, f, gap: float) -> dict | None:
             continue
         if side < 0 and ssr_active(f, day, n):
             return {"skip": "RULE_201"}
-        if not _complete(day, "o", [n + 1]):
-            return None
-        entry = day["o"][n + 1]
+        fill = next_open(day, n + 1, ENTRY_LAST)
+        if fill is None:
+            return {"skip": "NO_ENTRY_MINUTE"}
+        b, entry = fill
         if (side < 0 and entry >= extreme) or (side > 0 and entry <= extreme):
             return {"skip": "ENTRY_BEYOND_STOP"}
-        return _trade("G1", side, n + 1, entry, extreme, entry + side * G1_TARGET_R * abs(entry - extreme),
+        return _trade("G1", side, b, entry, extreme, entry + side * G1_TARGET_R * abs(entry - extreme),
                       EXIT_BAR, by_stop=False)
     return None
 
 
 def five_minute(day, k: int) -> dict | None:
-    idx = range(5 * k, 5 * k + 5)
-    if not _complete(day, "ohlc", idx):
+    """The k-th 5-minute bar from the minutes that traded in it (None when none did)."""
+    idx = [i for i in range(5 * k, 5 * k + 5) if i < len(day["o"]) and day["o"][i] is not None]
+    if not idx:
         return None
-    return {"o": day["o"][5 * k], "h": max(day["h"][i] for i in idx), "l": min(day["l"][i] for i in idx),
-            "c": day["c"][5 * k + 4]}
+    return {"o": day["o"][idx[0]], "h": max(day["h"][i] for i in idx), "l": min(day["l"][i] for i in idx),
+            "c": day["c"][idx[-1]]}
 
 
-def gap_filled(day, pc: float, gap: float, through_bar: int) -> bool:
-    """Price traded strictly through the prior close (the test a target order at it fills on)."""
+def gap_filled(day, pc: float, gap: float, through_bar: int, *, touch: bool = False) -> bool:
+    """Price traded strictly through the prior close (the test a target order at it fills on), or with touch, reached
+    it (the claim check's reading of "the gap filled")."""
     seen = [x for x in (day["l"] if gap > 0 else day["h"])[:through_bar + 1] if x is not None]
-    return any(x < pc for x in seen) if gap > 0 else any(x > pc for x in seen)
+    if touch:
+        return any(not above(x, pc) for x in seen) if gap > 0 else any(not below(x, pc) for x in seen)
+    return any(below(x, pc) for x in seen) if gap > 0 else any(above(x, pc) for x in seen)
+
+
+def gap_counts(day, pc: float, gap: float) -> list[str]:
+    """Barak's "most 1-3% gaps fill", over every such gap: reached (touched) and traded through, by 10:30 and the close."""
+    if not G2_GAP[0] <= abs(gap) < G2_GAP[1]:
+        return []
+    last = len(day["c"]) - 1
+    return ["G2_GAP"] + [key for key, bar, touch in (("G2_GAP_FILLED_BY_1030", EXIT_BAR, False),
+                                                     ("G2_GAP_FILLED_BY_CLOSE", last, False),
+                                                     ("G2_GAP_TOUCHED_BY_1030", EXIT_BAR, True),
+                                                     ("G2_GAP_TOUCHED_BY_CLOSE", last, True))
+                         if gap_filled(day, pc, gap, bar, touch=touch)]
 
 
 def g2(day, f, gap: float) -> dict | None:
@@ -557,7 +614,9 @@ def g2(day, f, gap: float) -> dict | None:
     pc = f["prior_close"]
     for k in range(G2_FIVE_MINUTE[0], G2_FIVE_MINUTE[1] + 1):
         bar, prev = five_minute(day, k), five_minute(day, k - 1)
-        if bar is None or prev is None or gap_filled(day, pc, gap, 5 * k + 4):
+        if bar is None or prev is None:
+            return {"skip": "MISSING_MINUTE"}       # a whole 5-minute bar without a trade
+        if gap_filled(day, pc, gap, 5 * k + 4):
             return None
         if side < 0:
             reversal = bar["c"] < bar["o"] and bar["c"] < prev["l"]
@@ -569,10 +628,10 @@ def g2(day, f, gap: float) -> dict | None:
             continue
         if side < 0 and ssr_active(f, day, 5 * k + 4):
             return {"skip": "RULE_201"}
-        b = 5 * k + 5
-        if b >= len(day["o"]) or day["o"][b] is None:
-            return None
-        entry = day["o"][b]
+        fill = next_open(day, 5 * k + 5, ENTRY_LAST)
+        if fill is None:
+            return {"skip": "NO_ENTRY_MINUTE"}
+        b, entry = fill
         if (side < 0 and entry >= stop) or (side > 0 and entry <= stop):
             return {"skip": "ENTRY_BEYOND_STOP"}
         if (side < 0 and entry <= pc) or (side > 0 and entry >= pc):
@@ -582,9 +641,9 @@ def g2(day, f, gap: float) -> dict | None:
 
 
 def opening_range(day) -> tuple[float, float] | None:
-    if not _complete(day, "ohlc", range(OR_BARS)):
-        return None
-    return max(day["h"][:OR_BARS]), min(day["l"][:OR_BARS])
+    """High and low of the first five minutes, from the minutes that traded (eligibility means 09:30 did)."""
+    bar = five_minute(day, 0)
+    return None if bar is None else (bar["h"], bar["l"])
 
 
 def _breakout(strategy, day, f, side, level, stop_of, last_entry, last_bar, close=None) -> dict | None:
@@ -638,18 +697,18 @@ def c1(day, f, norms: list[float | None] | None) -> dict | None:
             o, h, l = day["o"][b], day["h"][b], day["l"][b]
             if o is None:
                 continue
-            short_ok = not (l < low and ssr_active(f, day, b - 1))     # Rule 201 bars the sell stop only
+            short_ok = not (below(l, low) and ssr_active(f, day, b - 1))     # Rule 201 bars the sell stop only
             blocked = blocked or not short_ok
-            if not (h > high or (short_ok and l < low)):
+            if not (above(h, high) or (short_ok and below(l, low))):
                 continue
             side = None                  # the first level the bar's path goes through fills; the other is cancelled
             for x in bar_path(o, h, l, day["c"][b]):
-                if x > high or (short_ok and x < low):
-                    side = 1 if x > high else -1
+                if above(x, high) or (short_ok and below(x, low)):
+                    side = 1 if above(x, high) else -1
                     break
             fill = max(high, o) if side > 0 else min(low, o)
             return _trade("C1", side, b, fill, low if side > 0 else high, None, EXIT_BAR, by_stop=True,
-                          both=h > high and l < low)
+                          both=above(h, high) and below(l, low))
         j = last + 1                     # the orders expired: look for a later run
     return {"skip": "RULE_201"} if blocked else None
 
@@ -660,7 +719,8 @@ def x1_candidate(day, f) -> dict | None:
     if rng is None:
         return None
     high, low = rng
-    side = 1 if day["c"][OR_BARS - 1] > day["o"][0] else -1 if day["c"][OR_BARS - 1] < day["o"][0] else 0
+    candle = five_minute(day, 0)
+    side = 1 if candle["c"] > candle["o"] else -1 if candle["c"] < candle["o"] else 0
     if side == 0:
         return None
     distance = X1_ATR_STOP * f["atr14"]
@@ -672,40 +732,46 @@ def x1_candidate(day, f) -> dict | None:
 def e1(day, f, timing: str | None, spy_day, spy_f) -> dict | None:
     if timing not in ("PRE_OPEN", "AFTER_CLOSE") or f["sigma_d"] is None:
         return None
-    if not _complete(day, "c", [E1_BAR - 1]) or not _complete(day, "o", [E1_BAR]) \
-            or not _complete(spy_day, "c", [E1_BAR - 1]):
-        return None
+    if not _complete(day, "c", [E1_BAR - 1]):
+        return {"skip": "MISSING_MINUTE"}
+    if not _complete(spy_day, "c", [E1_BAR - 1]):
+        return {"skip": "UNSCORABLE"}
     e = (day["c"][E1_BAR - 1] / f["prior_close"] - 1) - f["beta"] * (spy_day["c"][E1_BAR - 1] / spy_f["prior_close"] - 1)
     if abs(e) < E1_THRESHOLD * f["sigma_d"]:
         return None
     side = 1 if e > 0 else -1
     if side < 0 and ssr_active(f, day, E1_BAR - 1):
         return {"skip": "RULE_201"}
-    return _trade("E1", side, E1_BAR, day["o"][E1_BAR], None, None, len(day["o"]) - 1, by_stop=False,
-                  close=f["daily_close"])
+    fill = next_open(day, E1_BAR, len(day["o"]) - 1)
+    if fill is None:
+        return {"skip": "NO_ENTRY_MINUTE"}
+    return _trade("E1", side, fill[0], fill[1], None, None, len(day["o"]) - 1, by_stop=False, close=f["daily_close"])
 
 
-def a1(day, f, any_event: set, prev_session: str | None, session: str) -> dict | None:
-    if session in any_event or (prev_session and prev_session in any_event):
+def a1(day, f, any_event: set, prev_session: str | None, session: str, gap: float | None = None) -> dict | None:
+    if any(s in any_event for s in (session, prev_session) if s):
         return None
-    if f["overnight_sd"] is None or not _complete(day, "o", [A1_BAR]):
+    if f["overnight_sd"] is None or f["overnight"] is None:
         return None
     resid = f["overnight"] - f["beta"] * f["overnight_spy"]
-    if resid < A1_SIGMA * f["overnight_sd"] or f["overnight"] < A1_MIN_GAP:
+    if resid < A1_SIGMA * f["overnight_sd"] or (f["overnight"] if gap is None else gap) < A1_MIN_GAP:
         return None
     if ssr_active(f, day, A1_BAR - 1):
         return {"skip": "RULE_201"}
-    return _trade("A1", -1, A1_BAR, day["o"][A1_BAR], None, None, len(day["o"]) - 1, by_stop=False,
-                  close=f["daily_close"])
+    fill = next_open(day, A1_BAR, len(day["o"]) - 1)
+    if fill is None:
+        return {"skip": "NO_ENTRY_MINUTE"}
+    return _trade("A1", -1, fill[0], fill[1], None, None, len(day["o"]) - 1, by_stop=False, close=f["daily_close"])
 
 
 def r1_trade(day, f) -> dict | None:
     """The long leg at 15:30 (the short leg is its mirror), for a session that trades past 15:30."""
-    if (len(day["c"]) <= LAST_HALF_HOUR or f["history"] < R1_MIN_HISTORY or day["c"][R1_RANK_BAR] is None
-            or day["o"][LAST_HALF_HOUR] is None):
+    if len(day["c"]) <= LAST_HALF_HOUR or f["history"] < R1_MIN_HISTORY or day["c"][R1_RANK_BAR] is None:
         return None
-    return {**_trade("R1", 1, LAST_HALF_HOUR, day["o"][LAST_HALF_HOUR], None, None, len(day["o"]) - 1,
-                     by_stop=False, close=f["daily_close"]),
+    fill = next_open(day, LAST_HALF_HOUR, len(day["o"]) - 1)
+    if fill is None:
+        return {"skip": "NO_ENTRY_MINUTE"}
+    return {**_trade("R1", 1, fill[0], fill[1], None, None, len(day["o"]) - 1, by_stop=False, close=f["daily_close"]),
             "rank_move": day["c"][R1_RANK_BAR] / f["prior_close"] - 1}
 
 
@@ -797,6 +863,11 @@ def previous_month(month: str) -> str:
     return f"{year - 1:04d}-12" if m == 1 else f"{year:04d}-{m - 1:02d}"
 
 
+def volume5(day) -> float:
+    """Volume of the first five minutes; a minute without trades counts as zero."""
+    return math.fsum(v for v in day["v"][:OR_BARS] if v is not None)
+
+
 class History:
     """Trailing per-stock state, updated after each session (so a session sees only earlier ones)."""
 
@@ -815,9 +886,9 @@ class History:
         return out
 
     def rv5(self, day) -> float | None:
-        if len(self.volume5) < RV_SESSIONS or not _complete(day, "v", range(OR_BARS)) or math.fsum(self.volume5) <= 0:
+        if len(self.volume5) < RV_SESSIONS or math.fsum(self.volume5) <= 0:
             return None
-        return math.fsum(day["v"][:OR_BARS]) / (math.fsum(self.volume5) / len(self.volume5))
+        return volume5(day) / (math.fsum(self.volume5) / len(self.volume5))
 
     def scale(self, strategy: str, day) -> float | None:
         first, last = WINDOWS[WINDOW_OF[strategy]]
@@ -826,8 +897,7 @@ class History:
     def update(self, day) -> None:
         self.ranges.append([math.log(day["h"][b] / day["l"][b]) if _complete(day, "hl", [b]) else None
                             for b in range(EXIT_BAR + 1)])
-        if _complete(day, "v", range(OR_BARS)):
-            self.volume5.append(math.fsum(day["v"][:OR_BARS]))
+        self.volume5.append(volume5(day))
         prefix = day_square_returns(day)
         for w, (first, last) in WINDOWS.items():
             v = window_var(day, prefix, first, last)
@@ -854,7 +924,9 @@ def replay(bars_for, prices: dict, events: dict, months: tuple[str, str], ticker
     by_ticker = defaultdict(lambda: defaultdict(int))
     x1_pool, r1_pool = defaultdict(list), defaultdict(list)
     for ticker in tickers:
-        feats = daily_features(prices.get(ticker, []), spy_rows)
+        rows = prices.get(ticker, [])
+        feats = daily_features(rows, spy_rows)
+        daily = {"first": rows[0]["date"] if rows else None, "dates": {r["date"] for r in rows}}
         ev = events.get(ticker, {"primary": {}, "any": set()})
         hist = History()
         seen = set()
@@ -866,7 +938,7 @@ def replay(bars_for, prices: dict, events: dict, months: tuple[str, str], ticker
                     seen.add(session)
                     sessions.add(session)
                     out = _session(ticker, session, day, feats.get(session), ev, previous.get(session), hist,
-                                   spy_days.get(session), spy_feat.get(session), actions.get(ticker, ()))
+                                   spy_days.get(session), spy_feat.get(session), actions.get(ticker, ()), daily)
                     if out["reason"]:
                         excluded[out["reason"]] += 1
                         by_ticker[ticker][out["reason"]] += 1
@@ -885,7 +957,7 @@ def replay(bars_for, prices: dict, events: dict, months: tuple[str, str], ticker
         for session in grid:                           # sessions with no minute bars at all
             if session not in seen:
                 reason = ("PRE_LISTING" if session < LISTED.get(ticker, "") else
-                          "NO_DAILY_BARS" if session not in feats else "NO_MINUTE_BARS")
+                          _no_features(session, daily) if session not in feats else "NO_MINUTE_BARS")
                 excluded[reason] += 1
                 by_ticker[ticker][reason] += 1
     for session, pool in sorted(x1_pool.items()):     # stocks in play: the highest first-5-minute volumes
@@ -901,25 +973,34 @@ def replay(bars_for, prices: dict, events: dict, months: tuple[str, str], ticker
             if r["long"]:
                 trades.append(r["long"])
             else:
-                skips["R1:UNSCORABLE"] += 1
+                skips[f"R1:{r['skip']}"] += 1
         for r in pool[-k:] if k else []:
             if r["short_blocked"]:
                 skips["R1:RULE_201"] += 1
             elif r["short"]:
                 trades.append(r["short"])
             else:
-                skips["R1:UNSCORABLE"] += 1
-    return {"trades": trades + _m1(spy_days, spy_feat, months), "eligible": dict(eligible),
+                skips[f"R1:{r['skip']}"] += 1
+    m1, m1_skips = _m1(spy_days, spy_feat, months)
+    for key, v in m1_skips.items():
+        skips[key] += v
+    return {"trades": trades + m1, "eligible": dict(eligible),
             "sessions": sorted(sessions), "skips": dict(skips), "excluded": dict(excluded), "counts": dict(counts),
             "excluded_by_ticker": {t: dict(v) for t, v in sorted(by_ticker.items())}}
 
 
-def _session(ticker, session, day, f, ev, prev_session, hist, spy_day, spy_f, actions=()) -> dict:
+def _no_features(session: str, daily: dict) -> str:
+    if daily["first"] is None or session < daily["first"]:
+        return "BEFORE_FIRST_DAILY_BAR"          # not yet listed, or IBKR's daily history starts later
+    return "NO_PRIOR_SESSIONS" if session in daily["dates"] else "NO_DAILY_BARS"
+
+
+def _session(ticker, session, day, f, ev, prev_session, hist, spy_day, spy_f, actions=(), daily=None) -> dict:
     out = {"reason": None, "trades": [], "skips": [], "counts": []}
     if session < LISTED.get(ticker, ""):
         out["reason"] = "PRE_LISTING"
     elif f is None:
-        out["reason"] = "NO_DAILY_BARS"
+        out["reason"] = _no_features(session, daily or {"first": None, "dates": set()})
     elif f["stale"]:
         out["reason"] = "STALE_PRIOR_CLOSE"
     elif session in actions:
@@ -941,14 +1022,10 @@ def _session(ticker, session, day, f, ev, prev_session, hist, spy_day, spy_f, ac
     gap = day["o"][0] / f["prior_close"] - 1
     n = len(day["c"])
     base = {"ticker": ticker, "session": session, "month": session[:7], "gap": gap, "earnings": session in ev["any"]}
-    if G2_GAP[0] <= abs(gap) < G2_GAP[1]:              # Barak's "most 1-3% gaps fill": the unconditional rate
-        out["counts"].append("G2_GAP")
-        if gap_filled(day, f["prior_close"], gap, EXIT_BAR):
-            out["counts"].append("G2_GAP_FILLED_BY_1030")
-        if gap_filled(day, f["prior_close"], gap, n - 1):
-            out["counts"].append("G2_GAP_FILLED_BY_CLOSE")
+    out["counts"] += gap_counts(day, f["prior_close"], gap)
     candidates = [g1(day, f, gap), g2(day, f, gap), b1(day, f, gap), c1(day, f, hist.norms()),
-                  e1(day, f, ev["primary"].get(session), spy_day, spy_f), a1(day, f, ev["any"], prev_session, session)]
+                  e1(day, f, ev["primary"].get(session), spy_day, spy_f),
+                  a1(day, f, ev["any"], prev_session, session, gap)]
     for name, t in zip(("G1", "G2", "B1", "C1", "E1", "A1"), candidates):
         if t is None:
             continue
@@ -973,16 +1050,18 @@ def _session(ticker, session, day, f, ev, prev_session, hist, spy_day, spy_f, ac
         out["x1"] = candidate
     if f["history"] >= R1_MIN_HISTORY and n > LAST_HALF_HOUR and day["c"][R1_RANK_BAR] is not None:
         row = {"ticker": ticker, "rank_move": day["c"][R1_RANK_BAR] / f["prior_close"] - 1, "long": None,
-               "short": None, "short_blocked": ssr_active(f, day, LAST_HALF_HOUR - 1)}
+               "short": None, "short_blocked": ssr_active(f, day, LAST_HALF_HOUR - 1), "skip": "UNSCORABLE"}
         t = r1_trade(day, f)
+        if t is not None and "skip" in t:
+            row["skip"], t = t["skip"], None
         long_ = _score_pair(t, day, spy_day, f, spy_f, hist, base) if t else None
         if long_ is not None:
             row["long"] = long_
-            row["short"] = {**long_, "side": -1, "reward": long_["mirror_reward"], "mirror_reward": long_["reward"],
-                            "reward_2x": long_["mirror_reward_2x"], "reward_gross": long_["mirror_reward_gross"],
-                            "net_bps": long_["mirror_net_bps"], "gross_bps": long_["mirror_gross_bps"],
-                            "skill": -long_["skill"], "reward_worst_fill": long_["mirror_reward"],
-                            "skill_worst_fill": -long_["skill"]}
+            swapped = {}
+            for k in ("reward", "reward_2x", "reward_gross", "net_bps", "gross_bps"):
+                swapped[k], swapped[f"mirror_{k}"] = long_[f"mirror_{k}"], long_[k]
+            row["short"] = {**long_, **swapped, "side": -1, "skill": -long_["skill"],
+                            "reward_worst_fill": long_["mirror_reward"], "skill_worst_fill": -long_["skill"]}
         out["r1"] = row
     return out
 
@@ -1008,21 +1087,29 @@ def _score_pair(t, day, spy_day, f, spy_f, hist, base) -> dict | None:
             "both": t["both"], "stop_in_fill_bar": own["stop_in_fill_bar"]}
 
 
-def _m1(spy_days, spy_feat, months) -> list[dict]:
-    out, var = [], deque(maxlen=NORM_SESSIONS)
+def _m1(spy_days, spy_feat, months) -> tuple[list[dict], dict]:
+    out, skips, var = [], defaultdict(int), deque(maxlen=NORM_SESSIONS)
     first, _ = WINDOWS["LAST_HALF_HOUR"]
     for session in sorted(spy_days):
         day, f = spy_days[session], spy_feat.get(session)
         if len(day["c"]) <= first or f is None:
             continue                                  # half days end before 15:30
         scale = window_scale(var, window_minutes(day, first, None))
-        move = day["c"][E1_BAR - 1] / f["prior_close"] - 1 if day["c"][E1_BAR - 1] is not None else 0.0
-        if months[0] <= session[:7] <= months[1] and scale and move and day["o"][first] is not None:
+        if months[0] <= session[:7] <= months[1] and scale:
+            fill = next_open(day, first, len(day["o"]) - 1)
+            move = None if day["c"][E1_BAR - 1] is None else day["c"][E1_BAR - 1] / f["prior_close"] - 1
+            if move is None:
+                skips["M1:MISSING_MINUTE"] += 1
+            elif fill is None:
+                skips["M1:NO_ENTRY_MINUTE"] += 1
+        else:
+            fill, move = None, None
+        if move and fill is not None:
             side = 1 if move > 0 else -1
-            gross = side * (f["daily_close"] / day["o"][first] - 1)
+            gross = side * (f["daily_close"] / fill[1] - 1)
             reward = (gross - 2 * COST_PER_SIDE) / scale
             out.append({"ticker": "SPY", "session": session, "month": session[:7], "gap": None, "earnings": False,
-                        "strategy": "M1", "side": side, "entry_bar": first, "reason": "CLOSE", "reward": reward,
+                        "strategy": "M1", "side": side, "entry_bar": fill[0], "reason": "CLOSE", "reward": reward,
                         "reward_2x": (gross - 4 * COST_PER_SIDE) / scale, "reward_gross": gross / scale,
                         "net_bps": (gross - 2 * COST_PER_SIDE) * 1e4, "gross_bps": gross * 1e4, "r_gross": None,
                         "control": -2 * COST_PER_SIDE / scale, "skill": gross / scale, "reward_worst_fill": reward,
@@ -1030,7 +1117,7 @@ def _m1(spy_days, spy_feat, months) -> list[dict]:
         v = window_var(day, day_square_returns(day), first, None)
         if v is not None:
             var.append(v / window_minutes(day, first, None))
-    return out
+    return out, dict(skips)
 
 
 # ---- evaluation ----------------------------------------------------------------
@@ -1145,9 +1232,12 @@ def _claims(name, trades, run, z) -> dict:
     if name == "G2":
         gaps, filled = run["counts"].get("G2_GAP", 0), run["counts"].get("G2_GAP_FILLED_BY_1030", 0)
         hits = sum(1 for t in trades if t["reason"] == "TARGET")
+        touched = run["counts"].get("G2_GAP_TOUCHED_BY_1030", 0)
         return {"gaps": gaps, "filled_by_1030": filled / gaps if gaps else None,
                 "filled_by_1030_interval": wilson(filled, gaps, z),
                 "filled_by_close": run["counts"].get("G2_GAP_FILLED_BY_CLOSE", 0) / gaps if gaps else None,
+                "touched_by_1030": touched / gaps if gaps else None, "touched_by_1030_interval": wilson(touched, gaps, z),
+                "touched_by_close": run["counts"].get("G2_GAP_TOUCHED_BY_CLOSE", 0) / gaps if gaps else None,
                 "traded_target_rate": hits / n if n else None, "claimed_fill_rate": CLAIMS["G2_fill_rate"]}
     if name == "B1" and n:
         stopped = sum(1 for t in trades if t["reason"] == "STOP")
@@ -1293,7 +1383,10 @@ def behavior_fixture():
             close = day["c"][-1]
         prices[t] = rows
     bars["T5"][sessions[175]]["o"][0] = None
-    prices["T6"] = [r for r in prices["T6"] if r["date"] >= "2018-12-17"]   # a short history: beta's fallback
+    prices["T6"] = [r for r in prices["T6"] if r["date"] >= "2019-02-11"]   # daily history starts mid-window
+    for i in range(150, 186, 7):                # minutes without trades in the first hour (T3)
+        for k in "ohlcv":
+            bars["T3"][sessions[i]][k][2] = None
     del prices["T2"][168]                       # a missing daily row: that session and the next are not scored
     late = [s for s in sessions if s >= "2019-02-01"]
     events = {"T1": {"primary": {big["T1"][0]: "PRE_OPEN", big["T1"][1]: "AFTER_CLOSE", late[30]: "AFTER_CLOSE"},
@@ -1331,7 +1424,7 @@ def synthetic_book(*, reward=0.5, skill=0.3, stocks=20, months=24, cost_drag=0.6
 
 def _pad(bars: list[tuple], n: int = 60) -> dict:
     bars = list(bars) + [(bars[-1][3],) * 4] * (n - len(bars))
-    return {k: [b[i] for b in bars] for i, k in enumerate("ohlc")} | {"v": [1000.0] * n}
+    return {k: [b[i] for b in bars] for i, k in enumerate("ohlc")} | {"v": [None if b[0] is None else 1000.0 for b in bars]}
 
 
 def strategy_cases() -> dict:
@@ -1360,7 +1453,12 @@ def strategy_cases() -> dict:
             "c1_up": _pad(box + [(100.0, 100.3, 99.98, 100.25)]), "c1_both_up_bar": _pad(box + [(100.0, 100.3, 99.7, 100.2)]),
             "c1_both_down_bar": _pad(box + [(100.0, 100.3, 99.7, 99.8)]),
             "x1_opens_below_stop": _pad(x1_open + [(100.0, 100.75, 99.98, 100.7)], 390),
-            "x1_falls_back": _pad(x1_open + [(100.0, 100.75, 99.98, 100.3)], 390)}
+            "x1_falls_back": _pad(x1_open + [(100.0, 100.75, 99.98, 100.3)], 390),
+            "g2_twin_touches_its_stop": _pad(g2_up + [(101.6, 101.7, 101.0, 101.1), (101.1, 101.2, 100.5, 100.9),
+                                                      (100.9, 101.4, 100.8, 101.3)]),
+            "g2_missing_minute": _pad(g2_up[:7] + [(None,) * 4] + g2_up[8:]
+                                      + [(101.6, 101.7, 101.0, 101.1), (101.1, 101.2, 99.9, 100.4)]),
+            "g1_missing_minute": _pad(g1_down[:2] + [(None,) * 4] + g1_down[3:] + [(96.0, 96.1, 95.9, 96.0)])}
     spy = {k: [400.0] * 390 for k in "ohlc"} | {"v": [1.0] * 390}
     out = {}
     for name, day in days.items():
@@ -1375,6 +1473,126 @@ def strategy_cases() -> dict:
                 entry["mirror"] = score(t, day, spy, 400.0, 1.0, 0.01, side=-t["side"])
                 entry["worst"] = score(t, day, spy, 400.0, 1.0, 0.01, fill_bar="worst")
             out[f"{name}:{label}"] = entry
+    late_entry = _pad(g2_up + [(None,) * 4, (101.1, 101.2, 100.8, 101.0)])
+    touch = _pad(g2_up + [(101.6, 101.7, 100.0, 100.4)])
+    a1_day = _pad([(104.0, 104.1, 103.9, 104.0)] * 6, 390)
+    out["direct"] = {
+        "g2_entry_minute_missing": g2(late_entry, f, 0.02),
+        "gap_touch_vs_through": [gap_filled(touch, 100.0, 0.02, 59, touch=True), gap_filled(touch, 100.0, 0.02, 59)],
+        "a1": [a1(a1_day, f, events, "2024-01-25", "2024-01-26", 0.04)
+               for events in (set(), {"2024-01-26"}, {"2024-01-25"}, {"2024-01-29"})]}
+    return out
+
+
+def rule_probes() -> dict:
+    """Direct calls at each rule's edge, so a change to a comparison, a window or a skip moves the pin even where
+    the synthetic walk and the hand-built setups never reach it."""
+    noise = 1e-12                                   # far below TICK_EPS: a touch, not a trade through
+    f = {"prior_close_raw": 100.0, "prior_close": 100.0, "prior_low": 99.0, "close_before_prior": 100.0,
+         "daily_close": 101.5, "atr14": 2.0, "beta": 1.0, "sigma_d": 0.02, "overnight": 0.04, "overnight_spy": 0.0,
+         "overnight_sd": 0.01, "daily_open": 100.0, "history": 300}
+    up_bar = _pad([(100.0, 100.0, 100.0, 100.0), (100.0, 100.5, 99.5, 100.4), (100.0, 100.1, 99.6, 100.0)])
+    down_bar = _pad([(100.0, 100.0, 100.0, 100.0), (100.0, 100.5, 99.5, 99.6), (99.0, 99.4, 98.8, 99.0)])
+    out = {"fills": {
+        "stop_entry_touch": [stop_entry_fill(up_bar, 1, 100.5 - noise, 1), stop_entry_fill(up_bar, -1, 99.5 + noise, 1),
+                             stop_entry_fill(up_bar, 1, 100.5 - 1e-6, 1)],
+        "after_fill_touch": [after_fill(up_bar, 1, 1, 100.0 + noise), after_fill(down_bar, 1, -1, 100.0 - noise),
+                             after_fill(up_bar, 1, 1, 100.2), after_fill(up_bar, 1, 1, 100.5 - noise),
+                             after_fill(down_bar, 1, -1, 99.5 + noise)],
+        "tolerance_size": [stop_entry_fill(up_bar, 1, 100.5 - 1e-10, 1), gap_filled(up_bar, 99.5 + 1e-10, 0.02, 2)],
+        "fill_bar_stop_touch": [simulate_exit(up_bar, 1, 1, 99.5 + noise, None, 2, entry_by_stop=True, entry=99.9),
+                                simulate_exit(up_bar, 1, 1, 99.5 + 1e-6, None, 2, entry_by_stop=True, entry=99.9),
+                                simulate_exit(down_bar, 1, 1, 99.5 + noise, None, 2, entry_by_stop=True, entry=100.2,
+                                              fill_bar="worst")],
+        "later_stop_touch": [simulate_exit(up_bar, 1, 1, 99.5 + noise, None, 2, entry_by_stop=False),
+                             simulate_exit(up_bar, -1, 1, 100.5 - noise, None, 2, entry_by_stop=False)],
+        "gapped_at_the_level": [simulate_exit(down_bar, 1, 1, 99.0 + noise, None, 2, entry_by_stop=False),
+                                simulate_exit(down_bar, 1, 1, 99.0 - noise, None, 2, entry_by_stop=False)],
+        "target_touch": [simulate_exit(up_bar, 1, 1, 90.0, 100.5 - noise, 2, entry_by_stop=False),
+                         simulate_exit(up_bar, -1, 1, 110.0, 99.5 + noise, 2, entry_by_stop=False),
+                         simulate_exit(up_bar, 1, 1, 90.0, 100.5 - 1e-6, 2, entry_by_stop=False)],
+        "gapped_target": [simulate_exit(down_bar, -1, 1, 110.0, 99.0 + noise, 2, entry_by_stop=False),
+                          simulate_exit(down_bar, -1, 1, 110.0, 99.0 - noise, 2, entry_by_stop=False)],
+        "gap_fill_touch": [gap_filled(up_bar, 99.5 + noise, 0.02, 2), gap_filled(up_bar, 99.5 + noise, 0.02, 2, touch=True),
+                           gap_filled(up_bar, 99.5 - noise, 0.02, 2, touch=True),
+                           gap_filled(up_bar, 100.5 - noise, -0.02, 2), gap_filled(up_bar, 100.5 + noise, -0.02, 2, touch=True)]}}
+    box = [(100.0, 100.1, 99.9, 100.0)] * 10 + [(100.0, 100.055, 99.945, 100.0), (100.0, 100.045, 99.955, 100.0),
+                                                (100.0, 100.035, 99.965, 100.0), (100.0, 100.025, 99.975, 100.0)]
+    norms = [math.log(100.1 / 99.9)] * 60
+    out["c1_touch"] = [c1(_pad(box + [(100.0, 100.055 + noise, 99.98, 100.0)]), f, norms),
+                       c1(_pad(box + [(100.0, 100.02, 99.945 - noise, 100.0)]), f, norms),
+                       c1(_pad(box + [(100.0, 100.3, 99.945 - noise, 100.2)]), f, norms)]
+    hole = [(100.0, 100.1, 99.9, 100.0)] * 10 + [(None,) * 4] * 6 + [(100.2, 100.3, 100.1, 100.2)] * 4
+    gappy = _pad(hole)
+    out["next_open"] = [next_open(gappy, 10, 45), next_open(gappy, 11, 45), next_open(gappy, 10, 14),
+                        next_open(gappy, 58, 59), next_open(gappy, 14, 16)]
+    first_missing = _pad([(None,) * 4, (100.0, 100.2, 99.8, 100.1), (100.1, 100.3, 100.0, 100.2),
+                          (100.2, 100.4, 100.1, 100.3), (100.3, 100.5, 100.2, 100.45)])
+    last_missing = _pad([(100.0, 100.2, 99.8, 100.1), (100.1, 100.3, 100.0, 100.2), (100.2, 100.4, 100.1, 100.3),
+                         (100.3, 100.5, 100.2, 100.4), (None,) * 4])
+    out["five_minute"] = [five_minute(first_missing, 0), five_minute(last_missing, 0), five_minute(gappy, 2),
+                          five_minute(gappy, 3)]
+    candle_gap = _pad([(100.0, 100.6, 99.8, 100.2), (100.2, 100.4, 100.0, 100.3), (100.3, 100.5, 100.1, 100.4),
+                       (100.4, 100.5, 100.2, 100.45), (None,) * 4, (100.45, 100.7, 100.4, 100.65)], 390)
+    out["x1_candle"] = x1_candidate(candle_gap, f)
+    g2_up = ([(102.0 + 0.1 * i, 102.1 + 0.1 * i, 101.8 + 0.1 * i, 102.1 + 0.1 * i) for i in range(5)]
+             + [(102.5, 102.7, 102.3, 102.4), (102.4, 102.5, 102.1, 102.2), (102.2, 102.3, 101.9, 102.0),
+                (102.0, 102.1, 101.7, 101.8), (101.8, 101.9, 101.5, 101.6)])
+    climb = [(102.0 + 0.05 * i, 102.06 + 0.05 * i, 101.98 + 0.05 * i, 102.05 + 0.05 * i) for i in range(40)]
+    late_reversal = climb + [(104.0, 104.02, 103.5, 103.6), (103.6, 103.62, 103.4, 103.45), (103.45, 103.5, 103.3, 103.35),
+                             (103.35, 103.4, 103.2, 103.25), (103.25, 103.3, 103.1, 103.15)]
+    out["g2"] = [g2(_pad(g2_up + [(None,) * 4] * 5 + [(101.1, 101.2, 100.8, 101.0)]), f, 0.02),
+                 g2(_pad(g2_up + [(None,) * 4] * 6 + [(101.1, 101.2, 100.8, 101.0)]), f, 0.02),
+                 g2(_pad(g2_up[:5] + [(None,) * 4] * 5 + g2_up[5:]), f, 0.02),
+                 g2(_pad(late_reversal + [(None,) * 4] + [(103.1, 103.2, 103.0, 103.1)] * 14), f, 0.02),
+                 g2(_pad(late_reversal + [(103.15, 103.2, 103.0, 103.1)] * 14), f, 0.02)]
+    g1_down = [(96.0, 96.2, 95.5, 95.6), (95.6, 96.4, 95.5, 96.3), (96.3, 96.8, 96.1, 96.6), (96.6, 96.7, 96.0, 96.05)]
+    out["g1"] = [g1(_pad(g1_down + [(None,) * 4] * k + [(96.0, 96.1, 95.0, 95.2)]), f, -0.04) for k in (1, 5, 6)]
+    tens = _pad([(103.0, 103.2, 102.8, 103.0)] * 30 + [(None,) * 4] * 5 + [(103.1, 103.2, 103.0, 103.1)], 390)
+    elevens = _pad([(103.0, 103.2, 102.8, 103.0)] * 30 + [(None,) * 4] * 6 + [(103.1, 103.2, 103.0, 103.1)], 390)
+    no_nine = _pad([(103.0, 103.2, 102.8, 103.0)] * 29 + [(None,) * 4] + [(103.1, 103.2, 103.0, 103.1)], 390)
+    spy = {k: [400.0] * 390 for k in "ohlc"} | {"v": [1.0] * 390}
+    spy_gap = {**spy, "c": [400.0] * 29 + [None] + [400.0] * 360}
+    spy_f = {**f, "prior_close": 400.0}
+    out["e1"] = [e1(tens, f, "PRE_OPEN", spy, spy_f), e1(elevens, f, "PRE_OPEN", spy, spy_f),
+                 e1(no_nine, f, "PRE_OPEN", spy, spy_f), e1(no_nine, f, "PRE_OPEN", spy_gap, spy_f),
+                 e1(tens, f, "PRE_OPEN", spy_gap, spy_f)]
+    a1_late = _pad([(104.0, 104.1, 103.9, 104.0)] * 5 + [(None,) * 4] * 2 + [(104.1, 104.2, 104.0, 104.1)], 390)
+    out["a1"] = [a1(a1_late, f, set(), "2024-01-25", "2024-01-26", 0.04), a1(a1_late, f, set(), None, "2024-01-26", 0.014),
+                 a1(a1_late, f, {"2024-01-25"}, "2024-01-25", "2024-01-26", 0.04)]
+    r1_day = _pad([(100.0, 100.1, 99.9, 100.0)] * 360 + [(None,) * 4] * 3 + [(100.2, 100.3, 100.1, 100.2)] * 27, 390)
+    r1_none = _pad([(100.0, 100.1, 99.9, 100.0)] * 360 + [(None,) * 4] * 6 + [(100.2, 100.3, 100.1, 100.2)] * 24, 390)
+    out["r1"] = [r1_trade(r1_day, f), r1_trade(r1_none, f)]
+    fill_late = _pad(g2_up + [(101.6, 101.7, 101.0, 101.1)] * 40 + [(101.1, 101.2, 99.9, 100.0)], 390)
+    out["gap_counts"] = [gap_counts(fill_late, 100.0, 0.02), gap_counts(fill_late, 100.0, 0.031),
+                         gap_counts(_pad(g2_up + [(101.6, 101.7, 100.0, 100.4)], 390), 100.0, 0.02)]
+    hist = History()
+    for k in range(RV_SESSIONS):
+        day = _pad([(100.0, 100.1, 99.9, 100.0)] * 60, 390)
+        if k % 3 == 0:
+            for key in "ohlcv":
+                day[key][2] = None
+        hist.update(day)
+    thin = _pad([(100.0, 100.1, 99.9, 100.0), (None,) * 4] + [(100.0, 100.1, 99.9, 100.0)] * 58, 390)
+    out["volume"] = [list(hist.volume5), hist.rv5(thin), volume5(thin)]
+    out["no_features"] = [_no_features(s, {"first": "2019-02-11", "dates": {"2019-02-11", "2019-02-12", "2019-02-14"}})
+                          for s in ("2019-02-08", "2019-02-11", "2019-02-12", "2019-02-13", "2019-02-14")]
+    spy_days, spy_feat = {}, {}
+    for i, s in enumerate(fixture_sessions("2019-01-02", "2019-02-28")):
+        day = synthetic_day(77 + i, 270.0, 0.0001 * (1 if i % 2 else -1))
+        if s == "2019-02-26":
+            for key in "ohlcv":
+                day[key][LAST_HALF_HOUR:LAST_HALF_HOUR + 2] = [None, None]
+        if s == "2019-02-27":
+            for key in "ohlcv":
+                day[key][LAST_HALF_HOUR:LAST_HALF_HOUR + 6] = [None] * 6
+        if s == "2019-02-28":
+            for key in "ohlcv":
+                day[key][E1_BAR - 1] = None
+        spy_days[s] = day
+        spy_feat[s] = {"prior_close": 270.0, "daily_close": day["c"][-1]}
+    trades, skips = _m1(spy_days, spy_feat, ("2019-02", "2019-02"))
+    out["m1"] = [[t["session"], t["entry_bar"], t["side"], t["reward"]] for t in trades], skips
     return out
 
 
@@ -1411,7 +1629,7 @@ def behavior_digest() -> str:
                                                 ("2019-01-30T14:45:00+00:00", "2019-01-30"),
                                                 ("2019-07-29T20:01:00+00:00", "2019-07-30"))]
     return digest(rounded({"trades": trades, "eligible": result["eligible"], "parsed": days_from_rows(rows),
-                           "cases": strategy_cases(),
+                           "cases": strategy_cases(), "probes": rule_probes(),
                            "timing": timing,
                            "dev": stage_report(result, "dev", BEHAVIOR_MONTHS),
                            "holdout": stage_report(result, "holdout", BEHAVIOR_MONTHS), "verdicts": verdicts}))
@@ -1419,9 +1637,9 @@ def behavior_digest() -> str:
 
 # ---- the stages ----------------------------------------------------------------
 
-def run(*, dev_root, holdout_root=None, prices_dir, stage: str, tickers: list[str], allow_incomplete: bool = False) -> dict:
-    """Development (descriptive) or the one hold-out run; returns aggregates only. allow_incomplete runs the
-    development stage on a partial fetch, labelled a preview."""
+def run(*, dev_root, holdout_root=None, prices_dir, stage: str, tickers: list[str]) -> dict:
+    """Development (descriptive) or the one hold-out run; returns aggregates only. Both refuse an unfinished fetch
+    (scripts/report_intraday_replay.py previews the finished months instead)."""
     from ..market_calendar import session_dates
     if stage not in ("dev", "holdout"):
         raise ValueError("INTRADAY_REPLAY_STAGE_INVALID")
@@ -1439,23 +1657,26 @@ def run(*, dev_root, holdout_root=None, prices_dir, stage: str, tickers: list[st
             return refused(reason)
     elif prices_sha != DAILY_PRICES_SHA256:
         return refused("DAILY_PRICES_NOT_REGISTERED")
+    elif behavior_digest() != BEHAVIOR_SHA256:
+        return refused("REPLAY_CODE_CHANGED")
     calendar = session_dates(f"{loaded[0]}-01", f"{months[1]}-31")
     if [r["date"] for r in prices["SPY"] if calendar[0] <= r["date"] <= calendar[-1]] != calendar:
         return refused("SPY_DAILY_INCOMPLETE")
     symbols = sorted(tickers) + ["SPY"]
     missing = missing_months(dev_root, symbols, loaded) if stage == "dev" else []
-    if missing and not allow_incomplete:
+    if missing:
         return refused("INPUTS_INCOMPLETE", missing=len(missing), first_missing=missing[:5])
 
     def bars_for(ticker, month):
         if stage == "holdout" and month != previous_month(HOLDOUT[0]):
             return load_month(holdout_root, ticker, month)
         return load_month(dev_root, ticker, month)      # development, or the hold-out's warm-up month
-    result = replay(bars_for, prices, earnings(), months, sorted(tickers))
+    try:
+        events = earnings()
+    except ValueError as exc:
+        return refused(str(exc))
+    result = replay(bars_for, prices, events, months, sorted(tickers))
     report = stage_report(result, stage, months)
-    if missing:
-        report["label"] = "DEVELOPMENT_PREVIEW_INCOMPLETE_FETCH"
-        report["missing_ticker_months"] = len(missing)
     root = dev_root if stage == "dev" else holdout_root
     return {"protocol_id": PROTOCOL_ID, "protocol_sha256": PROTOCOL_SHA256, "behavior_sha256": BEHAVIOR_SHA256,
             "status": "OK", **report,
