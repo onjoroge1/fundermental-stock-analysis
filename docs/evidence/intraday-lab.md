@@ -8,21 +8,67 @@ touching the bars that are kept for the final test.
 
 | Period | What happens there |
 |---|---|
-| **Explore, 2016-01..2019-12** | Try and refine variants as often as wanted. Every run of every variant is appended to [`intraday-lab-log.json`](intraday-lab-log.json). |
-| **Check, 2020-01..2023-12** | A variant that looks worth keeping is run here **once**, unchanged. |
+| **Explore, 2016-01..2017-06** (the discovery months) | Try and refine variants as often as wanted. Every run of every variant is appended to [`intraday-lab-log.json`](intraday-lab-log.json). |
+| **Confirm, 2017-07..2019-12** (held back from the discovery research) | A frozen variant is run **once** against the pass bar, which was fixed before these months were read. |
+| **Check, 2020-01..2023-12** | A variant that passed its confirm is run **once**, unchanged. |
 | **Hold-out, 2024-01 onwards** | The lab never reads it. A variant that survives its check can be written into a pre-registered protocol for the one hold-out run. |
 
+**The pass bars**, both fixed before the confirm months were read:
+
+| Stage | Cost a side | Mean net per trade | t-statistic | Positive periods |
+|---|---|---|---|---|
+| Confirm | 5 bps | above 0 | above 2 | at least 2 of 2017H2, 2018, 2019 |
+| Check | 5 bps | above 0 | above 2 | at least 3 of 2020, 2021, 2022, 2023 |
+
+- **The t-statistic uses a leave-one-session-out (jackknife) standard error.** Each session's trades are dropped
+  together, so a news day with many trades cannot carry a variant alone. With one trade a session it is the ordinary
+  t. Each table also shows the largest single session's share of the trades.
+- **The check bar can be changed only until the first confirm runs.** It is part of the lab's code hash and of each
+  definition, so changing it after a confirm stops that confirm's check from ever running
+  (`CONFIRMED_WITH_OTHER_CODE`), and the strategy cannot be confirmed again.
+
 **What enforces this**, in `stock_machine/backtest/intraday_lab.py`:
-- **The check runs once.** It needs an explore entry for the same definition made with the same code, and a second check of the same definition is refused.
-- **Code changes count as new tries.** The code hash covers the lab, the replay it borrows from and the runner, so changing the code counts as a new try and needs a fresh explore before any check.
-- **The check months go through `run()`, which logs before it returns.** The lab's replay refuses those months unless `run()` asks for them. It refuses 2024 onwards always.
-- **Every try is counted.** Each summary prints how many variant tries the log holds. The more variants are tried, the more one of them looks good by luck, and the count keeps that visible.
+- **Stages run in order.**
+  - A confirm needs an explore of the same definition, made with the same code and inputs.
+  - A check needs a passed confirm made with the same definition, code and inputs, so the check runs exactly what
+    passed. Do not change the lab, the replay or the runner between a confirm and its check: the check would be
+    refused (`CONFIRMED_WITH_OTHER_CODE`).
+  - The inputs are the tickers, the pinned 8-K data and the pinned daily prices.
+- **Each strategy gets one confirm and one check**, keyed on its spec, so renaming a variant or rewording the
+  conventions does not reopen it.
+- **Code changes count as new tries.** The code hash covers the lab, the replay, the runner and the daily-price
+  loader.
+- **Each stage reads only its own months,** and run() logs under a lock before it returns.
+- **The replay waits too.** The pre-registered replay's previews and development run would read the held-back
+  months (`replay_reads_through`):
+  - they stop at 2017-06 until the four frozen variants' confirms are logged;
+  - they stop at 2019-12 until the checks of those that passed are logged.
+- **Every summary prints** the number of variant tries, one-time confirms and one-time checks. Each confirm or check
+  report gets its own file, named with its log entry.
 
 **Run it:**
-- `python scripts/run_intraday_lab.py explore` runs the six variants on the finished explore months.
-- `… check --variants GU-REV.v1` runs the one check.
+- `python scripts/run_intraday_lab.py explore [--variants …]` runs on the finished discovery months.
+- `… confirm --variants EXT-FADE.v2` runs the one confirm.
+- `… check --variants …` runs the one check.
 - `… log` shows the record.
-- A new idea is a new variant id in `VARIANTS`, for example `GU-REV.v2` with a changed parameter. The old one stays in the log.
+- A new idea is a new variant id, for example `EXT-FADE.v3`. The old one stays in the log.
+
+**Frozen 2026-10-22** from the discovery research (`intraday-discovery-2026-10-22.md`), before the confirm months
+were read, and chosen by the owner:
+- `EXT-FADE.v2` (quiet-market extension fade), with `EXT-FADE.v1` as its control;
+- `EARN-FH.v1` (earnings first-hour fade), with the 1.5% gap sub-test `EARN-FH15.v1`.
+
+**The logged explore of this code** (2026-10-22, log entries 7-16, `intraday-lab-explore-2026-10-22.md`):
+
+| Variant | Trades | Net bps at 5 a side | t (jackknife) | 2016 | 2017H1 |
+|---|---|---|---|---|---|
+| EXT-FADE.v1 | 547 | +21.7 | 2.61 | +15.5 | +40.8 |
+| EXT-FADE.v2 | 263 | +40.9 | 3.70 | +42.9 | +37.7 |
+| EARN-FH.v1 | 109 | +33.6 | 2.52 | +27.1 | +45.7 |
+| EARN-FH15.v1 | 74 | +49.3 | 3.20 | +46.5 | +55.4 |
+
+- These are the discovery months, so they only show the code reproduces the research. The confirm decides.
+- The six gap variants stay negative at 10 bps a side over the longer explore window.
 
 ## The six variants (v1)
 

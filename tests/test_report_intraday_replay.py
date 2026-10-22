@@ -25,7 +25,7 @@ def test_a_development_summary_lists_every_strategy_its_claims_and_exclusions_wi
     assert "Verdict" not in text and "1–3% gaps reach the prior close by 10:30" in text and "CORPORATE_ACTION" in text
     assert text.index("| **G1** |") < text.index("| **X1** |") < text.index("| **E1** |")   # protocol order
     assert "BEFORE_FIRST_DAILY_BAR" in text and "T6 (BEFORE" not in text           # pre-history is not "heavy"
-    assert "T4 (CORPORATE_ACTION 1, PRICE_MISMATCH 1)" in text      # 2 of 40 sessions: at the 5% line
+    assert "T4 (SPY_DAILY_ERROR 3, CORPORATE_ACTION 1, PRICE_MISMATCH 1)" in text   # 5 of 40 sessions
 
 
 def test_a_holdout_summary_carries_the_verdicts():
