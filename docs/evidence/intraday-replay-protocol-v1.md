@@ -30,13 +30,17 @@ registration.
 - **Bars:** IBKR TRADES 1-minute bars, regular hours, for the 54 covered stocks and SPY:
   - fetched a week per request; any session that comes back short is asked for again on its own, and a
     request that times out is retried rather than kept;
-  - split-adjusted, rounded to cents and not dividend-adjusted;
-  - a bar with no trades (IBKR's placeholder) counts as a missing minute.
+  - split-adjusted (T and CMCSA are also adjusted for spin-offs), rounded to cents, not dividend-adjusted;
+  - a bar with no trades (IBKR's placeholder) counts as a missing minute;
+  - stray prints are kept: a single print far from the bar's other trades can set a stop or a range, which
+    happened in a handful of the 2016 trades;
+  - the 09:30 open is the first consolidated print, and IBKR's daily open is the same print.
 - **Daily bars:** the IBKR daily TRADES and ADJUSTED_LAST bars (`data/ibkr_prices/2026-10-20`) supply the
   prior close, the dividend factor, beta, ATR and the official close.
 - **Earnings sessions:** the pinned SEC 8-K item 2.02 dataset.
-- **Completeness:** every ticker-month needs a finished fetch (a final manifest). The development run refuses
-  otherwise, except as a labelled preview; the hold-out refuses outright.
+- **Completeness:** every ticker-month needs a finished fetch (a final manifest). Both stages refuse otherwise.
+  While the fetch runs, `scripts/report_intraday_replay.py preview` runs the development stage on the finished
+  months only, labelled a preview.
 - **Storage:** files are split by stock and month (`data/ibkr_intraday/v1/<TICKER>/<YYYY-MM>.csv.gz`, about
   140 KB each), so a fetch resumes where it stopped and space stays bounded:
   - development is about 0.75 GB;
@@ -50,42 +54,47 @@ registration.
 
 | | Setup | Entry | Stop / target | Exit |
 |---|---|---|---|---|
-| **G1** Gap and go (Barak) | Gap ≥ 3%. A counter-move against the gap (from the first bar closing against it) fails at minutes 3–9: no new extreme, and a close beyond the previous bar's low (for a gap down) or high (for a gap up). The counter-move has filled less than half the gap. | With the gap, next bar's open | Counter-move extreme / 1R | 10:30 |
-| **G2** Gap fill (Barak) | Gap of 1–3%, not yet filled. A 5-minute bar from 09:35–10:14 closes against the gap, beyond the previous 5-minute bar's extreme, with the prior close at least 1R away. | Against the gap, next open | That bar's extreme / the prior close | 10:30 |
+| **G1** Gap and go (Barak) | Gap ≥ 3%. A counter-move against the gap (from the first bar closing against it) fails on a bar closing 09:33–09:39 (bars 3–9): no new extreme, and a close beyond the previous bar's low (for a gap down) or high (for a gap up). The counter-move has filled less than half the gap. | With the gap, next bar's open | Counter-move extreme / 1R | 10:30 |
+| **G2** Gap fill (Barak) | Gap of 1–3%, not yet traded through. A 5-minute bar from 09:35–10:14 closes against the gap (a down bar after a gap up, an up bar after a gap down) and beyond the previous 5-minute bar's low (high), with the prior close at least 1R from that bar's close (R = its extreme minus its close). | Against the gap, next open | That bar's extreme / the prior close | 10:30 |
 | **B1** Break of structure (Barak) | Gap ≥ 2%. The first 5 minutes' range. | Stop order beyond it in the gap's direction, 09:35–10:15 | Other side of the range | 10:30 |
 | **C1** The "h structure" | Four consecutive bars, each narrower than the last relative to that minute's normal range (mean over the prior 20 sessions), all at most 0.6 of normal, ending 09:33–10:14. | Stop orders both ways beyond the run's high and low, live for 10 bars; one cancels the other | Other side of the run | 10:30 |
-| **X1** Opening-range breakout on stocks in play (Zarattini, Barbon & Aziz 2024) | ATR(14) ≥ $0.50; first-5-minute volume ≥ its 14-session mean; the 5 highest such ratios that session. The direction comes from the first 5-minute candle. | Stop order beyond its range, from 09:35 | 10% of ATR from the fill | Official close |
+| **X1** Opening-range breakout on stocks in play (Zarattini, Barbon & Aziz 2024) | ATR(14) ≥ $0.50; first-5-minute volume ≥ its 14-session mean (a minute without trades counts as zero volume); the 5 highest such ratios that session. The direction comes from the first 5-minute candle. | Stop order beyond its range, from 09:35 | 10% of ATR from the fill | Official close |
 
 **Exploratory: 95% intervals, never a verdict:**
 
 | | Effect | Trade |
 |---|---|---|
-| **E1** | Earnings-day continuation | PRIMARY 8-K releases accepted before 09:30, or at 16:00 or later the day before; a residual move by 10:00 of at least one daily sigma; with it, 10:00 to the close. About 15% of releases (mostly pre-open press releases whose 8-K came mid-morning) are not traded. |
-| **M1** | Intraday momentum (Gao, Han, Li & Zhou 2018) | SPY, in the direction of its move from the prior close to 10:00 (none when unchanged), 15:30 to the close |
-| **R1** | End-of-day reversal (Baltussen, Da & Soebhag) | Rank every stock with a 14:59 close by its move from the prior close to 15:00: long the lowest fifth, short the highest fifth, 15:30 to the close |
-| **A1** | Attention-driven gap fade (Berkman, Koch, Tuttle & Zhang 2012) | No earnings that session or the one before; an overnight residual of at least 2 sigma (60 sessions) and a gap of at least 1.5%: short, 09:35 to the close |
+| **E1** | Earnings-day continuation | PRIMARY 8-K releases accepted before 09:30, or at 16:00 or later the day before; a residual move by 10:00 of at least one daily sigma; with it, 10:00 to the close. About 15% of releases (mostly pre-open press releases whose 8-K came mid-morning) are not traded. An 8-K filed after the close of the reaction day labels the next session, so a handful of events trade a session late (for example COST: press release 2016-05-25 after the close, 8-K accepted 05-26 16:25 ET, labelled 05-27). |
+| **M1** | Intraday momentum (Gao, Han, Li & Zhou 2018) | SPY, in the direction of its move from the prior close to 10:00 (none when unchanged), 15:30 to the close. Scored unhedged (SPY is the hedge) over SPY's own volatility. |
+| **R1** | End-of-day reversal (Baltussen, Da & Soebhag) | Stocks with 126 sessions of daily history: rank every one with a 14:59 close by its move from the prior close to 15:00; long the lowest fifth, short the highest fifth, 15:30 to the close |
+| **A1** | Attention-driven gap fade (Berkman, Koch, Tuttle & Zhang 2012) | No earnings that session or the one before; an overnight residual of at least 2 sigma (60 sessions) and a 09:30 gap of at least 1.5%: short, 09:35 to the close. The late-8-K labels above mean A1 can now and then fade a real earnings gap (COST 2016-05-26); disclosed, not corrected. |
 
 **Claim checks.** Barak's own numbers are checked against the development data, as descriptions only:
 
 | Claim | Checked as |
 |---|---|
 | G1 wins 68% of the time and averages +0.38R | Target rate and gross R |
-| 80% of 1–3% gaps fill | The unconditional fill rate by 10:30 and by the close, over every 1–3% gap |
-| 80% of breakouts fail | B1's stop rate |
+| 80% of 1–3% gaps fill | Over every 1–3% gap: the share that reach the prior close by 10:30 (the headline) and by the close, and the share that trade through it (what a target order needs) |
+| 80% of breakouts fail | B1's stop rate: stopped at the far side of the opening range by 10:30 |
 | The paper's ORB earns about +0.08R gross | X1's gross R |
 
 ## Shared conventions
 
 **Eligible stock-days.** SPY's daily sessions are the calendar. Every stock-session on it is either eligible
-or excluded with a reason, including sessions with no minute bars at all (`PRE_LISTING`, `NO_DAILY_BARS`,
-`NO_MINUTE_BARS`); exclusions are reported per ticker. Every strategy draws only on eligible stock-days, and they
+or excluded with a reason, including sessions with no minute bars at all: `PRE_LISTING`,
+`BEFORE_FIRST_DAILY_BAR` (not yet listed, or IBKR's daily history starts later), `NO_PRIOR_SESSIONS` (the first
+two daily rows), `NO_DAILY_BARS` (a missing daily row) and `NO_MINUTE_BARS`. Exclusions are reported per ticker. Every strategy draws only on eligible stock-days, and they
 are each session's denominator. A stock-day is eligible when all of these hold:
 - the stock is listed (HIMS from 2021-01-21, SOFI from 2021-06-01, the SPAC shells before);
 - its two prior daily rows are the two prior sessions (`STALE_PRIOR_CLOSE` otherwise);
 - it is not a listed corporate action: IBM 2021-11-04 (Kyndryl spin-off, the prior close not adjusted for it)
   and T 2022-04-11 (the first session after the WarnerMedia distribution);
 - its split-adjusted prior close is at least $10, which bounds cent rounding at 10 bps;
-- the 09:30 bar traded, and its open is within 0.2% of the daily open;
+- the 09:30 bar traded, and its open is within 0.2% of the daily open. They are the same print, so the check only
+  guards against a split between fetches. An NYSE opening that printed after 09:30 is `MISSING_OPEN_BAR`: in
+  early 2016 that was 73 sessions on 13 NYSE stocks (NOW 18% of its sessions, HD 14%). Late openings carried gaps
+  of 1% or more about twice as often as the same stocks' other sessions (30% against 16%), but none of 3% or more,
+  so they remove about 3% of G2's 1–3% gap sessions and none of G1's;
 - it has at least 15 prior sessions of bars;
 - SPY's session is present.
 
@@ -95,8 +104,8 @@ NFLX 7%. These are future winners, so the floor leans the sample away from them;
 show it. AMD and F are genuinely under $10 at times. The ATR $0.50 and C1 $0.05 thresholds use the same
 adjusted prices.
 
-**Known gaps in coverage.** UAL's IBKR daily history starts 2018-09-10, so its earlier sessions are
-`NO_DAILY_BARS`; AVGO starts 2016-02-02.
+**Known gaps in coverage.** UAL's IBKR daily history starts 2018-09-10 and AVGO's 2016-02-02, so their earlier
+sessions are `BEFORE_FIRST_DAILY_BAR`.
 
 **Prior close and gap.**
 - The prior close is the split-adjusted close times the dividend factor: the ADJUSTED_LAST/close ratio of the
@@ -106,12 +115,14 @@ adjusted prices.
 - Gap = 09:30 open / prior close − 1.
 
 **Fills.**
-- A signal is known at its bar's close. A market entry fills at the next bar's open.
+- A signal is known at its bar's close. A market entry fills at the next bar's open, or at the next traded
+  minute's open, up to five minutes later, if that minute did not trade.
 - A stop order is live from the next bar. It fills only when price trades strictly through the level, at the
-  level, or at the bar's open if the bar gaps through.
+  level, or at the bar's open if the bar gaps through. "Strictly" means by more than float noise (1e-9): the
+  twin's reflected levels and the 1R targets are computed, a hair off the cent, and a touch must not fill.
 - A stop and a target in the same bar: the stop.
-- **Inside a bar,** prices are taken to run open, low, high, close for an up bar, and open, high, low, close for
-  a down bar. A stop order's fill bar is checked for the stop only, along that path after the fill. So a bar
+- **Inside a bar,** prices are taken to run open, low, high, close for an up bar (close at or above the open), and
+  open, high, low, close for a down bar. A stop order's fill bar is checked for the stop only, along that path after the fill. So a bar
   that opened below a long's stop, rose through the entry and closed above the stop is not a stop; one that
   closed back below it is. A C1 bar through both levels fills the level its path reaches first, and is then
   stopped inside it.
@@ -119,7 +130,8 @@ adjusted prices.
   trade, not the twin, so it would bias direction skill down; it moved X1's gross R by about 0.1 on early data.
 - First-hour entries run from 09:31 to 10:15; the forced exit is the 10:29 close (the last earlier close if
   that bar is missing).
-- A missing minute carries the position to the next bar.
+- A missing minute carries the position to the next bar. 5-minute bars, the opening range and the first
+  5-minute candle are built from the minutes that traded.
 
 **Short-sale rule (Reg SHO 201).** There is no short entry if any of these hold (skipped and counted):
 - the prior session's low was at least 10% below the close before it;
@@ -129,9 +141,14 @@ adjusted prices.
 This applies to R1's short leg as well. C1 keeps its buy stop when its sell stop is barred. The twin is never
 restricted.
 
-**Skips** are counted by strategy and reason: `RULE_201`; `ENTRY_BEYOND_STOP` and `ENTRY_BEYOND_TARGET` (a G1 or
-G2 entry whose open is already past its stop or target); and `UNSCORABLE` (no volatility scale yet, or SPY's
-bar is missing). A skipped stock-day stays in the denominator.
+**Skips** are counted by strategy and reason:
+- `RULE_201`;
+- `ENTRY_BEYOND_STOP` and `ENTRY_BEYOND_TARGET`: a G1 or G2 entry whose open is already past its stop or target;
+- `MISSING_MINUTE`: G1 needs every minute up to its signal, G2 every 5-minute bar, E1 the 09:59 minute;
+- `NO_ENTRY_MINUTE`: no traded minute within five of the entry;
+- `UNSCORABLE`: no volatility scale yet, or SPY's bar is missing.
+
+A skipped stock-day stays in the denominator.
 
 **One trade** per stock, strategy and session: no adds, partials or re-entries. **Costs** are 10 bps a side.
 
@@ -156,8 +173,9 @@ stop and target reflected through the entry. The twin splits each result into tw
 - the part any bracket of that shape earns, whichever way it points: control = (own + mirror) / 2;
 - the part the direction adds: direction skill = (own − mirror) / 2.
 
-**The daily book.** One value per session: the sum of that session's rewards over its eligible stock-days. A
-session without a trade scores 0, so the book asks whether trading beats not trading.
+**The daily book.** One value per session: the sum of that session's rewards divided by its eligible stock-days
+(M1, one SPY trade, by one). A session without a trade scores 0, so the book asks whether trading beats not
+trading.
 
 **Statistic:**
 - the mean over sessions;
@@ -218,8 +236,9 @@ session without a trade scores 0, so the book asks whether trading beats not tra
    warms up the history. Then `--repair` re-asks, session by session, for any short session.
 2. **Development run:** `scripts/run_intraday_replay.py --stage dev`, descriptive. It writes
    `data/intraday_replay/dev-<date>.json` (aggregates only), which is committed as
-   `docs/evidence/intraday-replay-dev-<date>.json` with a written summary beside it. Before the fetch finishes,
-   `--allow-incomplete` gives a labelled preview.
+   `docs/evidence/intraday-replay-dev-<date>.json`, with the summary from `scripts/report_intraday_replay.py
+   render` and a plain-language reading beside it. Before the fetch finishes, `scripts/report_intraday_replay.py
+   preview` runs the finished months, labelled a preview.
 3. **Registration:**
    - commit `REGISTERED_PROTOCOL_SHA256`, `BEHAVIOR_SHA256` and `REGISTERED_DEV_INPUTS` (the bar files' hash);
    - list here any fixes made after the development look.
@@ -227,9 +246,53 @@ session without a trade scores 0, so the book asks whether trading beats not tra
    register its hash (`REGISTERED_HOLDOUT_INPUTS`).
 5. **Hold-out run:** `--stage holdout`, once. It refuses until steps 3 and 4 match the code.
 
+## Changes during development
+
+Listed here before registration, as the status note requires. No existing threshold changed; one parameter was
+added, the five-minute entry delay below.
+
+**After the first adversarial review (#159),** before any development numbers existed, the inside-the-bar path
+rule, the stale-prior-close and spin-off exclusions, and the full ticker-session grid were added.
+
+**After a five-month preview (2016-01..05)** and an audit of it on the real bars, these errors and gaps in the data
+handling were fixed (2026-10-22). Five auditors rebuilt sampled trades bar by bar, and a skeptic re-checked each
+finding.
+- **Touches of computed levels no longer fill.** Computed levels (the twin's reflected stops and targets, G1's 1R
+  target) were a hair off the cent, so a touch filled. In 2016-01..05 this changed the result of 23 of 456 G2
+  twins: 18 exit at a different bar or for a different reason, and the rest exit at the open instead of at the
+  level. It also changed 6 of 72 C1 twins and 1 of 113 B1 twin. In 2016-01..07 it changed 3 of 90 G1 trades' own
+  1R targets; one went from target to stop.
+- **A missing minute no longer silently ends a setup.** G2's 5-minute bars, the opening range and the first
+  candle now use the minutes that traded. G1's need for every minute is a counted skip. A market entry whose
+  minute did not trade moves to the next traded minute, up to five minutes later (`ENTRY_DELAY`, the one new
+  parameter); otherwise it is a counted `NO_ENTRY_MINUTE`. In 2016-01..07 the delay moved 2 R1 entries and
+  nothing else. M1, R1 and E1 follow the same rule and count their skips.
+- **X1's volume history keeps every session.** It had dropped sessions with a no-trade opening minute, which
+  inflated the mean for thin openers; with only this fix, 20 of 375 preview X1 trades swap. A minute without
+  trades now counts as zero volume.
+- **A1's gap test uses the 09:30 open,** the protocol's gap. It changed nothing: on these data it is the same
+  print as the daily open. A rule that also skipped the session before an earnings session was tried and
+  withdrawn. It was a rule change rather than an error fix, and on the preview it removed 7 trades, only one of
+  them (COST 2016-05-26) a mislabelled session. The late-8-K label noise is disclosed instead.
+- **Sessions before a stock's daily history are named apart from real gaps.** They are now
+  `BEFORE_FIRST_DAILY_BAR` and `NO_PRIOR_SESSIONS`, no longer `NO_DAILY_BARS`. R1's short rows carry their own
+  mirror figures.
+- **Partial-fetch runs are gone.** The stage runner no longer runs on a partial fetch, because sessions without
+  bars diluted the book. The preview runs only finished months, and records their bar hash and a checked
+  behaviour pin.
+- **More is disclosed:**
+  - the gap-fill claim is reported both as a touch and as a trade-through, and the touch reading ("the price
+    returns to the prior close") became the headline after the preview; it reads about 1.5 points higher;
+  - NYSE late openings, stray prints and late 8-Ks are disclosed;
+  - G1's bar times and the G2 wording are precise;
+  - M1 is scored unhedged.
+
 ## Reproduce
 
-- `pytest tests/test_intraday_replay.py tests/test_fetch_ibkr_intraday.py` (no IBKR needed; the pin test passes
-  on this code and fails on any change to the replay until it is re-pinned).
+- `pytest tests/test_intraday_replay.py tests/test_fetch_ibkr_intraday.py tests/test_report_intraday_replay.py` (no
+  IBKR needed). The pin test fails when a rule the pin covers changes. Of about 70 single-rule mutations tried
+  (comparisons, windows, skips, exclusions, verdict rules), every one moves the pin except one that is
+  equivalent on IBKR data: A1's gap from the daily open instead of the 09:30 open, which are the same print.
+  The pin test passes on this code; any change to a covered rule needs a re-pin, recorded here.
 - Re-running the replay needs your own IBKR market-data subscription and the fetcher; the committed hashes say
   whether your files match the registered ones.

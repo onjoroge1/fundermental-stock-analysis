@@ -5,8 +5,8 @@
 
 Runs where TWS / IB Gateway is logged in. Read-only market data: no orders, accounts or credentials; local host
 only. TRADES 1-minute bars, regular hours, epoch timestamps: the full window asks for each week's sessions of the
-month in one request (IBKR answers a week in about the time it takes for a day) and asks again for any session that
-came back empty on its own; the first-hour window asks per session. The bars are split-adjusted, not
+month in one request (IBKR answers a week in about the time it takes for a day), asks again for any session that
+came back short on its own, and asks day by day for a week IBKR will not answer whole; the first-hour window asks per session. The bars are split-adjusted, not
 dividend-adjusted (the replay takes the dividend factor from the daily ADJUSTED_LAST files). Files stay local:
 IBKR's terms restrict redistributing its data.
 
@@ -155,10 +155,12 @@ def fetch_month(session_api, symbol: str, month: str, window: str, out: Path, *,
     for s in pending:
         weeks.setdefault(date.fromisoformat(s).isocalendar()[:2] if window == "full" else s, []).append(s)
     for week in weeks.values():
+        got, errors = {}, []
         if len(week) > 1:
-            got, errors = ask(lambda w=week: session_api.week_bars(symbol, w), f"{week[0]}..{week[-1]}")
-        else:
-            got, errors = {}, []
+            try:
+                got, errors = ask(lambda w=week: session_api.week_bars(symbol, w), f"{week[0]}..{week[-1]}")
+            except probe.ProbeError:              # IBKR will not answer this week whole: ask day by day
+                log(f"  {symbol} {week[0]}..{week[-1]}: asking for each session alone")
         for s in week:
             rows, errs = got.get(s, []), errors
             if len(rows) < expected[s]:        # a single session, or one the week returned short: ask for it alone

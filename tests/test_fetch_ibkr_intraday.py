@@ -19,9 +19,9 @@ def two_bar_schedule(month):
 
 
 class FakeSession:
-    def __init__(self, failures=0, empty=(), week_misses=(), week_short=(), timeout_with_rows=0):
+    def __init__(self, failures=0, empty=(), week_misses=(), week_short=(), timeout_with_rows=0, dead_weeks=()):
         self.calls, self.failures, self.empty, self.week_misses = [], failures, set(empty), set(week_misses)
-        self.week_short, self.timeout_with_rows = set(week_short), timeout_with_rows
+        self.week_short, self.timeout_with_rows, self.dead_weeks = set(week_short), timeout_with_rows, set(dead_weeks)
 
     def _rows(self, session):
         return [{"session": session, "minute": m, "open": 10.0, "high": 10.1, "low": 9.9, "close": 10.0,
@@ -43,6 +43,8 @@ class FakeSession:
 
     def week_bars(self, symbol, sessions):
         self.calls.append(tuple(sessions))
+        if sessions[0] in self.dead_weeks:
+            return {}, [("TIMEOUT", "no answer in 60s")]
         if self._fail():
             return {}, [("TIMEOUT", "no answer")]
         got = {s: self._rows(s)[:1 if s in self.week_short else 2] for s in sessions
@@ -97,7 +99,7 @@ def test_throttling_retries_once_then_stops_with_progress_saved_and_resumes(tmp_
     fetch.fetch_month(api, "AAA", "2023-11", "full", tmp_path, listed_from=None, log=lambda *_: None, backoff=0,
                       schedule=two_bar_schedule("2023-11"))
     assert api.calls[0] == api.calls[1]                        # the retry asked for the same week
-    stuck = FakeSession(failures=3)
+    stuck = FakeSession(failures=100)               # the week, then each session alone, never answer
     with pytest.raises(fetch.probe.ProbeError):
         fetch.fetch_month(stuck, "BBB", "2023-11", "full", tmp_path, listed_from=None, log=lambda *_: None, backoff=0,
                           schedule=two_bar_schedule("2023-11"))
@@ -149,3 +151,12 @@ def test_repair_asks_again_for_short_sessions_of_a_finished_month_and_keeps_the_
     assert again.calls == []
     with pytest.raises(SystemExit, match="hold-out"):
         fetch.repair_month(FakeSession(), "AAA", "2024-01", "full", tmp_path)
+
+
+def test_a_week_ibkr_will_not_answer_whole_is_asked_for_day_by_day(tmp_path):
+    api = FakeSession(dead_weeks={"2023-12-11"})
+    manifest = fetch.fetch_month(api, "AAA", "2023-12", "full", tmp_path, listed_from=None, log=lambda *_: None,
+                                 backoff=0, schedule=two_bar_schedule("2023-12"))
+    dead = ("2023-12-11", "2023-12-12", "2023-12-13", "2023-12-14", "2023-12-15")
+    assert api.calls.count(dead) == 2 and all(d in api.calls for d in dead)
+    assert manifest["by_status"] == {"OK": 20} and manifest["bars"] == 40

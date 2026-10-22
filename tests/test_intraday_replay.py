@@ -15,8 +15,8 @@ from stock_machine.backtest import event_replay as er
 from stock_machine.backtest import intraday_replay as ir
 
 ROOT = Path(__file__).resolve().parents[1]
-PINNED_PROTOCOL_SHA256 = "fae9981bfbda872c1689983d944eaf9dd8f640d968237f6e88291e0f0f859b04"
-PINNED_BEHAVIOR_SHA256 = "ac31e0da135e74b8c84d289fcbafe966d31f160d5c82e01461f25729d50fbb3b"
+PINNED_PROTOCOL_SHA256 = "16f1eb3f48389b75d8d5ce2bf91f8c11cc85be2bb8cc4455d0132216443ab6de"
+PINNED_BEHAVIOR_SHA256 = "a3dab1b2ccb94184f8faf2c0523a54c6d9a74a7012057c83241f29d209d547d4"
 
 
 def day_of(bars, n=60):
@@ -218,9 +218,12 @@ def test_e1_needs_a_pre_open_or_after_close_release_and_a_one_sigma_residual_by_
 def test_a1_shorts_a_two_sigma_attention_gap_away_from_earnings():
     day = day_of([(104.0, 104.1, 103.9, 104.0)] * 6, n=390)
     f = feat(overnight=0.04, overnight_spy=0.0, overnight_sd=0.01)
-    t = ir.a1(day, f, set(), "2024-01-25", "2024-01-26")
+    t = ir.a1(day, f, set(), "2024-01-25", "2024-01-26", 0.04)
     assert (t["side"], t["entry_bar"]) == (-1, 5)
     assert ir.a1(day, f, {"2024-01-25"}, "2024-01-25", "2024-01-26") is None
+    assert ir.a1(day, f, {"2024-01-26"}, "2024-01-25", "2024-01-26") is None
+    assert ir.a1(day, f, {"2024-01-29"}, "2024-01-25", "2024-01-26", 0.04) is not None      # the registered window
+    assert ir.a1(day, f, set(), "2024-01-25", "2024-01-26", 0.014) is None                   # the 09:30 gap
     assert ir.a1(day, feat(overnight=0.014, overnight_spy=0.0, overnight_sd=0.001), set(), None, "2024-01-26") is None
 
 
@@ -246,6 +249,35 @@ def test_missing_minutes_carry_the_position_and_the_time_exit_uses_the_last_clos
     day["c"][59] = None
     out = ir.simulate_exit(day, 1, 1, 90.0, None, 59, entry_by_stop=False)
     assert out == {"exit": 101, "exit_bar": 58, "reason": "TIME", "at_open": False}
+
+
+def test_a_touch_of_a_derived_level_is_not_a_fill():
+    day = g2_day()
+    t = ir.g2(day, feat(), 0.02)                          # short 101.6, stop 102.7: the twin's stop is 100.5 in floats
+    for k, v in zip("ohlc", (101.1, 101.2, 100.5, 100.9)):
+        day[k][11] = v
+    for k in "ohlc":
+        day[k][12:] = [101.0] * (60 - 12)
+    mirror = ir.score(t, day, flat_spy(), 400.0, 1.0, 0.01, side=1)
+    assert 2 * 101.6 - 102.7 != 100.5 and mirror["reason"] == "TIME"
+    assert ir.above(100.5 + 1e-12, 100.5) is False and ir.below(100.5 - 1e-6, 100.5) is True
+
+
+def test_missing_minutes_move_entries_and_are_counted_skips_where_a_rule_needs_them():
+    gapped = list(G1_DOWN)
+    gapped[2] = (None, None, None, None)
+    assert ir.g1(day_of(gapped), feat(), -0.04) == {"skip": "MISSING_MINUTE"}
+    day = g2_day()
+    for k in "ohlc":
+        day[k][7] = None                                   # a minute inside the reversal 5-minute bar
+    assert ir.g2(day, feat(), 0.02)["entry_bar"] == 10
+    late = g2_day()
+    for k in "ohlc":
+        late[k][10] = None                                 # the entry minute: the next traded minute fills
+    t = ir.g2(late, feat(), 0.02)
+    assert (t["entry_bar"], t["entry"]) == (11, 101.1)
+    assert ir.next_open(late, 10, 45) == (11, 101.1) and ir.next_open(late, 10, 10) is None
+    assert ir.volume5({"v": [10.0, None, 5.0, None, 1.0]}) == 16.0
 
 
 def test_the_residual_hedges_beta_spy_over_the_same_minutes_and_the_twin_splits_skill_from_bracket():
@@ -442,7 +474,7 @@ def test_the_holdout_refuses_until_protocol_code_prices_and_both_complete_inputs
         ir.run(dev_root=dev, prices_dir=tmp_path, stage="holdout", tickers=tickers)
 
 
-def test_development_refuses_unregistered_prices_and_an_incomplete_fetch(tmp_path):
+def test_development_refuses_unregistered_prices_changed_code_and_an_incomplete_fetch(tmp_path, monkeypatch):
     out = ir.run(dev_root=tmp_path, prices_dir=tmp_path, stage="dev", tickers=["AAPL"])
     assert out["reason"] == "DAILY_PRICES_NOT_REGISTERED"
     prices = ROOT / "data" / "ibkr_prices" / "2026-10-20"
@@ -450,6 +482,8 @@ def test_development_refuses_unregistered_prices_and_an_incomplete_fetch(tmp_pat
         pytest.skip("local IBKR daily files absent (they are never committed)")
     out = ir.run(dev_root=tmp_path, prices_dir=prices, stage="dev", tickers=["AAPL"])
     assert out["reason"] == "INPUTS_INCOMPLETE" and out["missing"] == 2 * (len(ir.months_between(*ir.DEV)) + 1)
+    monkeypatch.setattr(ir, "BEHAVIOR_SHA256", "0" * 64)
+    assert ir.run(dev_root=tmp_path, prices_dir=prices, stage="dev", tickers=["AAPL"])["reason"] == "REPLAY_CODE_CHANGED"
 
 
 def test_sessions_without_minute_bars_are_counted_on_spy_s_calendar():
@@ -460,6 +494,25 @@ def test_sessions_without_minute_bars_are_counted_on_spy_s_calendar():
     run = ir.replay(without_t3_march, prices, events, ir.BEHAVIOR_MONTHS, tickers, corporate_actions=actions)
     assert run["excluded_by_ticker"]["T3"]["NO_MINUTE_BARS"] == 21
     assert sum(run["eligible"].values()) + sum(run["excluded"].values()) == len(tickers) * len(run["sessions"])
+    t6 = run["excluded_by_ticker"]["T6"]                    # daily history from 2019-02-11
+    assert t6["BEFORE_FIRST_DAILY_BAR"] == 6 and t6["NO_PRIOR_SESSIONS"] == 2
+
+
+def test_r1_short_rows_are_the_mirror_of_the_long_and_the_gap_fill_claim_reports_touches():
+    run = ir.behavior_run()
+    shorts = [t for t in run["trades"] if t["strategy"] == "R1" and t["side"] < 0]
+    assert shorts and all(t["mirror_net_bps"] != t["net_bps"] for t in shorts if abs(t["gross_bps"]) > 1e-9)
+    claims = ir.evaluate(run, ir.BEHAVIOR_MONTHS, holdout=False)["G2"]["claims"]
+    assert claims["touched_by_close"] >= claims["filled_by_close"] and "touched_by_1030_interval" in claims
+
+
+
+def test_a_months_filtered_hash_covers_exactly_those_months(tmp_path):
+    write_month(tmp_path / "all", "AAA", "2016-01", ["2016-01-04"])
+    write_month(tmp_path / "all", "AAA", "2016-02", ["2016-02-01"])
+    write_month(tmp_path / "one", "AAA", "2016-01", ["2016-01-04"])
+    assert ir.files_sha(tmp_path / "all", ["2016-01"]) == ir.files_sha(tmp_path / "one")
+    assert ir.files_sha(tmp_path / "all", ["2016-01"]) != ir.files_sha(tmp_path / "all")
 
 
 def test_earnings_come_from_the_pinned_dataset_with_release_timing(tmp_path):
