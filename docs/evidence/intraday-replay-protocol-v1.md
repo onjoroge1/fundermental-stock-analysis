@@ -40,7 +40,9 @@ registration.
 - **Earnings sessions:** the pinned SEC 8-K item 2.02 dataset.
 - **Completeness:** every ticker-month needs a finished fetch (a final manifest). Both stages refuse otherwise.
   While the fetch runs, `scripts/report_intraday_replay.py preview` runs the development stage on the finished
-  months only, labelled a preview.
+  months only, labelled a preview. The intraday lab holds back 2017-07..2019-12 for one-time confirms and
+  2020-01..2023-12 for one-time checks (`intraday-lab.md`), so previews stop at 2017-06 until the frozen variants'
+  confirms are logged, and at 2019-12 until the checks of those that passed are.
 - **Storage:** files are split by stock and month (`data/ibkr_intraday/v1/<TICKER>/<YYYY-MM>.csv.gz`, about
   140 KB each), so a fetch resumes where it stopped and space stays bounded:
   - development is about 0.75 GB;
@@ -90,6 +92,18 @@ are each session's denominator. A stock-day is eligible when all of these hold:
 - it is not a listed corporate action: IBM 2021-11-04 (Kyndryl spin-off, the prior close not adjusted for it)
   and T 2022-04-11 (the first session after the WarnerMedia distribution);
 - its split-adjusted prior close is at least $10, which bounds cent rounding at 10 bps;
+- no daily row it reads is a printing error (`DAILY_ROW_ERROR`): a close more than 0.25 in log terms from both its
+  own open and the next open, in opposite directions. The session of such a row and the two after it are excluded,
+  and the row is kept out of beta, sigma, ATR and the overnight series. Across every daily file from 2011 to 2026
+  exactly one row fits: CMCSA 2017-02-17, whose daily close printed at half its price;
+- no daily close it reads (this session's, the prior session's or the one before) is more than 5% from that
+  session's last traded minute (`DAILY_CLOSE_MISMATCH` otherwise: an IBKR daily-bar error). Such a row is also kept
+  out of beta, sigma, ATR and the overnight series. This and the row check read the session's own close as data
+  checks only, never as a signal;
+- SPY's daily features read neither kind of row (`SPY_DAILY_ERROR` otherwise: every stock that session is
+  excluded, and M1 skips it). SPY's flagged rows also stay out of every stock's beta and overnight series.
+  Contradicted closes are looked for from four months before a run's first month, as far back as those trailing
+  series reach;
 - the 09:30 bar traded, and its open is within 0.2% of the daily open. They are the same print, so the check only
   guards against a split between fetches. An NYSE opening that printed after 09:30 is `MISSING_OPEN_BAR`: in
   early 2016 that was 73 sessions on 13 NYSE stocks (NOW 18% of its sessions, HD 14%). Late openings carried gaps
@@ -234,7 +248,9 @@ trading.
 1. **Development fetch** (running since 2026-10-21, one worker, about two days: IBKR serves roughly one
    stock-month every 30 seconds, and a second worker adds nothing): 2015-12..2023-12. December 2015 only
    warms up the history. Then `--repair` re-asks, session by session, for any short session.
-2. **Development run:** `scripts/run_intraday_replay.py --stage dev`, descriptive. It writes
+2. **Development run:** `scripts/run_intraday_replay.py --stage dev`, descriptive. It runs only after the intraday
+   lab's one-time looks are logged (`LAB_LOOKS_PENDING` before then), because it reads the months the lab holds back.
+   It writes
    `data/intraday_replay/dev-<date>.json` (aggregates only), which is committed as
    `docs/evidence/intraday-replay-dev-<date>.json`, with the summary from `scripts/report_intraday_replay.py
    render` and a plain-language reading beside it. Before the fetch finishes, `scripts/report_intraday_replay.py
@@ -280,6 +296,16 @@ finding.
 - **Partial-fetch runs are gone.** The stage runner no longer runs on a partial fetch, because sessions without
   bars diluted the book. The preview runs only finished months, and records their bar hash and a checked
   behaviour pin.
+- **Daily-bar errors are excluded** (2026-10-22, found by the discovery research). IBKR's daily bar for CMCSA on
+  2017-02-17 printed a close of 17.64 against 35.28 in the minute bars. That made a fake +101% gap the next
+  session, corrupted close exits, and fed a fake ±100% day into the trailing beta, sigma and ATR.
+  - The row is now a printing error (`DAILY_ROW_ERROR`): its session and the two after it are excluded, and the
+    row is left out of the trailing series. The rule flags that one row across every daily file from 2011 to 2026.
+  - A daily close more than 5% from its own minute bars is treated the same way (`DAILY_CLOSE_MISMATCH`): its
+    session and the two after it are excluded, and the row is kept out of the trailing series. SPY's own errors
+    exclude the session for every stock (`SPY_DAILY_ERROR`), M1 skips it, and the row stays out of every stock's
+    beta and overnight series. Across the 2015-12..2017-06 bars of all 55 symbols, the only such close is CMCSA
+    2017-02-17 itself.
 - **More is disclosed:**
   - the gap-fill claim is reported both as a touch and as a trade-through, and the touch reading ("the price
     returns to the prior close") became the headline after the preview; it reads about 1.5 points higher;

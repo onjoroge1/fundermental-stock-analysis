@@ -7,6 +7,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 from statistics import NormalDist
+from types import SimpleNamespace
 
 import pytest
 
@@ -15,8 +16,8 @@ from stock_machine.backtest import event_replay as er
 from stock_machine.backtest import intraday_replay as ir
 
 ROOT = Path(__file__).resolve().parents[1]
-PINNED_PROTOCOL_SHA256 = "16f1eb3f48389b75d8d5ce2bf91f8c11cc85be2bb8cc4455d0132216443ab6de"
-PINNED_BEHAVIOR_SHA256 = "a3dab1b2ccb94184f8faf2c0523a54c6d9a74a7012057c83241f29d209d547d4"
+PINNED_PROTOCOL_SHA256 = "db3a5436767e7c1b749859fdb7005a641f8eb3db5989d87f32f266bbbda696a3"
+PINNED_BEHAVIOR_SHA256 = "19999fc3aba30f1d2cab1a197cdaec56f79f65e7645f033d2edf5ddcb17016ca"
 
 
 def day_of(bars, n=60):
@@ -349,9 +350,14 @@ def test_the_fixture_exercises_every_strategy_and_the_cross_sections_are_capped(
     keys = Counter((t["session"], t["ticker"], t["strategy"]) for t in run["trades"] if t["strategy"] != "R1")
     assert max(keys.values()) == 1                                  # one trade per stock, strategy and session
     assert all(t["session"] >= "2019-02-01" for t in run["trades"])  # the warm-up month only builds history
-    assert {"PRICE_MISMATCH", "MISSING_OPEN_BAR", "STALE_PRIOR_CLOSE", "NO_DAILY_BARS", "CORPORATE_ACTION"} \
-        <= set(run["excluded"])
+    assert {"PRICE_MISMATCH", "MISSING_OPEN_BAR", "STALE_PRIOR_CLOSE", "NO_DAILY_BARS", "CORPORATE_ACTION",
+            "DAILY_ROW_ERROR", "DAILY_CLOSE_MISMATCH"} <= set(run["excluded"])
     assert run["excluded_by_ticker"]["T4"]["CORPORATE_ACTION"] == 1 and run["excluded_by_ticker"]["T2"]["STALE_PRIOR_CLOSE"]
+    assert run["excluded_by_ticker"]["T3"]["DAILY_ROW_ERROR"] == 3          # the row's own session and the two after
+    assert run["excluded_by_ticker"]["T5"]["DAILY_CLOSE_MISMATCH"] == 3     # the session and the two that read its close
+    assert run["excluded"]["SPY_DAILY_ERROR"] == 18                        # SPY's 8%-off close: 6 stocks, 3 sessions
+    assert run["skips"]["M1:SPY_DAILY_ERROR"] == 3
+    assert not any(t["session"] in ("2019-03-27", "2019-03-28", "2019-03-29") for t in run["trades"])
     assert any(k.endswith("RULE_201") for k in run["skips"]) and run["counts"]["DIVIDEND_ANOMALY"] == 1
 
 
@@ -560,3 +566,106 @@ def test_the_draft_protocol_and_behavior_pin_match_this_code_and_nothing_is_regi
     assert ir.REGISTERED_HOLDOUT_INPUTS is None
     assert ir.PROTOCOL["inputs"]["daily_prices_sha256"] == ir.DAILY_PRICES_SHA256
     assert ir.PROTOCOL["inputs"]["earnings_sha256"] == er.EARNINGS_ANNOUNCEMENTS_SHA256
+
+
+def _daily_series(n=90):
+    def row(date, o, c, spread=0.4):
+        return {"date": date, "open": o, "high": max(o, c) + spread, "low": min(o, c) - spread, "close": c,
+                "adj_close": c, "volume": 1}
+    dates = [f"{2017 + i // 250}-{(i // 21) % 12 + 1:02d}-{i % 21 + 1:02d}" for i in range(n)]
+    stock = [row(d, 100 + 3 * math.sin(i / 3) + 0.2 * math.cos(i), 100 + 3 * math.sin(i / 3 + 0.4))
+             for i, d in enumerate(dates)]
+    spy = [row(d, 400 + 4 * math.sin(i / 4) + 0.3 * math.cos(i), 400 + 4 * math.sin(i / 4 + 0.3), 1.0)
+           for i, d in enumerate(dates)]
+    return dates, stock, spy
+
+
+TRAILING = ("beta", "atr14", "sigma_d", "overnight_sd")
+
+
+def test_a_daily_printing_error_is_flagged_and_kept_out_of_every_trailing_series():
+    dates, rows, spy = _daily_series()
+    k = 20
+
+    def broken(factor):                                  # CMCSA 2017-02-17's shape: close, adj_close and low printed off
+        r = rows[k]
+        return [*rows[:k], {**r, "close": r["close"] * factor, "adj_close": r["adj_close"] * factor,
+                            "low": min(r["low"], r["close"] * factor)}, *rows[k + 1:]]
+    half, third = broken(0.5), broken(0.33)
+    assert ir.bad_rows(half) == {k} and ir.bad_rows(rows) == set()
+    held = [*half[:k + 1], *({**r, **{x: r[x] / 2 for x in ("open", "high", "low", "close", "adj_close")}}
+                             for r in rows[k + 1:])]
+    assert ir.bad_rows(held) == set()                    # a real halving that holds the next day is not an error
+    a, b = ir.daily_features(half, spy), ir.daily_features(third, spy)
+    assert [d for d in dates if d in a and a[d]["bad_row"]] == dates[k:k + 3]
+    # with the row kept out, no later feature can depend on what the bad close was
+    for d in dates[k + 3:]:
+        for key in TRAILING:
+            assert a[d][key] == b[d][key], (d, key)
+    assert a[dates[-1]]["overnight_sd"] is not None and a[dates[-1]]["atr14"] is not None
+    assert ir.daily_features(rows, spy)[dates[k + 5]]["beta"] != ir.daily_features(
+        [*rows[:k], {**rows[k], "adj_close": rows[k]["adj_close"] * 1.02}, *rows[k + 1:]], spy)[dates[k + 5]]["beta"]
+
+
+def test_a_close_the_minute_bars_contradict_is_kept_out_of_every_trailing_series():
+    dates, rows, spy = _daily_series()
+    k = 30
+    days = {r["date"]: {"c": [r["close"]] * 390} for r in rows}
+
+    def off_by(factor):
+        r = rows[k]
+        return [*rows[:k], {**r, "close": r["close"] * factor, "adj_close": r["adj_close"] * factor}, *rows[k + 1:]]
+    a_rows, b_rows = off_by(0.92), off_by(1.12)
+    assert ir.off_rows(a_rows, days) == ir.off_rows(b_rows, days) == {k} and ir.bad_rows(a_rows) == set()
+    assert ir.off_rows(off_by(0.97), days) == set()
+    a = ir.daily_features(a_rows, spy, ir.off_rows(a_rows, days))
+    b = ir.daily_features(b_rows, spy, ir.off_rows(b_rows, days))
+    assert [d for d in dates if d in a and a[d]["off_row"]] == dates[k:k + 3]
+    assert not any(a[d]["bad_row"] for d in a)
+    for d in dates[k + 3:]:
+        for key in TRAILING:
+            assert a[d][key] == b[d][key], (d, key)
+    s = dates[k + 1]                                     # SPY's own contradicted close excludes every stock that day
+    f = {**ir.daily_features(rows, spy)[s], "stale": False}
+    day = {"o": [f["daily_open"]], "c": [f["daily_close"]]}
+    hist = SimpleNamespace(last=None, ranges=[0.01] * ir.NORM_MIN)
+    clean_spy, spy_off = ir.daily_features(spy, spy)[s], ir.daily_features(spy, spy, {k})[s]
+    assert ir.eligibility("AAA", s, day, f, hist, {"o": [1.0]}, clean_spy) is None
+    assert ir.eligibility("AAA", s, day, f, hist, {"o": [1.0]}, spy_off) == "SPY_DAILY_ERROR"
+
+
+def test_spy_flagged_rows_are_kept_out_of_every_stocks_beta_and_overnight_series():
+    dates, rows, spy = _daily_series()
+    k = 30
+    days = {r["date"]: {"c": [r["close"]] * 390} for r in spy}
+    out = []
+    for factor in (0.92, 1.12):
+        r = spy[k]
+        bad_spy = [*spy[:k], {**r, "close": r["close"] * factor, "adj_close": r["adj_close"] * factor}, *spy[k + 1:]]
+        spy_feat, spy_bad = ir.spy_features(bad_spy, days)
+        assert spy_bad == {dates[k]} and [d for d in dates if d in spy_feat and spy_feat[d]["off_row"]] == dates[k:k + 3]
+        out.append(ir.daily_features(rows, bad_spy, frozenset(), spy_bad))
+    a, b = out
+    for d in dates[k + 3:]:
+        for key in ("beta", "overnight_sd"):
+            assert a[d][key] == b[d][key], (d, key)
+    assert a[dates[-1]]["overnight_sd"] is not None
+
+
+def test_contradicted_closes_are_looked_for_before_the_warm_up_month():
+    assert ir.detection_months(("2016-01", "2016-02")) == ["2015-09", "2015-10", "2015-11", "2015-12", "2016-01",
+                                                           "2016-02"]
+    bars_for, prices, events, tickers, actions = ir.behavior_fixture()
+    t5 = prices["T5"]
+    k = next(i for i, r in enumerate(t5) if r["date"] >= "2018-12-03")      # two months before the run's first
+    t5[k] = {**t5[k], "close": round(t5[k]["close"] * 0.92, 2), "adj_close": round(t5[k]["adj_close"] * 0.92, 2)}
+    asked = []
+
+    def counting(ticker, month):
+        asked.append(month)
+        return bars_for(ticker, month)
+    run = ir.replay(counting, prices, events, ir.BEHAVIOR_MONTHS, tickers, corporate_actions=actions)
+    assert "2018-12" in asked and "2018-10" in asked and max(asked) == ir.BEHAVIOR_MONTHS[1]
+    clean = ir.replay(*ir.behavior_fixture()[:2], events, ir.BEHAVIOR_MONTHS, tickers, corporate_actions=actions)
+    later = [t for t in run["trades"] if t["ticker"] == "T5"]
+    assert later == [t for t in clean["trades"] if t["ticker"] == "T5"]     # the old error reaches no later feature

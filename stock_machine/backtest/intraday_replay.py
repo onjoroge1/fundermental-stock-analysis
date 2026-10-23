@@ -59,6 +59,11 @@ ET = ZoneInfo("America/New_York")
 PRICE_FLOOR = 10.0         # split-adjusted prior close: the bars are split-adjusted and rounded to cents, so this
                            # bounds the rounding to 10 bps (and subsumes the $5 floors of X1 and R1)
 OPEN_MATCH = 0.002         # the first minute's open within 0.2% of the daily open (guards a split between fetches)
+CLOSE_MATCH = 0.05         # a daily close more than 5% from the session's last traded minute is an IBKR daily-bar error
+ROW_ERROR = 0.25           # log move: a daily close this far from both its own open and the next open, in opposite
+                           # directions, is a printing error (one in every daily file 2011-2026: CMCSA 2017-02-17)
+DETECT_MONTHS = 4          # contradicted closes are looked for this far before a run's first month, as far back as
+                           # the trailing beta (63 sessions), overnight series (60) and ATR (30 rows) reach
 NORM_SESSIONS = 20         # trailing sessions for minute norms and window volatility
 NORM_MIN = 15
 ENTRY_LAST = 45            # 10:15: last entry bar for the first-hour strategies
@@ -123,7 +128,7 @@ WINDOW_OF = {"G1": "FIRST_HOUR", "G2": "FIRST_HOUR", "B1": "FIRST_HOUR", "C1": "
 REGISTERED_PROTOCOL_SHA256 = None
 REGISTERED_DEV_INPUTS = None
 REGISTERED_HOLDOUT_INPUTS = None
-BEHAVIOR_SHA256 = "a3dab1b2ccb94184f8faf2c0523a54c6d9a74a7012057c83241f29d209d547d4"
+BEHAVIOR_SHA256 = "19999fc3aba30f1d2cab1a197cdaec56f79f65e7645f033d2edf5ddcb17016ca"
 
 
 def _pct(x: float) -> str:
@@ -170,7 +175,14 @@ def _protocol() -> dict:
                         f"{PRICE_FLOOR:g} split-adjusted (cent rounding of the adjusted bars; stocks that split later "
                         f"lose early years: excluded counts are reported per ticker); the 09:30 bar traded, its open "
                         f"within {_pct(OPEN_MATCH)} of the daily open (a split guard: they are the same print), so "
-                        "an NYSE opening that printed after 09:30 is MISSING_OPEN_BAR; at least "
+                        "an NYSE opening that printed after 09:30 is MISSING_OPEN_BAR; no daily row it reads is a "
+                        f"printing error (a close more than {ROW_ERROR:g} in log terms from both its own open and the "
+                        "next open, opposite ways: DAILY_ROW_ERROR); no daily close it reads (this session's, the "
+                        f"prior one's or the one before) more than {_pct(CLOSE_MATCH)} from that session's last traded "
+                        "minute (DAILY_CLOSE_MISMATCH; the session's own close is a same-day data check, not a signal); "
+                        "both kinds of row, the stock's or SPY's, are kept out of beta, sigma, ATR and the overnight "
+                        f"series (contradicted closes are looked for from {DETECT_MONTHS} months before a run's first "
+                        "month), and a session whose SPY features read one is SPY_DAILY_ERROR (M1 skips it); at least "
                         f"{NORM_MIN} prior sessions of bars; "
                         "SPY's session present. Every strategy draws only on eligible stock-days, which are each "
                         "session's denominator",
@@ -369,27 +381,73 @@ def earnings(path=None) -> dict:
 
 # ---- daily features ------------------------------------------------------------
 
-def daily_features(rows: list[dict], spy_rows: list[dict]) -> dict:
+def bad_rows(rows: list[dict]) -> set[int]:
+    """Daily rows whose close is a printing error: far from both the row's own open and the next open, opposite ways."""
+    out = set()
+    for i in range(len(rows) - 1):
+        a = math.log(rows[i]["close"] / rows[i]["open"])
+        b = math.log(rows[i + 1]["open"] / rows[i]["close"])
+        if abs(a) > ROW_ERROR and abs(b) > ROW_ERROR and (a > 0) != (b > 0):
+            out.add(i)
+    return out
+
+
+def off_rows(rows: list[dict], days: dict) -> set[int]:
+    """Daily rows whose close is more than CLOSE_MATCH from the session's last traded minute (an IBKR daily-bar
+    error), judged from that session's own bars, so known at its close."""
+    out = set()
+    for i, r in enumerate(rows):
+        closes = [x for x in days.get(r["date"], {}).get("c", ()) if x is not None]
+        if closes and abs(r["close"] / closes[-1] - 1) > CLOSE_MATCH:
+            out.add(i)
+    return out
+
+
+def detection_months(months: tuple[str, str]) -> list[str]:
+    """The months whose bars off_rows reads for a run: DETECT_MONTHS before the first, then the run's own."""
+    before = [months[0]]
+    for _ in range(DETECT_MONTHS):
+        before.insert(0, previous_month(before[0]))
+    return before[:-1] + months_between(*months)
+
+
+def spy_features(spy_rows: list[dict], days: dict) -> tuple[dict, set[str]]:
+    """SPY's own features and the dates of its flagged rows (printing errors and closes its bars contradict)."""
+    off = off_rows(spy_rows, days)
+    flagged = bad_rows(spy_rows) | off
+    return daily_features(spy_rows, spy_rows, off), {spy_rows[j]["date"] for j in flagged}
+
+
+def daily_features(rows: list[dict], spy_rows: list[dict], off: set[int] | frozenset = frozenset(),
+                   spy_bad: set[str] | frozenset = frozenset()) -> dict:
     """session -> features known before the open (prior closes, dividend factor, beta, ATR, sigma, history),
     plus the session's own daily open and official close. SPY's daily rows are the session calendar: when the
-    stock's two prior rows are not the two prior sessions, the prior close is stale and the session is marked."""
+    stock's two prior rows are not the two prior sessions, the prior close is stale and the session is marked.
+    Printing errors (bad_rows) and the rows in `off` (off_rows: closes the minute bars contradict) are kept out of
+    the trailing returns, true ranges and overnight series, and mark the sessions that read them; so are SPY's own
+    flagged dates (`spy_bad`) from the beta pairs and the overnight series, which read SPY's rows."""
     spy = {r["date"]: r for r in spy_rows}
     order = {r["date"]: k for k, r in enumerate(spy_rows)}
+    printing = bad_rows(rows)
+    bad = printing | set(off)
     out, returns, spy_returns, overnight = {}, [], [], []
     for i in range(2, len(rows)):
         d, p, pp = rows[i], rows[i - 1], rows[i - 2]
+        reads = {i, i - 1, i - 2}                       # this row and the two before it
+        touched = bool(reads & bad)
         k = order.get(d["date"])
         stale = k is None or k < 2 or spy_rows[k - 1]["date"] != p["date"] or spy_rows[k - 2]["date"] != pp["date"]
         f, anomaly = dividend_factor(p, d)
         pc = p["close"] * f
         s, sp, spp = spy.get(d["date"]), spy.get(p["date"]), spy.get(pp["date"])
-        if sp and spp:
+        if sp and spp and (i - 1) not in bad and (i - 2) not in bad and not {p["date"], pp["date"]} & spy_bad:
             returns.append(_adj(p) / _adj(pp) - 1)
             spy_returns.append(_adj(sp) / _adj(spp) - 1)
-        tr = [max(rows[k]["high"], rows[k - 1]["close"]) - min(rows[k]["low"], rows[k - 1]["close"])
-              for k in range(max(1, i - 14), i)]
+        clean = [k for k in range(i - 1, max(0, i - 31), -1) if k not in bad and k - 1 not in bad][:14]
+        tr = [max(rows[k]["high"], rows[k - 1]["close"]) - min(rows[k]["low"], rows[k - 1]["close"]) for k in clean]
         beta = _beta(returns[-BETA_SESSIONS:], spy_returns[-BETA_SESSIONS:])
         features = {"prior_close_raw": p["close"], "prior_close": pc, "dividend_anomaly": anomaly, "stale": stale,
+                    "prior_date": p["date"], "bad_row": bool(reads & printing), "off_row": bool(reads & set(off)),
                     "prior_low": p["low"], "close_before_prior": pp["close"], "daily_open": d["open"],
                     "daily_close": d["close"], "beta": beta, "atr14": math.fsum(tr) / len(tr) if len(tr) == 14 else None,
                     "sigma_d": _sd(returns[-20:]) if len(returns) >= 20 else None, "history": i,
@@ -399,7 +457,8 @@ def daily_features(rows: list[dict], spy_rows: list[dict]) -> dict:
             features["overnight"] = d["open"] / pc - 1
             features["overnight_spy"] = s["open"] / (sp["close"] * spy_factor) - 1
             features["overnight_sd"] = _sd(overnight[-A1_LOOKBACK:]) if len(overnight) >= A1_LOOKBACK else None
-            overnight.append(features["overnight"] - beta * features["overnight_spy"])
+            if not touched and not {d["date"], p["date"]} & spy_bad:
+                overnight.append(features["overnight"] - beta * features["overnight_spy"])
         out[d["date"]] = features
     return out
 
@@ -873,6 +932,7 @@ class History:
 
     def __init__(self):
         self.ranges = deque(maxlen=NORM_SESSIONS)
+        self.last = None
         self.volume5 = deque(maxlen=RV_SESSIONS)
         self.var = {w: deque(maxlen=NORM_SESSIONS) for w in WINDOWS}
 
@@ -894,7 +954,9 @@ class History:
         first, last = WINDOWS[WINDOW_OF[strategy]]
         return window_scale(self.var[WINDOW_OF[strategy]], window_minutes(day, first, last))
 
-    def update(self, day) -> None:
+    def update(self, day, session: str | None = None) -> None:
+        closes = [x for x in day["c"] if x is not None]
+        self.last = (session, closes[-1]) if closes else None     # the session's last traded minute
         self.ranges.append([math.log(day["h"][b] / day["l"][b]) if _complete(day, "hl", [b]) else None
                             for b in range(EXIT_BAR + 1)])
         self.volume5.append(volume5(day))
@@ -912,10 +974,10 @@ def replay(bars_for, prices: dict, events: dict, months: tuple[str, str], ticker
     actions = CORPORATE_ACTIONS if corporate_actions is None else corporate_actions
     spy_rows = prices["SPY"]
     loaded = [previous_month(months[0])] + months_between(*months)
-    spy_days = {}
-    for month in loaded:
-        spy_days.update(bars_for("SPY", month))
-    spy_feat = daily_features(spy_rows, spy_rows)
+    detect = detection_months(months)
+    spy_seen = {m: bars_for("SPY", m) for m in detect}
+    spy_days = {s: d for m in loaded for s, d in spy_seen[m].items()}
+    spy_feat, spy_bad = spy_features(spy_rows, {s: d for m in detect for s, d in spy_seen[m].items()})
     calendar = [r["date"] for r in spy_rows]
     previous = dict(zip(calendar[1:], calendar))
     grid = sorted({*spy_days, *(r["date"] for r in spy_rows)} & {s for s in calendar if months[0] <= s[:7] <= months[1]})
@@ -925,13 +987,15 @@ def replay(bars_for, prices: dict, events: dict, months: tuple[str, str], ticker
     x1_pool, r1_pool = defaultdict(list), defaultdict(list)
     for ticker in tickers:
         rows = prices.get(ticker, [])
-        feats = daily_features(rows, spy_rows)
+        by_month = {month: bars_for(ticker, month) for month in detect}
+        feats = daily_features(rows, spy_rows, off_rows(rows, {s: d for m in detect for s, d in by_month[m].items()}),
+                               spy_bad)
         daily = {"first": rows[0]["date"] if rows else None, "dates": {r["date"] for r in rows}}
         ev = events.get(ticker, {"primary": {}, "any": set()})
         hist = History()
         seen = set()
         for month in loaded:
-            days = bars_for(ticker, month)
+            days = by_month[month]
             for session in sorted(days):
                 day = days[session]
                 if months[0] <= session[:7] <= months[1]:
@@ -953,7 +1017,7 @@ def replay(bars_for, prices: dict, events: dict, months: tuple[str, str], ticker
                         x1_pool[session].append(out["x1"])
                     if out.get("r1"):
                         r1_pool[session].append(out["r1"])
-                hist.update(day)
+                hist.update(day, session)
         for session in grid:                           # sessions with no minute bars at all
             if session not in seen:
                 reason = ("PRE_LISTING" if session < LISTED.get(ticker, "") else
@@ -995,6 +1059,15 @@ def _no_features(session: str, daily: dict) -> str:
     return "NO_PRIOR_SESSIONS" if session in daily["dates"] else "NO_DAILY_BARS"
 
 
+def close_mismatch(day, f, hist) -> bool:
+    """An IBKR daily close that disagrees with the minute bars (e.g. CMCSA 2017-02-17 printed half its price): the
+    prior session's against its last traded minute, and this session's own, which close exits use."""
+    if hist.last and hist.last[0] == f["prior_date"] and abs(f["prior_close_raw"] / hist.last[1] - 1) > CLOSE_MATCH:
+        return True
+    closes = [x for x in day["c"] if x is not None]
+    return bool(closes) and abs(f["daily_close"] / closes[-1] - 1) > CLOSE_MATCH
+
+
 def eligibility(ticker, session, day, f, hist, spy_day, spy_f, actions=(), daily=None) -> str | None:
     """The exclusion reason for a stock-session, or None when it is eligible."""
     if session < LISTED.get(ticker, ""):
@@ -1003,8 +1076,12 @@ def eligibility(ticker, session, day, f, hist, spy_day, spy_f, actions=(), daily
         return _no_features(session, daily or {"first": None, "dates": set()})
     if f["stale"]:
         return "STALE_PRIOR_CLOSE"
+    if f.get("bad_row"):
+        return "DAILY_ROW_ERROR"
     if session in actions:
         return "CORPORATE_ACTION"
+    if f.get("off_row") or close_mismatch(day, f, hist):
+        return "DAILY_CLOSE_MISMATCH"
     if f["prior_close_raw"] < PRICE_FLOOR:
         return "PRICE_FLOOR"
     if not day["o"] or day["o"][0] is None:
@@ -1015,6 +1092,8 @@ def eligibility(ticker, session, day, f, hist, spy_day, spy_f, actions=(), daily
         return "NO_HISTORY"
     if spy_day is None or spy_f is None:
         return "NO_SPY"
+    if spy_f.get("bad_row") or spy_f.get("off_row"):
+        return "SPY_DAILY_ERROR"
     return None
 
 
@@ -1101,7 +1180,10 @@ def _m1(spy_days, spy_feat, months) -> tuple[list[dict], dict]:
         if len(day["c"]) <= first or f is None:
             continue                                  # half days end before 15:30
         scale = window_scale(var, window_minutes(day, first, None))
-        if months[0] <= session[:7] <= months[1] and scale:
+        if months[0] <= session[:7] <= months[1] and scale and (f.get("bad_row") or f.get("off_row")):
+            skips["M1:SPY_DAILY_ERROR"] += 1             # a daily close it reads or exits at is an error
+            fill, move = None, None
+        elif months[0] <= session[:7] <= months[1] and scale:
             fill = next_open(day, first, len(day["o"]) - 1)
             move = None if day["c"][E1_BAR - 1] is None else day["c"][E1_BAR - 1] / f["prior_close"] - 1
             if move is None:
@@ -1362,8 +1444,8 @@ def fixture_sessions(first: str, last: str) -> list[str]:
 def behavior_fixture():
     """Six synthetic stocks and SPY over a past window: gaps of each size (one deep enough for the short-sale
     rule at the open, one that crashes through it within minutes), squeezes, earnings sessions, an ex-dividend
-    session, a dividend anomaly, a missing open bar, a mismatched daily open, a missing daily row and a
-    corporate action. Synthetic tickers, so a universe change cannot move the pin."""
+    session, a dividend anomaly, a missing open bar, a mismatched daily open, a missing daily row, a daily printing
+    error, a daily close that disagrees with its minute bars (a stock's and SPY's) and a corporate action. Synthetic tickers, so a universe change cannot move the pin."""
     sessions = fixture_sessions("2018-07-02", "2019-03-29")
     gaps = {5: 0.035, 9: -0.04, 13: 0.015, 17: -0.02, 21: 0.025, 26: -0.012, 33: 0.05, 38: -0.031}
     forced = {29: 0.08, 41: -0.09, 44: -0.07}   # an attention gap up; gaps down for Rule 201 at the open and later
@@ -1394,6 +1476,12 @@ def behavior_fixture():
         for k in "ohlcv":
             bars["T3"][sessions[i]][k][2] = None
     del prices["T2"][168]                       # a missing daily row: that session and the next are not scored
+    r = prices["T3"][172]                       # a printing error, like CMCSA 2017-02-17's: close, adj_close, low
+    prices["T3"][172] = {**r, "close": round(r["close"] / 2, 2), "adj_close": round(r["adj_close"] / 2, 2),
+                         "low": round(r["close"] / 2, 2)}
+    prices["T5"][180] = {**prices["T5"][180], "close": round(prices["T5"][180]["close"] * 0.92, 2)}  # a close 8% off
+    r = prices["SPY"][184]                      # SPY's own close 8% off its bars: every stock is out for three sessions
+    prices["SPY"][184] = {**r, "close": round(r["close"] * 0.92, 2), "adj_close": round(r["adj_close"] * 0.92, 2)}
     late = [s for s in sessions if s >= "2019-02-01"]
     events = {"T1": {"primary": {big["T1"][0]: "PRE_OPEN", big["T1"][1]: "AFTER_CLOSE", late[30]: "AFTER_CLOSE"},
                      "any": {big["T1"][0], big["T1"][1], late[30]}},
@@ -1674,9 +1762,9 @@ def run(*, dev_root, holdout_root=None, prices_dir, stage: str, tickers: list[st
         return refused("INPUTS_INCOMPLETE", missing=len(missing), first_missing=missing[:5])
 
     def bars_for(ticker, month):
-        if stage == "holdout" and month != previous_month(HOLDOUT[0]):
+        if stage == "holdout" and month >= HOLDOUT[0]:
             return load_month(holdout_root, ticker, month)
-        return load_month(dev_root, ticker, month)      # development, or the hold-out's warm-up month
+        return load_month(dev_root, ticker, month)      # development, or the months before the hold-out
     try:
         events = earnings()
     except ValueError as exc:

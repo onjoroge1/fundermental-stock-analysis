@@ -2,7 +2,9 @@
 
   python scripts/report_intraday_replay.py preview [--dev-root data/ibkr_intraday/v1] [--prices-dir ...]
       Runs the development stage on the months whose fetch is finished for every symbol (from 2016-01 up to the
-      first unfinished month), labelled DEVELOPMENT_PREVIEW, and writes the aggregates and a summary.
+      first unfinished month), labelled DEVELOPMENT_PREVIEW, and writes the aggregates and a summary. While the
+      intraday lab's one-time looks are pending it stops where the lab says (intraday_lab.replay_reads_through):
+      2017-06 until the frozen variants' confirms are logged, 2019-12 until the checks of those that passed are.
   python scripts/report_intraday_replay.py render data/intraday_replay/<stage>-<date>.json [--md out.md]
       Writes the summary of a stage run (scripts/run_intraday_replay.py).
 
@@ -22,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from stock_machine.agents.contracts import AGENT_UNIVERSE  # noqa: E402
 from stock_machine.backtest import event_replay as er  # noqa: E402
 from stock_machine.backtest import implied_vol_replay as ivr  # noqa: E402
+from stock_machine.backtest import intraday_lab as lab  # noqa: E402
 from stock_machine.backtest import intraday_replay as ir  # noqa: E402
 
 NAMES = {"G1": "Gap and go (Barak)", "G2": "Gap fill (Barak)", "B1": "Break of structure (Barak)",
@@ -45,7 +48,8 @@ def finished_through(root, symbols: list[str], first: str, last: str) -> str | N
 
 def preview(dev_root, prices_dir) -> dict:
     tickers = sorted(AGENT_UNIVERSE)
-    through = finished_through(dev_root, tickers + ["SPY"], *ir.DEV)
+    limit = lab.replay_reads_through()               # the lab's held-back months stay unread until its looks are done
+    through = finished_through(dev_root, tickers + ["SPY"], ir.DEV[0], min(ir.DEV[1], limit or ir.DEV[1]))
     if through is None:
         return {"status": "REFUSED", "reason": "NO_FINISHED_MONTH"}
     prices, prices_sha = ivr.load_prices(prices_dir)
@@ -62,7 +66,7 @@ def preview(dev_root, prices_dir) -> dict:
     result = ir.replay(lambda t, m: ir.load_month(dev_root, t, m), prices, events, months, tickers)
     report = ir.stage_report(result, "dev", months)
     return {"protocol_id": ir.PROTOCOL_ID, "protocol_sha256": ir.PROTOCOL_SHA256, "behavior_sha256": ir.BEHAVIOR_SHA256,
-            "status": "OK", **report, "label": "DEVELOPMENT_PREVIEW",
+            "status": "OK", **report, "label": "DEVELOPMENT_PREVIEW", "lab_limit": limit,
             "inputs": {"prices_sha256": prices_sha, "earnings_sha256": er.EARNINGS_ANNOUNCEMENTS_SHA256,
                        "bars_sha256": ir.files_sha(dev_root, used), "bars": f"finished months {used[0]}..{used[-1]}"},
             "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

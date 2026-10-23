@@ -6,7 +6,8 @@
 Inputs are local IBKR files (scripts/fetch_ibkr_intraday.py and scripts/fetch_ibkr_prices.py) and the pinned SEC
 earnings dataset. The hold-out stage refuses to run until the protocol, the replay code and both input sets are
 registered in stock_machine/backtest/intraday_replay.py; both stages refuse an unfinished fetch (preview the finished
-months with scripts/report_intraday_replay.py). Writes data/intraday_replay/<stage>-<run date>.json: aggregate
+months with scripts/report_intraday_replay.py). The development stage also waits for the intraday lab's one-time looks
+(LAB_LOOKS_PENDING, intraday_lab.replay_reads_through): it reads months the lab still holds back. Writes data/intraday_replay/<stage>-<run date>.json: aggregate
 statistics and input hashes only (no bars or per-trade prices), the file to record as evidence. Render its summary
 with scripts/report_intraday_replay.py render.
 """
@@ -21,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from stock_machine.agents.contracts import AGENT_UNIVERSE  # noqa: E402
-from stock_machine.backtest import intraday_replay  # noqa: E402
+from stock_machine.backtest import intraday_lab, intraday_replay  # noqa: E402
 
 
 def _sci(x) -> str:
@@ -56,6 +57,12 @@ def main() -> int:
     parser.add_argument("--holdout-root", default="data/ibkr_intraday/v1-holdout")
     parser.add_argument("--prices-dir", default="data/ibkr_prices/2026-10-20")
     args = parser.parse_args()
+    limit = intraday_lab.replay_reads_through()
+    if args.stage == "dev" and limit is not None:
+        print(json.dumps({"status": "REFUSED", "reason": "LAB_LOOKS_PENDING", "lab_reads_through": limit,
+                          "why": "the development stage reads 2016-2023; the lab holds back the months after "
+                                 f"{limit} until its one-time confirms and checks are logged"}, indent=1), file=sys.stderr)
+        return 2
     out = intraday_replay.run(dev_root=args.dev_root, holdout_root=args.holdout_root, prices_dir=args.prices_dir,
                               stage=args.stage, tickers=sorted(AGENT_UNIVERSE))
     if out["status"] != "OK":

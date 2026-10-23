@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -133,42 +134,59 @@ def test_the_twin_reflects_the_bracket_and_the_turn_and_costs_are_reported_at_ea
 
 # ---- the log and the splits -------------------------------------------------------------
 
-def test_the_lab_never_reads_the_holdout_and_a_check_needs_an_unchecked_explored_definition():
+def test_each_stage_reads_only_its_months_and_needs_the_one_before():
     with pytest.raises(ValueError, match="HOLDOUT"):
-        lab.replay(lambda t, m: {}, {"SPY": []}, ("2023-12", "2024-01"), [], {})
-    with pytest.raises(ValueError, match="CHECK_MONTHS"):
-        lab.replay(lambda t, m: {}, {"SPY": []}, ("2019-12", "2020-01"), [], {})
+        lab.replay(lambda t, m: {}, {"SPY": []}, ("2023-12", "2024-01"), [], {}, split="check")
+    with pytest.raises(ValueError, match="EXPLORE_READS_ONLY_THROUGH_2017-06"):
+        lab.replay(lambda t, m: {}, {"SPY": []}, ("2017-06", "2017-07"), [], {})
+    with pytest.raises(ValueError, match="CONFIRM_READS_ONLY_THROUGH_2019-12"):
+        lab.replay(lambda t, m: {}, {"SPY": []}, ("2019-12", "2020-01"), [], {}, split="confirm")
     with pytest.raises(ValueError, match="INVERTED"):
-        lab.replay(lambda t, m: {}, {"SPY": []}, ("2024-02", "2016-01"), [], {})
-    vid = "GD-REV.v1"
+        lab.replay(lambda t, m: {}, {"SPY": []}, ("2024-02", "2016-01"), [], {}, split="check")
+    vid = "EXT-FADE.v2"
     sha, code, spec = lab.definition_sha(vid), lab.CODE_SHA, lab.VARIANTS[vid]
-    assert lab.check_allowed(vid, []) == (False, "NOT_EXPLORED_WITH_THIS_CODE")
-    explored = [{"definition_sha256": sha, "split": "explore", "lab_code_sha256": code, "spec": spec}]
-    assert lab.check_allowed(vid, explored) == (True, "OK")
-    old_code = [{"definition_sha256": sha, "split": "explore", "lab_code_sha256": "0" * 64, "spec": spec}]
-    assert lab.check_allowed(vid, old_code) == (False, "NOT_EXPLORED_WITH_THIS_CODE")
-    checked = explored + [{"definition_sha256": sha, "split": "check", "lab_code_sha256": code, "spec": spec}]
-    assert lab.check_allowed(vid, checked) == (False, "ALREADY_CHECKED")
-    renamed = explored + [{"definition_sha256": "other", "split": "check", "lab_code_sha256": "x", "spec": dict(spec)}]
-    assert lab.check_allowed(vid, renamed) == (False, "ALREADY_CHECKED")     # the same strategy under another id
-    assert lab.definition_sha(vid, {**lab.VARIANTS[vid], "retrace": 0.4}) != sha
-    assert lab.variants_tried(explored * 3) == 1 and lab.variants_tried(explored + old_code) == 2
-    assert lab.EXPLORE[1] < lab.CHECK[0] and lab.CHECK[1] < lab.HOLDOUT_FROM == "2024-01"
+    inputs = lab.inputs_sha(["AAPL", "MSFT"])
+
+    def entry(split, **kw):
+        return {"definition_sha256": sha, "split": split, "lab_code_sha256": code, "spec": spec,
+                "inputs_sha256": inputs, **kw}
+    explored = [entry("explore")]
+    assert lab.confirm_allowed(vid, [], inputs) == (False, "NOT_EXPLORED_WITH_THIS_CODE")
+    assert lab.confirm_allowed(vid, explored, inputs) == (True, "OK")
+    assert lab.confirm_allowed(vid, explored, lab.inputs_sha(["AAPL"])) == (False, "NOT_EXPLORED_WITH_THIS_CODE")
+    assert lab.confirm_allowed(vid, explored + [entry("confirm", verdict="FAIL")], inputs) == (False, "ALREADY_CONFIRMED")
+    assert lab.check_allowed(vid, explored, inputs) == (False, "NOT_CONFIRMED")
+    assert lab.check_allowed(vid, explored + [entry("confirm", verdict="FAIL")], inputs) == (False, "NOT_CONFIRMED")
+    passed = explored + [entry("confirm", verdict="PASS")]
+    assert lab.check_allowed(vid, passed, inputs) == (True, "OK")
+    assert lab.check_allowed(vid, passed + [entry("check")], inputs) == (False, "ALREADY_CHECKED")
+    renamed = passed + [{**entry("check"), "definition_sha256": "other", "spec": dict(spec)}]
+    assert lab.check_allowed(vid, renamed, inputs) == (False, "ALREADY_CHECKED")   # the same strategy under another id
+    other_code = [entry("explore"), entry("confirm", verdict="PASS", lab_code_sha256="0" * 64)]
+    assert lab.check_allowed(vid, other_code, inputs) == (False, "CONFIRMED_WITH_OTHER_CODE")
+    other_words = [entry("explore"), entry("confirm", verdict="PASS", definition_sha256="0" * 64)]
+    assert lab.check_allowed(vid, other_words, inputs) == (False, "CONFIRMED_WITH_OTHER_CODE")
+    assert lab.check_allowed(vid, passed, lab.inputs_sha(["AAPL"])) == (False, "CONFIRMED_WITH_OTHER_CODE")
+    stale = [{**entry("explore"), "lab_code_sha256": "0" * 64}, entry("confirm", verdict="PASS")]
+    assert lab.definition_sha(vid, {**spec, "gap": 0.02}) != sha
+    assert lab.variants_tried(explored * 3) == 1 and lab.variants_tried(stale) == 2
+    assert lab.EXPLORE[1] < lab.CONFIRM[0] and lab.CONFIRM[1] < lab.CHECK[0] and lab.CHECK[1] < lab.HOLDOUT_FROM
 
 
 def test_log_entries_record_the_definition_code_and_bars():
     evaluation = {"GU-REV.v1": {"trades": 3, "per_trade": {"net_bps_at_10": -1.0, "net_bps_at_2": 2.0, "gross_bps": 4.0},
                                 "book": {"at_10": {"mean": 0.1, "lower": -0.1, "upper": 0.3}},
                                 "direction_skill": {"mean": 0.0, "lower": -0.2, "upper": 0.2}}}
-    entries = lab.log_entries("explore", ("2016-01", "2016-10"), "b" * 64, evaluation, [{"entry": 1}])
+    entries = lab.log_entries("explore", ("2016-01", "2016-10"), "b" * 64, evaluation, [{"entry": 1}], ["MSFT", "AAPL"])
     e = entries[0]
+    assert e["inputs_sha256"] == lab.inputs_sha(["AAPL", "MSFT"]) != lab.inputs_sha(["AAPL"])
     assert e["entry"] == 2 and e["definition_sha256"] == lab.definition_sha("GU-REV.v1")
     assert e["lab_code_sha256"] == lab.CODE_SHA and e["bars_sha256"] == "b" * 64 and e["spec"]["entry"] == "REVERSAL_BAR"
     assert e["spec_sha256"] == lab.spec_sha(lab.VARIANTS["GU-REV.v1"])
     json.dumps(entries)
 
 
-def test_a_run_refuses_unknown_variants_and_an_unfinished_check_period_and_never_logs_a_refusal(tmp_path):
+def test_a_run_refuses_unknown_variants_and_unfinished_periods_and_never_logs_a_refusal(tmp_path):
     log = tmp_path / "log.json"
 
     def run(split, variants):
@@ -176,6 +194,7 @@ def test_a_run_refuses_unknown_variants_and_an_unfinished_check_period_and_never
     assert run("explore", ["NOPE"])["reason"].startswith("UNKNOWN_VARIANT")
     assert run("explore", ["GU-REV.v1"])["reason"] == "NO_FINISHED_MONTH"
     assert run("check", ["GU-REV.v1"])["reason"] == "CHECK_FETCH_INCOMPLETE"
+    assert run("confirm", ["GU-REV.v1"])["reason"] == "CONFIRM_FETCH_INCOMPLETE"
     assert not log.exists()
     original = lab.CODE_SHA
     try:
@@ -189,7 +208,34 @@ def test_a_run_refuses_unknown_variants_and_an_unfinished_check_period_and_never
     importlib.util.module_from_spec(spec)
     rendered = lab.render({"split": "explore", "months": ["2016-01", "2016-02"], "generated_at": "now", "sessions": 1,
                            "eligible_stock_days": 1, "variants_tried": 6, "variants": {}})
-    assert "6 variant tries so far" in rendered
+    assert "6 variant tries so far" in rendered and "decide nothing" in rendered
+    confirm = lab.render({"split": "confirm", "months": list(lab.CONFIRM), "generated_at": "now", "sessions": 1,
+                          "eligible_stock_days": 1, "variants_tried": 7, "confirms_so_far": 1, "variants": {}})
+    assert "decide nothing" not in confirm and "1 one-time confirms" in confirm and "decides whether it may be checked" \
+        in confirm
+
+
+def test_the_replay_waits_for_the_lab_looks_before_reading_the_held_back_months():
+    def e(split, variant, **kw):
+        return {"split": split, "variant": variant, **kw}
+    assert lab.replay_reads_through([]) == "2017-06"
+    explored = [e("explore", v) for v in lab.FROZEN]
+    some = explored + [e("confirm", v, verdict="FAIL") for v in lab.FROZEN[:3]]
+    assert lab.replay_reads_through(some) == "2017-06"
+    failed = explored + [e("confirm", v, verdict="FAIL") for v in lab.FROZEN]
+    assert lab.replay_reads_through(failed) is None
+    one_passed = explored + [e("confirm", v, verdict="PASS" if v == "EXT-FADE.v2" else "FAIL") for v in lab.FROZEN]
+    assert lab.replay_reads_through(one_passed) == "2019-12"
+    assert lab.replay_reads_through(one_passed + [e("check", "EXT-FADE.v2", verdict="FAIL")]) is None
+    assert set(lab.FROZEN) <= set(lab.VARIANTS)
+
+
+def test_the_code_hash_covers_the_daily_price_loader(monkeypatch):
+    before = lab.lab_code_sha()
+    original = lab.inspect.getsource
+    monkeypatch.setattr(lab.inspect, "getsource",
+                        lambda fn: original(fn) + ("#changed" if fn is ir.ivr.load_prices else ""))
+    assert lab.lab_code_sha() != before
 
 
 def test_a_limit_filled_at_an_open_through_its_stop_is_stopped_at_once():
@@ -241,3 +287,120 @@ def test_a_cross_is_judged_against_the_last_5_minute_close_that_traded():
     below = [(97.0, 97.1, 96.95, 96.98)] * 5                             # the last close that traded is below the open
     t = lab.gap_down_reversal(day_of(below + empty + f2), F, -0.03, {**GD, "entry": "OPEN_RECLAIM"})
     assert t["entry_bar"] == 15
+
+
+# ---- the fades frozen from the discovery research ------------------------------------
+
+SPY_FLAT = {k: [400.0] * 390 for k in "ohlc"}
+CTX = {"spy": SPY_FLAT, "spy_f": {"prior_close": 400.0, "daily_close": 400.0}, "timing": None}
+EXT1, EXT2 = lab.VARIANTS["EXT-FADE.v1"], lab.VARIANTS["EXT-FADE.v2"]
+UP_DAY = {**F, "prior_close_raw": 100.0, "close_before_prior": 98.5, "prior_low": 98.0}     # yesterday +1.5%
+
+
+def test_the_extension_fade_shorts_a_gap_up_after_an_up_day_and_exits_at_the_gap_fill():
+    day = day_of([(101.5, 101.6, 101.2, 101.3)] + [(101.3, 101.4, 101.1, 101.2)] * 4
+                 + [(101.2, 101.3, 100.9, 101.0)] * 5 + [(101.0, 101.1, 99.9, 100.1)])
+    t = lab.extension_fade(day, UP_DAY, 0.015, EXT1, CTX)
+    assert (t["side"], t["entry_bar"], t["entry"], t["target"], t["stop"], t["turn"]) == (-1, 1, 101.3, 100.0, None, False)
+    out = lab.lab_exit(day, -1, t, None, t["target"], 99.0)
+    assert (out["reason"], out["exit"]) == ("TARGET", 100.0)
+    assert lab.extension_fade(day, UP_DAY, -0.015, EXT1, CTX) is None              # against yesterday's move
+    assert lab.extension_fade(day, {**UP_DAY, "close_before_prior": 99.5}, 0.015, EXT1, CTX) is None   # small prior
+    assert lab.extension_fade(day, UP_DAY, 0.009, EXT1, CTX) is None
+    loud = {**CTX, "spy": {**SPY_FLAT, "o": [402.4] + [400.0] * 389}}                # SPY gapped 0.6%
+    assert lab.extension_fade(day, UP_DAY, 0.015, EXT1, loud)["side"] == -1
+    assert lab.extension_fade(day, UP_DAY, 0.015, EXT2, loud) is None
+    assert lab.extension_fade(day, UP_DAY, 0.015, EXT2, CTX)["entry_bar"] == 5
+    filled = day_of([(101.5, 101.6, 99.9, 100.0)] + flat(100.0, 10))               # the gap filled before entry
+    assert lab.extension_fade(filled, UP_DAY, 0.015, EXT1, CTX) == {"skip": "ENTRY_BEYOND_TARGET"}
+    no_spy_open = {**CTX, "spy": {**SPY_FLAT, "o": [None] + [400.0] * 389}}
+    assert lab.extension_fade(day, UP_DAY, 0.015, EXT1, no_spy_open) == {"skip": "MISSING_SPY_OPEN"}
+
+
+def test_the_earnings_first_hour_fade_follows_a_first_hour_that_fought_the_gap_from_1030():
+    rally = [(97.0, 97.1, 96.8, 97.0)] * 30 + [(97.0, 97.6, 96.9, 97.5)] * 30                 # a 3% gap down, then up
+    day = day_of(rally + flat(97.5, 330))
+    ctx = {**CTX, "timing": "AFTER_CLOSE"}
+    spec = lab.VARIANTS["EARN-FH.v1"]
+    t = lab.earnings_first_hour(day, F, -0.03, spec, ctx)
+    assert (t["side"], t["entry_bar"], t["entry"], t["target"], t["turn"]) == (1, 60, 97.5, None, False)
+    assert lab.earnings_first_hour(day, F, -0.03, spec, {**ctx, "timing": "OTHER"}) is None
+    assert lab.earnings_first_hour(day, F, -0.01, lab.VARIANTS["EARN-FH15.v1"], ctx) is None     # under 1.5%
+    extended = day_of([(97.0, 97.1, 96.8, 97.0)] * 30 + [(97.0, 97.0, 96.2, 96.3)] * 30 + flat(96.3, 330))
+    assert lab.earnings_first_hour(extended, F, -0.03, spec, ctx) is None                # the first hour followed the gap
+    half = {**ctx, "spy": {k: v[:210] for k, v in SPY_FLAT.items()}}                    # a half session by the calendar
+    assert lab.earnings_first_hour(day, F, -0.03, spec, half) is None
+    assert lab.earnings_first_hour(day_of(rally + flat(97.5, 100)), F, -0.03, spec, ctx)["side"] == 1   # stock's gaps
+    no_spy_open = {**ctx, "spy": {**SPY_FLAT, "o": [None] + [400.0] * 389}}
+    assert lab.earnings_first_hour(day, F, -0.03, spec, no_spy_open) == {"skip": "MISSING_SPY_OPEN"}
+    for n in (16, 59):                                    # stopped trading before 10:29: lists end at the last trade
+        short = {k: v[:n] for k, v in day.items()}
+        assert lab.earnings_first_hour(short, F, -0.03, spec, ctx) == {"skip": "MISSING_MINUTE"}
+    out = lab.lab_exit(day, 1, t, None, None, 98.0)
+    assert (out["reason"], out["exit"]) == ("CLOSE", 98.0)
+
+
+def trade(month, session, net):
+    return {"month": month, "session": session, "net_bps": {5: net}}
+
+
+def test_the_pass_bar_needs_the_mean_the_session_t_and_two_of_three_periods():
+    good = [trade(m, f"{m}-{d:02d}", 20.0 + (d % 3) * 5) for m in ("2017-08", "2018-03", "2019-05") for d in range(1, 21)]
+    pb = lab.pass_bar(good)
+    assert pb["verdict"] == "PASS" and pb["positive_periods"] == 3 and pb["session_t"] > 2
+    assert pb["sessions"] == 60 and pb["largest_session_share"] == pytest.approx(1 / 60)
+    one_year = [trade("2018-03", f"2018-03-{d:02d}", 30.0 + d) for d in range(1, 25)] + \
+        [trade("2019-05", f"2019-05-{d:02d}", -5.0 - d % 2) for d in range(1, 25)]
+    assert lab.pass_bar(one_year)["verdict"] == "FAIL"                              # only 2018 positive
+    noisy = [trade("2018-03", f"2018-03-{d:02d}", 300.0 if d % 2 else -290.0) for d in range(1, 21)]
+    assert lab.pass_bar(noisy)["verdict"] == "FAIL"                                 # t far under 2
+    assert lab.pass_bar(good, "explore")["verdict"] is None                         # reference only
+
+
+def test_the_session_t_is_the_plain_t_with_one_trade_a_session_and_one_session_cannot_carry_it():
+    xs = [3.0, -1.0, 4.0, 1.0, 5.0, -2.0, 6.0]
+    m = sum(xs) / len(xs)
+    plain = m / (math.sqrt(sum((x - m) ** 2 for x in xs) / (len(xs) - 1)) / math.sqrt(len(xs)))
+    assert lab.session_t(xs, [str(i) for i in range(len(xs))]) == pytest.approx(plain)
+    # one news day with 20 identical winners and 10 ordinary days: per trade t is 7, by session it is under 2
+    big = [trade("2018-03", "2018-03-01", 200.0)] * 20 + \
+        [trade("2018-03", f"2018-03-{d:02d}", -10.0 + (d % 2) * 15) for d in range(2, 12)]
+    values = [t["net_bps"][5] for t in big]
+    assert lab.session_t(values, [str(i) for i in range(len(values))]) > 6
+    assert lab.session_t(values, [t["session"] for t in big]) < 2
+    two = [trade("2018-02", "2018-02-06", 200.0)] * 20 + [trade("2019-04", "2019-04-02", 1.0)]
+    assert lab.pass_bar(two)["verdict"] == "FAIL"                                   # two sessions, one doing the work
+    assert lab.session_t([1.0, 2.0], ["a", "a"]) is None
+
+
+def test_the_check_bar_needs_three_of_the_four_years_2020_to_2023():
+    years = {"2020": 20.0, "2021": 25.0, "2022": -5.0, "2023": 30.0}
+    trades = [trade(f"{y}-03", f"{y}-03-{d:02d}", v + (d % 3) * 4) for y, v in years.items() for d in range(1, 21)]
+    pb = lab.pass_bar(trades, "check")
+    assert list(pb["periods"]) == [f"{y}-01..{y}-12" for y in years] and pb["positive_periods"] == 3
+    assert pb["verdict"] == "PASS"
+    two = [t for t in trades if not t["month"].startswith("2023")]
+    assert lab.pass_bar(two, "check")["verdict"] == "FAIL"
+
+
+def test_a_short_is_scored_as_a_short_and_its_twin_as_a_long():
+    day = day_of([(101.5, 101.6, 101.2, 101.3)] + [(101.3, 101.4, 100.4, 100.5)] * 5 + flat(100.5, 300))
+    t = lab.extension_fade(day, UP_DAY, 0.015, EXT1, CTX)
+    own = lab.score(t, day, SPY_FLAT, {**F, "daily_close": 100.5}, {"daily_close": 400.0}, 0.01)
+    twin = lab.score(t, day, SPY_FLAT, {**F, "daily_close": 100.5}, {"daily_close": 400.0}, 0.01, side=1)
+    assert own["residual"] == pytest.approx(-(100.5 / 101.3 - 1)) and own["residual"] > 0
+    assert twin["residual"] == pytest.approx(100.5 / 101.3 - 1)
+
+
+def test_the_lab_replay_excludes_bad_daily_rows_and_spy_errors_like_the_replay():
+    bars_for, prices, events, tickers, _ = ir.behavior_fixture()
+    asked = set()
+
+    def counting(ticker, month):
+        asked.add(month)
+        return bars_for(ticker, month)
+    run = lab.replay(counting, prices, ir.BEHAVIOR_MONTHS, tickers, lab.VARIANTS, split="confirm", events=events)
+    assert set(ir.detection_months(ir.BEHAVIOR_MONTHS)) == asked          # 2018-10 on, only to find contradicted closes
+    assert run["excluded"]["SPY_DAILY_ERROR"] == 18 and run["excluded"]["DAILY_ROW_ERROR"] == 3
+    assert run["excluded"]["DAILY_CLOSE_MISMATCH"] == 3
+    assert run["trades"] and not any(t["session"] in ("2019-03-27", "2019-03-28", "2019-03-29") for t in run["trades"])
