@@ -16,10 +16,17 @@ session's minute bars, and the implied and historical volatility at the prior cl
 or condition 0. The overlays never change a v1 trade's entry, exit, hedge or score; they weight it or drop it.
 
 The one check (scripts/run_ext_fade_overlays.py) runs on 2020-01..2023-12, after EXT-FADE.v1's own one-time check is
-in the lab's log, on exactly the trades the lab replays for that check, and never reads 2024-01 or later. Its pass
-bars (PASS_BARS) were fixed with the specs. It refuses unless the module, the runner and the IV/HV files are the
-registered ones (docs/evidence/ext-fade-overlays-registration-2026-10-24.json), the lab's code is the code of v1's
-check, and none of the three specs has been checked before; its log is written under a lock before it returns.
+in the lab's log, on exactly the trades the lab replays for that check. Its pass bars (PASS_BARS) were fixed with the
+specs. It refuses unless the module (on disk and as imported), the runner and the IV/HV files are the registered ones
+(docs/evidence/ext-fade-overlays-registration-2026-10-24.json), the owner's recorded choices are the specs', the lab's
+code is the code of v1's check, and its own log holds no check at all; the log is written under a lock before it
+returns.
+
+What the check reads: no bar month after 2023-12 is opened, and the overlays' own daily rows and the IV/HV series are
+cut at 2023-12-31. The daily price rows go to lab.replay (and to the stock-day pass, which judges eligibility as the
+lab does) uncut, exactly as lab.run passed them for v1's check, because the reproduction of that check must be exact.
+There the lab's printing-error test reads the next session's open, so the eligibility of the last 2023 session reads
+the 2024-01-02 open. The daily and IV/HV files are parsed whole before they are cut.
 
 The lab, the replay and the IV loader are imported read-only. Information only: nothing here trades.
 """
@@ -110,8 +117,10 @@ SPECS = {
         "missing": MISSING,
         "secondary": {
             "gating": False,
-            "pxc": [{"name": "spy_fell", "input": "SPY's adjusted close on the prior session / its adjusted close the "
-                                                  "session before - 1", "below": 0.0},
+            "pxc": [{"name": "spy_fell", "input": "SPY's close on the prior session / its close the session before "
+                                                  "- 1, both of the kind 'close' names (adjusted: the "
+                                                  "dividend-adjusted closes; raw: the printed closes)",
+                     "close": "adjusted", "below": 0.0},
                     {"name": "rv", "input": "sigma_d x sqrt(252)", "at_least": 0.28}],
             "among": "trades with PXC (the number of the two price-only conditions met) at most max_pxc",
             "max_pxc": 1,
@@ -127,6 +136,11 @@ IVR_COND = {c["name"]: c for c in SPECS[IVR]["keep"]}
 IVR_MIN = SPECS[IVR]["min_met"]
 PXC = {c["name"]: c for c in SPECS[IVR]["secondary"]["pxc"]}
 PXC_MAX = SPECS[IVR]["secondary"]["max_pxc"]
+SPY_CLOSES = ("adjusted", "raw")        # what PXC's "SPY fell" may read; the spec names one
+
+# Choices the owner makes explicitly before the registration is merged. The runner refuses unless the registration
+# records each one (owner_decisions[key]["choice"]) and it equals the spec's value here.
+OWNER_DECISIONS = {"pxc_spy_close": PXC["spy_fell"]["close"]}
 
 # ---- the pass bars, fixed with the specs ---------------------------------------------------------------------------
 # Costs are per side. t is lab.session_t, the leave-one-session-out jackknife; a difference of two means uses the same
@@ -172,8 +186,29 @@ BOOKS = ("EXT-FADE.v1", SW, P2, IVR)
 
 
 def spec_sha(spec_id: str) -> str:
-    """The overlay itself, whatever its id or the wording around it: the once-only check's key."""
+    """The whole spec, its wording included. The registration pins it, so any edit to the text refuses the run
+    (SPECS_NOT_REGISTERED). It is not the once-only key: a reworded spec has another digest. See checked_before."""
     return digest(SPECS[spec_id])
+
+
+def params_of(spec: dict) -> dict:
+    """An overlay's parameters alone: its kind, v1's spec, each flag's or condition's cut-off (and the SPY close PXC
+    reads), S-bar, how many must be met and PXC's limit. No id and no wording."""
+    def cuts(items):
+        return [{k: c[k] for k in ("name", "at_least", "above", "below", "close") if k in c} for c in items]
+    out = {"overlay": spec["overlay"], "on": spec["on"]["spec"]}
+    if "flags" in spec:
+        out |= {"flags": cuts(spec["flags"]), "s_bar": spec["weight"]["s_bar"]}
+    if "keep" in spec:
+        out |= {"keep": cuts(spec["keep"]), "min_met": spec["min_met"]}
+    if "secondary" in spec:
+        out |= {"pxc": cuts(spec["secondary"]["pxc"]), "max_pxc": spec["secondary"]["max_pxc"]}
+    return out
+
+
+def params_sha(spec_id: str) -> str:
+    """The digest of params_of: the same for any rewording of a spec. Registered and written into each log entry."""
+    return digest(params_of(SPECS[spec_id]))
 
 
 def file_sha(path) -> str:
@@ -181,7 +216,11 @@ def file_sha(path) -> str:
 
 
 def module_sha() -> str:
+    """This file as it is on disk now."""
     return file_sha(__file__)
+
+
+MODULE_SHA = module_sha()               # the code this process imported: what a logged check was produced by
 
 
 # ---- inputs ------------------------------------------------------------------------------------------------------
@@ -258,6 +297,14 @@ def _adj(row: dict) -> float:
     return row.get("adj_close") or row["close"]
 
 
+def _spy_close(row: dict) -> float:
+    """The SPY close PXC's "SPY fell" reads, as the spec names it."""
+    kind = PXC["spy_fell"]["close"]
+    if kind not in SPY_CLOSES:
+        raise ValueError(f"EXT_FADE_OVERLAYS_UNKNOWN_SPY_CLOSE {kind}")
+    return _adj(row) if kind == "adjusted" else row["close"]
+
+
 def features(trades: list[dict], days: dict, prices: dict, vols: dict) -> list[dict]:
     """One row per trade: the inputs, each flag and condition, S5 and each overlay's weight or keep. Inputs are the
     prior session's (its daily row, minute bars, IV and HV at its close) or the 09:30 open's (the gap)."""
@@ -291,7 +338,7 @@ def features(trades: list[dict], days: dict, prices: dict, vols: dict) -> list[d
         spy_before = spy_iv[spy_iv_dates[k]] if k >= 0 else None
         spy_change = spy_now / spy_before - 1 if spy_now is not None and spy_before else None
         j = spy_index.get(prior)
-        spy_ret = _adj(spy_rows[j]) / _adj(spy_rows[j - 1]) - 1 if j is not None and j >= 1 else None
+        spy_ret = _spy_close(spy_rows[j]) / _spy_close(spy_rows[j - 1]) - 1 if j is not None and j >= 1 else None
         rv = f["sigma_d"] * math.sqrt(252) if f["sigma_d"] is not None else None
         flags = {"prior_move": int(abs(prior_move) >= SW_FLAGS["prior_move"]),
                  "gap": int(abs(gap) >= SW_FLAGS["gap"]),
@@ -604,17 +651,36 @@ def v1_check_entry(lab_log: list[dict]) -> tuple[dict | None, str]:
     return found[0], "OK"
 
 
-def preflight(registration: dict | None, lab_log: list[dict], log: list[dict], runner_path) -> tuple[dict | None, str]:
-    """Everything that must hold before a check bar is read. Returns (v1's check entry, "OK") or (None, the reason)."""
+def checked_before(log: list[dict]) -> bool:
+    """The once-only key. Only this check writes this log, and it checks the three overlays together, so any check
+    entry in it means the check has run, whatever that entry's overlay id, spec id, wording or digest. An entry of
+    any kind that carries these overlays' id or one of their spec or parameter digests counts too."""
+    keys = {spec_sha(sid) for sid in SPECS} | {params_sha(sid) for sid in SPECS}
+    return any(e.get("split") == "check" or e.get("overlay_id") == OVERLAY_ID or e.get("spec_sha256") in keys
+               or e.get("params_sha256") in keys for e in log)
+
+
+def preflight(registration: dict | None, lab_log: list[dict], log: list[dict], runner_path,
+              runner_sha: str | None = None) -> tuple[dict | None, str]:
+    """Everything that must hold before a check bar is read. Returns (v1's check entry, "OK") or (None, the reason).
+    runner_sha: the runner's sha256 when it started (the runner passes its own), checked against the file on disk."""
     if registration is None:
         return None, "NOT_REGISTERED"
-    if registration.get("module_sha256") != module_sha():
+    if module_sha() != MODULE_SHA:
+        return None, "MODULE_CHANGED_SINCE_IMPORT"
+    if registration.get("module_sha256") != MODULE_SHA:
         return None, "MODULE_NOT_REGISTERED"
-    if registration.get("runner_sha256") != file_sha(runner_path):
+    runner_now = file_sha(runner_path)
+    if runner_sha is not None and runner_now != runner_sha:
+        return None, "RUNNER_CHANGED_SINCE_IMPORT"
+    if registration.get("runner_sha256") != runner_now:
         return None, "RUNNER_NOT_REGISTERED"
-    if {k: v.get("spec_sha256") for k, v in registration.get("specs", {}).items()} != \
-            {sid: spec_sha(sid) for sid in SPECS}:
+    if {k: (v.get("spec_sha256"), v.get("params_sha256")) for k, v in registration.get("specs", {}).items()} != \
+            {sid: (spec_sha(sid), params_sha(sid)) for sid in SPECS}:
         return None, "SPECS_NOT_REGISTERED"
+    decided = registration.get("owner_decisions") or {}
+    if any((decided.get(key) or {}).get("choice") != value for key, value in OWNER_DECISIONS.items()):
+        return None, "OWNER_CHOICE_NOT_RECORDED"
     if lab.lab_code_sha() != lab.CODE_SHA:
         return None, "LAB_CODE_CHANGED_SINCE_IMPORT"
     if registration.get("lab_code_sha256") != lab.CODE_SHA:
@@ -626,8 +692,7 @@ def preflight(registration: dict | None, lab_log: list[dict], log: list[dict], r
         return None, "LAB_CODE_IS_NOT_V1_CHECK_CODE"
     if list(entry.get("months", [])) != list(CHECK):
         return None, "V1_CHECK_MONTHS_DIFFER"
-    keys = {spec_sha(sid) for sid in SPECS}
-    if any(e.get("split") == "check" and e.get("spec_sha256") in keys for e in log):
+    if checked_before(log):
         return None, "ALREADY_CHECKED"
     return entry, "OK"
 
@@ -639,9 +704,10 @@ def v1_reproduced(trades: list[dict], entry: dict) -> bool:
 
 
 def run_check(*, dev_root, prices_dir, iv_dir, tickers: list[str], registration_path=None, lab_log_path=None,
-              log_path=None, runner_path=None) -> dict:
+              log_path=None, runner_path=None, runner_sha: str | None = None) -> dict:
     """The one check of the three overlays on 2020-01..2023-12. Refused unless everything registered holds; the log
-    entries are written under a lock before this returns."""
+    entries are written under a lock before this returns. No bar month after 2023-12 is opened; the daily rows reach
+    the lab's replay uncut, as in v1's check (see the module's docstring)."""
     log_path = Path(log_path or LOG_PATH)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with open(log_path.with_name(log_path.name + ".lock"), "w") as lock:
@@ -649,17 +715,18 @@ def run_check(*, dev_root, prices_dir, iv_dir, tickers: list[str], registration_
         return _run_locked(dev_root=dev_root, prices_dir=prices_dir, iv_dir=iv_dir, tickers=sorted(tickers),
                            registration_path=Path(registration_path or REGISTRATION_PATH),
                            lab_log_path=Path(lab_log_path or lab.LOG_PATH), log_path=log_path,
-                           runner_path=Path(runner_path or RUNNER_PATH))
+                           runner_path=Path(runner_path or RUNNER_PATH), runner_sha=runner_sha)
 
 
 def _refused(reason: str, **extra) -> dict:
     return {"status": "REFUSED", "overlay_id": OVERLAY_ID, "reason": reason, **extra}
 
 
-def _run_locked(*, dev_root, prices_dir, iv_dir, tickers, registration_path, lab_log_path, log_path, runner_path):
+def _run_locked(*, dev_root, prices_dir, iv_dir, tickers, registration_path, lab_log_path, log_path, runner_path,
+                runner_sha):
     registration = json.loads(registration_path.read_text()) if registration_path.exists() else None
     log = read_log(log_path)
-    entry, why = preflight(registration, lab.read_log(lab_log_path), log, runner_path)
+    entry, why = preflight(registration, lab.read_log(lab_log_path), log, runner_path, runner_sha)
     if entry is None:
         return _refused(why)
     if lab.inputs_sha(tickers) != entry.get("inputs_sha256"):
@@ -683,7 +750,8 @@ def _run_locked(*, dev_root, prices_dir, iv_dir, tickers, registration_path, lab
         if month > CHECK[1]:
             raise ValueError("EXT_FADE_OVERLAYS_NEVER_READ_THE_HOLDOUT")
         return ir.load_month(dev_root, ticker, month)
-    # v1's check replay, with the lab's own inputs (the same call lab.run makes), unlogged; plus the 09:32 entry
+    # v1's check replay, with the lab's own inputs (the same call lab.run makes: the daily rows uncut), unlogged; plus
+    # the 09:32 entry
     run = lab.replay(bars_for, prices, CHECK, tickers, {BASE: BASE_SPEC, ENTRY_0932: STRESS["entry_0932"]},
                      split="check")
     v1 = [t for t in run["trades"] if t["variant"] == BASE]
@@ -706,8 +774,8 @@ def _run_locked(*, dev_root, prices_dir, iv_dir, tickers, registration_path, lab
                                                            ("entry", "trades", "net_bps_at_10", "verdict")},
             "result": result, "stress": tables, "log_entries": entries,
             "inputs": {"bars_sha256": bars_sha, "daily_prices_sha256": prices_sha, "iv_hv_sha256": vol_sha,
-                       "lab_code_sha256": lab.CODE_SHA, "module_sha256": module_sha(),
-                       "runner_sha256": file_sha(runner_path), "inputs_sha256": lab.inputs_sha(tickers)},
+                       "lab_code_sha256": lab.CODE_SHA, "module_sha256": MODULE_SHA,
+                       "runner_sha256": registration["runner_sha256"], "inputs_sha256": lab.inputs_sha(tickers)},
             "sessions": len(sessions), "verdicts": VERDICTS, "use": "INFORMATION_ONLY"}
 
 
@@ -721,7 +789,9 @@ def log_entries(result: dict, log: list[dict], *, entry: dict, registration: dic
         counts = r["verdict"] == "PASS" and v1_passed
         out.append({
             "entry": len(log) + i + 1, "at": at, "overlay_id": OVERLAY_ID, "split": "check", "months": list(CHECK),
-            "spec_id": sid, "spec": SPECS[sid], "spec_sha256": spec_sha(sid), "module_sha256": module_sha(),
+            "spec_id": sid, "spec": SPECS[sid], "spec_sha256": spec_sha(sid), "params_sha256": params_sha(sid),
+            "owner_decisions": {k: registration["owner_decisions"][k] for k in OWNER_DECISIONS},
+            "module_sha256": MODULE_SHA,
             "runner_sha256": registration["runner_sha256"], "lab_code_sha256": lab.CODE_SHA,
             "v1_check_entry": entry.get("entry"), "v1_check_verdict": entry.get("verdict"),
             "iv_hv_sha256": vol_sha, "daily_prices_sha256": prices_sha, "bars_sha256": bars_sha,

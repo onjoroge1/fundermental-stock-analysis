@@ -2,15 +2,19 @@
 pass bars, the stress tables, and every refusal of the one-time runner. Synthetic data only."""
 
 import copy
+import functools
 import hashlib
 import importlib.util
 import json
 import math
+import pickle
+import re
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from stock_machine.agents.contracts import digest
 from stock_machine.backtest import ext_fade_overlays as ov
 from stock_machine.backtest import implied_vol_replay as ivr
 from stock_machine.backtest import intraday_lab as lab
@@ -150,13 +154,20 @@ def test_the_spy_iv_change_uses_the_observation_just_before_the_prior_close_and_
     assert one(w)["inputs"]["spy_iv_change"] == pytest.approx(0.16 / 0.30 - 1)
 
 
-def test_the_price_only_stand_in_uses_spys_adjusted_close():
+def test_the_price_only_stand_in_reads_the_spy_close_the_spec_names(monkeypatch):
+    assert ov.PXC["spy_fell"]["close"] == ov.OWNER_DECISIONS["pxc_spy_close"] == "adjusted"
     w = world()
     w["prices"]["SPY"][1].update(close=299.0, adj_close=301.0)         # ex-dividend: the raw close fell, adjusted rose
     r = one(w)
     assert r["inputs"]["spy_prior_return"] == pytest.approx(301 / 300 - 1) and r["pxc"] == 1
     w["days"]["features"][("T1", S)]["sigma_d"] = 0.28 / math.sqrt(252) * 0.99
     assert one(w)["pxc"] == 0
+    monkeypatch.setitem(ov.PXC["spy_fell"], "close", "raw")             # the other choice the owner may make
+    r = one(w)
+    assert r["inputs"]["spy_prior_return"] == pytest.approx(299 / 300 - 1) and r["pxc"] == 1
+    monkeypatch.setitem(ov.PXC["spy_fell"], "close", "unadjusted")
+    with pytest.raises(ValueError, match="UNKNOWN_SPY_CLOSE"):
+        one(w)
 
 
 def test_features_refuse_a_trade_that_is_not_point_in_time_or_not_the_labs():
@@ -345,9 +356,14 @@ def synthetic_check():
     return sessions, bars, prices
 
 
+@functools.lru_cache(maxsize=1)
+def _synthetic_check_bytes() -> bytes:
+    return pickle.dumps(synthetic_check())
+
+
 @pytest.fixture
 def check_world(tmp_path, monkeypatch):
-    sessions, bars, prices = synthetic_check()
+    sessions, bars, prices = pickle.loads(_synthetic_check_bytes())         # built once, a fresh copy per test
 
     def load_month(root, ticker, month):
         assert month <= "2023-12", "read a hold-out month"
@@ -378,28 +394,45 @@ def check_world(tmp_path, monkeypatch):
              "net_bps_at_10": lab._mean([t["net_bps"][10] for t in v1]), "verdict": "PASS"}
     confirm = {**check, "entry": 17, "split": "confirm", "months": list(lab.CONFIRM)}
     registration = {"module_sha256": ov.module_sha(), "runner_sha256": ov.file_sha(ov.RUNNER_PATH),
-                    "specs": {sid: {"spec_sha256": ov.spec_sha(sid)} for sid in ov.SPECS},
+                    "specs": {sid: {"spec_sha256": ov.spec_sha(sid), "params_sha256": ov.params_sha(sid)}
+                              for sid in ov.SPECS},
+                    "owner_decisions": {k: {"choice": v, "in_the_spec": v} for k, v in ov.OWNER_DECISIONS.items()},
                     "lab_code_sha256": lab.CODE_SHA, "iv_hv": {"sha256": vol_sha}}
     w = {"tmp": tmp_path, "iv_dir": iv_dir, "prices_dir": prices_dir, "check": check, "confirm": confirm,
-         "registration": registration, "log": tmp_path / "overlays-log.json", "trades": v1}
-    w["write"] = lambda: (
-        (tmp_path / "registration.json").write_text(json.dumps(w["registration"])),
-        (tmp_path / "lab-log.json").write_text(json.dumps([w["confirm"], w["check"]])))
-    w["run"] = lambda **kw: (w["write"](), ov.run_check(
-        dev_root=tmp_path, prices_dir=prices_dir, iv_dir=iv_dir, tickers=["T1"],
-        registration_path=tmp_path / "registration.json", lab_log_path=tmp_path / "lab-log.json",
-        log_path=w["log"], runner_path=kw.get("runner_path", ov.RUNNER_PATH)))[1]
+         "lab_extra": [], "earlier": [], "registration": registration, "log": tmp_path / "overlays-log.json",
+         "trades": v1, "tickers": ["T1"]}
+
+    def write():
+        reg = tmp_path / "registration.json"
+        if w["registration"] is None:
+            reg.unlink(missing_ok=True)
+        else:
+            reg.write_text(json.dumps(w["registration"]))
+        (tmp_path / "lab-log.json").write_text(json.dumps([w["confirm"], w["check"], *w["lab_extra"]]))
+        if w["earlier"]:
+            ov.write_log(w["earlier"], w["log"])
+
+    def run_it(**kw):
+        write()
+        return ov.run_check(dev_root=tmp_path, prices_dir=prices_dir, iv_dir=iv_dir, tickers=w["tickers"],
+                            registration_path=tmp_path / "registration.json", lab_log_path=tmp_path / "lab-log.json",
+                            log_path=w["log"], **kw)
+    w["run"] = run_it
     return w
 
 
 def test_the_one_check_runs_logs_each_overlay_and_never_runs_twice(check_world):
     w = check_world
-    out = w["run"]()
+    out = w["run"](runner_sha=ov.file_sha(ov.RUNNER_PATH))
     assert out["status"] == "OK", out
     log = ov.read_log(w["log"])
     assert [e["spec_id"] for e in log] == [ov.SW, ov.P2, ov.IVR] and [e["entry"] for e in log] == [1, 2, 3]
     assert all(e["split"] == "check" and e["v1_check_entry"] == 21 and e["verdict"] in ("PASS", "FAIL") for e in log)
     assert {e["spec_sha256"] for e in log} == {ov.spec_sha(s) for s in ov.SPECS}
+    assert [e["params_sha256"] for e in log] == [ov.params_sha(s) for s in (ov.SW, ov.P2, ov.IVR)]
+    assert all(e["module_sha256"] == ov.MODULE_SHA and e["owner_decisions"] == w["registration"]["owner_decisions"]
+               for e in log)
+    assert out["inputs"]["module_sha256"] == ov.MODULE_SHA
     assert out["result"]["trades"] == len(w["trades"]) and out["v1_check"]["trades"] == len(w["trades"])
     assert set(out["stress"]) == set(ov.BOOKS) and out["stress"][ov.BASE]["entry_0932_at_5"]["trades"] > 0
     text = ov.render(out)
@@ -411,80 +444,183 @@ def test_the_one_check_runs_logs_each_overlay_and_never_runs_twice(check_world):
     importlib.util.module_from_spec(spec)
 
 
-def test_the_runner_refuses_unless_v1s_check_is_reproduced_exactly(check_world):
+def _reworded(sid):
+    """A copy of a spec with only its wording changed: another spec digest, the same parameters."""
+    spec = copy.deepcopy(ov.SPECS[sid])
+    spec["missing"] += " "
+    return spec
+
+
+def _set(path, value):
+    """A case that sets w[path[0]][path[1]]... to value (None deletes the key)."""
+    def setup(w, mp):
+        target = w
+        for key in path[:-1]:
+            target = target[key]
+        if value is None:
+            del target[path[-1]]
+        else:
+            target[path[-1]] = value
+    return setup
+
+
+def _edited_runner(w, mp):
+    other = w["tmp"] / "runner.py"
+    other.write_text(ov.RUNNER_PATH.read_text() + "\n# edited\n")
+    return {"runner_path": other}
+
+
+def _other_daily_files(w, mp):
+    path = w["prices_dir"] / "T1.json"
+    path.write_text(json.dumps(json.loads(path.read_text()), indent=1))     # the same rows, other bytes
+
+
+def _one_more_eligible_day(w, mp):
+    real = ov.stock_days
+
+    def altered(*args, **kwargs):
+        days = real(*args, **kwargs)
+        days["eligible"][min(days["eligible"])] += 1
+        return days
+    mp.setattr(ov, "stock_days", altered)
+
+
+ZERO = "0" * 64
+OTHER = {**ov.BASE_SPEC, "gap": 0.02}
+REFUSALS = {
+    "no registration": ("NOT_REGISTERED", lambda w, mp: w.update(registration=None)),
+    "module edited since import": ("MODULE_CHANGED_SINCE_IMPORT", lambda w, mp: mp.setattr(ov, "MODULE_SHA", ZERO)),
+    "module not registered": ("MODULE_NOT_REGISTERED", _set(("registration", "module_sha256"), ZERO)),
+    "runner edited since it started": ("RUNNER_CHANGED_SINCE_IMPORT", lambda w, mp: {"runner_sha": ZERO}),
+    "runner not registered": ("RUNNER_NOT_REGISTERED", _set(("registration", "runner_sha256"), ZERO)),
+    "another runner file": ("RUNNER_NOT_REGISTERED", _edited_runner),
+    "a spec digest not registered": ("SPECS_NOT_REGISTERED",
+                                     _set(("registration", "specs", ov.P2, "spec_sha256"), ZERO)),
+    "a parameter digest not registered": ("SPECS_NOT_REGISTERED",
+                                          _set(("registration", "specs", ov.IVR, "params_sha256"), ZERO)),
+    "a spec missing from the registration": ("SPECS_NOT_REGISTERED", _set(("registration", "specs", ov.SW), None)),
+    "the owner's choice not yet made": ("OWNER_CHOICE_NOT_RECORDED",
+                                        _set(("registration", "owner_decisions", "pxc_spy_close", "choice"), None)),
+    "the owner chose the other close": ("OWNER_CHOICE_NOT_RECORDED",
+                                        _set(("registration", "owner_decisions", "pxc_spy_close", "choice"), "raw")),
+    "no owner decisions recorded": ("OWNER_CHOICE_NOT_RECORDED", _set(("registration", "owner_decisions"), None)),
+    "lab code edited since import": ("LAB_CODE_CHANGED_SINCE_IMPORT",
+                                     lambda w, mp: mp.setattr(lab, "CODE_SHA", ZERO)),
+    "lab code not registered": ("LAB_CODE_NOT_REGISTERED", _set(("registration", "lab_code_sha256"), ZERO)),
+    "no check of v1 in the lab log": ("NO_V1_CHECK_IN_THE_LAB_LOG", _set(("check", "split"), "explore")),
+    "a check of another strategy": ("NO_V1_CHECK_IN_THE_LAB_LOG",
+                                    lambda w, mp: w["check"].update(spec=OTHER, spec_sha256=lab.spec_sha(OTHER))),
+    "v1 checked twice": ("V1_CHECKED_MORE_THAN_ONCE", lambda w, mp: w["lab_extra"].append({**w["check"], "entry": 22})),
+    "v1 checked with other lab code": ("LAB_CODE_IS_NOT_V1_CHECK_CODE", _set(("check", "lab_code_sha256"), ZERO)),
+    "v1 checked on other months": ("V1_CHECK_MONTHS_DIFFER", _set(("check", "months"), ["2020-01", "2022-12"])),
+    "an earlier check under another id": ("ALREADY_CHECKED", _set(("earlier",), [
+        {"entry": 1, "split": "check", "spec_id": "renamed", "spec_sha256": ov.spec_sha(ov.P2)}])),
+    "an earlier check of a reworded spec": ("ALREADY_CHECKED", _set(("earlier",), [
+        {"entry": 1, "split": "check", "spec_id": ov.P2, "spec": _reworded(ov.P2),
+         "spec_sha256": digest(_reworded(ov.P2))}])),
+    "any earlier check in the log": ("ALREADY_CHECKED", _set(("earlier",), [
+        {"entry": 1, "split": "check", "spec_sha256": ZERO}])),
+    "an earlier entry with a parameter digest": ("ALREADY_CHECKED", _set(("earlier",), [
+        {"entry": 1, "split": "note", "params_sha256": ov.params_sha(ov.IVR)}])),
+    "other tickers than v1's check": ("INPUTS_ARE_NOT_V1_CHECK_INPUTS",
+                                      _set(("check", "inputs_sha256"), lab.inputs_sha(["T1", "T2"]))),
+    "a check month not fetched": ("CHECK_FETCH_INCOMPLETE",
+                                  lambda w, mp: mp.setattr(ir, "missing_months", lambda root, t, m: ["2021-06"])),
+    "other IV/HV files": ("IV_HV_NOT_REGISTERED", _set(("registration", "iv_hv", "sha256"), ZERO)),
+    "other daily price files": ("DAILY_PRICES_NOT_REGISTERED", _other_daily_files),
+    "the replay's behaviour changed": ("REPLAY_CODE_CHANGED",
+                                       lambda w, mp: mp.setattr(ir, "behavior_digest", lambda: ZERO)),
+    "other bars than v1's check": ("BARS_ARE_NOT_V1_CHECK_BARS", _set(("check", "bars_sha256"), "c" * 64)),
+    "v1 logged one trade more": ("V1_CHECK_NOT_REPRODUCED",
+                                 lambda w, mp: w["check"].update(trades=w["check"]["trades"] + 1)),
+    "v1's logged mean differs by 1e-9": ("V1_CHECK_NOT_REPRODUCED", lambda w, mp: w["check"].update(
+        net_bps_at_10=w["check"]["net_bps_at_10"] + 1e-9)),
+    "eligibility differs from the lab's": ("ELIGIBILITY_DISAGREES_WITH_THE_LAB", _one_more_eligible_day),
+}
+
+
+@pytest.mark.parametrize("case", list(REFUSALS))
+def test_the_runner_refuses_and_logs_nothing(check_world, monkeypatch, case):
     w = check_world
-    w["check"]["trades"] += 1
-    assert w["run"]()["reason"] == "V1_CHECK_NOT_REPRODUCED"
-    w["check"]["trades"] -= 1
-    w["check"]["net_bps_at_10"] += 1e-9
-    assert w["run"]()["reason"] == "V1_CHECK_NOT_REPRODUCED"
-    assert not w["log"].exists()
-    assert ov.v1_reproduced(w["trades"], {"trades": len(w["trades"]),
-                                          "net_bps_at_10": lab._mean([t["net_bps"][10] for t in w["trades"]])})
+    reason, setup = REFUSALS[case]
+    kwargs = setup(w, monkeypatch) or {}
+    earlier = copy.deepcopy(w["earlier"])
+    out = w["run"](**kwargs)
+    assert out["status"] == "REFUSED" and out["reason"] == reason, out
+    if earlier:
+        assert ov.read_log(w["log"]) == earlier                             # the earlier log is left as it was
+    else:
+        assert not w["log"].exists()
 
 
-def test_the_runner_refuses_wrong_hashes(check_world, tmp_path):
-    w = check_world
-    good = copy.deepcopy(w["registration"])
-    w["registration"]["module_sha256"] = "0" * 64
-    assert w["run"]()["reason"] == "MODULE_NOT_REGISTERED"
-    w["registration"] = {**good, "runner_sha256": "0" * 64}
-    assert w["run"]()["reason"] == "RUNNER_NOT_REGISTERED"
-    other_runner = tmp_path / "runner.py"
-    other_runner.write_text(ov.RUNNER_PATH.read_text() + "\n# edited\n")
-    w["registration"] = good
-    assert w["run"](runner_path=other_runner)["reason"] == "RUNNER_NOT_REGISTERED"
-    w["registration"] = {**good, "specs": {**good["specs"], ov.P2: {"spec_sha256": "0" * 64}}}
-    assert w["run"]()["reason"] == "SPECS_NOT_REGISTERED"
-    w["registration"] = {**good, "iv_hv": {"sha256": "0" * 64}}
-    assert w["run"]()["reason"] == "IV_HV_NOT_REGISTERED"
-    w["registration"] = {**good, "lab_code_sha256": "0" * 64}
-    assert w["run"]()["reason"] == "LAB_CODE_NOT_REGISTERED"
-    w["registration"] = good
-    (w["tmp"] / "registration.json").unlink()
-    assert ov.run_check(dev_root=tmp_path, prices_dir=w["prices_dir"], iv_dir=w["iv_dir"], tickers=["T1"],
-                        registration_path=tmp_path / "registration.json", lab_log_path=tmp_path / "lab-log.json",
-                        log_path=w["log"])["reason"] == "NOT_REGISTERED"
-    assert not w["log"].exists()
+def test_every_refusal_the_runner_implements_has_a_case():
+    source = Path(ov.__file__).read_text()
+    reasons = set(re.findall(r'_refused\("([A-Z0-9_]+)"', source)) | set(re.findall(r'return None, "([A-Z0-9_]+)"',
+                                                                                     source))
+    assert reasons and reasons == {reason for reason, _ in REFUSALS.values()}
 
 
-def test_the_runner_refuses_without_v1s_check_or_with_other_lab_code(check_world, monkeypatch):
-    w = check_world
-    check = w["check"]
-    w["check"] = {**check, "split": "explore"}                             # the lab log holds no check of v1
-    assert w["run"]()["reason"] == "NO_V1_CHECK_IN_THE_LAB_LOG"
-    other = {**ov.BASE_SPEC, "gap": 0.02}
-    w["check"] = {**check, "spec": other, "spec_sha256": lab.spec_sha(other)}
-    assert w["run"]()["reason"] == "NO_V1_CHECK_IN_THE_LAB_LOG"           # a check of another strategy is not v1's
-    w["check"] = {**check, "lab_code_sha256": "0" * 64}
-    assert w["run"]()["reason"] == "LAB_CODE_IS_NOT_V1_CHECK_CODE"
-    w["check"] = {**check, "inputs_sha256": lab.inputs_sha(["T1", "T2"])}
-    assert w["run"]()["reason"] == "INPUTS_ARE_NOT_V1_CHECK_INPUTS"
-    w["check"] = {**check, "bars_sha256": "c" * 64}
-    assert w["run"]()["reason"] == "BARS_ARE_NOT_V1_CHECK_BARS"
-    w["check"] = check
-    monkeypatch.setattr(lab, "CODE_SHA", "0" * 64)
-    assert w["run"]()["reason"] == "LAB_CODE_CHANGED_SINCE_IMPORT"
-    assert not w["log"].exists()
-
-
-def test_the_runner_refuses_a_second_check_of_any_of_the_specs_whatever_its_id(check_world):
+def test_a_reworded_spec_checked_earlier_is_refused_for_each_overlay(check_world):
     w = check_world
     for sid in ov.SPECS:
-        earlier = [{"entry": 1, "split": "check", "spec_id": "renamed", "spec_sha256": ov.spec_sha(sid)}]
-        ov.write_log(earlier, w["log"])
+        reworded = _reworded(sid)
+        assert digest(reworded) != ov.spec_sha(sid)                         # the guard cannot rely on the spec digest
+        w["earlier"] = [{"entry": 1, "split": "check", "overlay_id": "renamed", "spec_id": "renamed",
+                         "spec": reworded, "spec_sha256": digest(reworded),
+                         "params_sha256": digest(ov.params_of(reworded))}]
         assert w["run"]()["reason"] == "ALREADY_CHECKED"
-        assert ov.read_log(w["log"]) == earlier
-    ov.write_log([{"entry": 1, "split": "check", "spec_sha256": "0" * 64}], w["log"])   # another spec's check
-    assert w["run"]()["status"] == "OK"
+        assert ov.read_log(w["log"]) == w["earlier"]
+    assert ov.checked_before([]) is False and ov.checked_before([{"split": "note", "spec_sha256": ZERO}]) is False
 
 
-def test_the_check_reads_nothing_after_2023():
+def test_the_parameter_digest_ignores_wording_but_not_a_parameter():
+    for sid in ov.SPECS:
+        reworded = _reworded(sid)
+        for item in reworded.get("flags", []) + reworded.get("keep", []):
+            item["input"] = item["input"].upper()
+        assert digest(reworded) != ov.spec_sha(sid) and digest(ov.params_of(reworded)) == ov.params_sha(sid)
+    assert len({ov.params_sha(sid) for sid in ov.SPECS}) == 3
+
+    def changed(sid, edit):
+        spec = copy.deepcopy(ov.SPECS[sid])
+        edit(spec)
+        return digest(ov.params_of(spec)) != ov.params_sha(sid)
+    assert changed(ov.SW, lambda s: s["flags"][2].update(at_least=0.88))
+    assert changed(ov.SW, lambda s: s["weight"].update(s_bar=3.2))
+    assert changed(ov.P2, lambda s: s["keep"][0].update(at_least=0.021))
+    assert changed(ov.IVR, lambda s: s.update(min_met=3))
+    assert changed(ov.IVR, lambda s: s["secondary"]["pxc"][0].update(close="raw"))
+    assert changed(ov.IVR, lambda s: s["secondary"]["pxc"][1].update(at_least=0.3))
+    assert changed(ov.IVR, lambda s: s["secondary"].update(max_pxc=2))
+    assert changed(ov.SW, lambda s: s["on"].update(spec={**ov.BASE_SPEC, "prior": 0.02}))
+
+
+def test_the_overlays_own_inputs_stop_at_2023():
     with pytest.raises(ValueError, match="HOLDOUT"):
         ov.load_vols(ROOT, "2024-01-01")
     assert ov.CHECK == ("2020-01", "2023-12") and ov.CHECK_LAST_DAY < ov.HOLDOUT_FROM
     assert ov.cut_prices({"X": [{"date": "2023-12-29"}, {"date": "2024-01-02"}]}, ov.CHECK_LAST_DAY) == \
         {"X": [{"date": "2023-12-29"}]}
+
+
+def test_the_check_opens_no_2024_bars_and_gives_the_labs_replay_the_daily_rows_uncut(check_world, monkeypatch):
+    """As registered: the lab's replay and the stock-day pass get the daily rows uncut, as lab.run gave them to v1's
+    check (its printing-error test reads the next open); the overlays' features get them cut at 2023-12-31. The
+    fixture's bar loader fails on any month after 2023-12."""
+    w = check_world
+    seen = {}
+
+    def spy(name, real):
+        def call(*args, **kwargs):
+            prices = args[2] if name == "features" else args[1]
+            seen.setdefault(name, set()).add(max(r["date"] for rows in prices.values() for r in rows))
+            return real(*args, **kwargs)
+        return call
+    monkeypatch.setattr(lab, "replay", spy("replay", lab.replay))
+    monkeypatch.setattr(ov, "stock_days", spy("stock_days", ov.stock_days))
+    monkeypatch.setattr(ov, "features", spy("features", ov.features))
+    assert w["run"]()["status"] == "OK"
+    assert seen == {"replay": {"2024-01-02"}, "stock_days": {"2024-01-02"}, "features": {"2023-12-29"}}
 
 
 # ---- what is frozen ----------------------------------------------------------------------------------------------
@@ -510,18 +646,28 @@ def test_the_four_protected_files_are_byte_identical_to_origin_main():
 
 def test_the_registration_matches_the_code():
     reg = REGISTRATION
-    assert reg["module_sha256"] == ov.module_sha() and reg["runner_sha256"] == ov.file_sha(ov.RUNNER_PATH)
+    assert reg["module_sha256"] == ov.MODULE_SHA == ov.module_sha()
+    assert reg["runner_sha256"] == ov.file_sha(ov.RUNNER_PATH)
     assert reg["module_sha256"] not in ov.Path(ov.__file__).read_text()            # the module never holds its own hash
-    assert {sid: v["spec_sha256"] for sid, v in reg["specs"].items()} == {sid: ov.spec_sha(sid) for sid in ov.SPECS}
+    assert {sid: (v["spec_sha256"], v["params_sha256"]) for sid, v in reg["specs"].items()} == \
+        {sid: (ov.spec_sha(sid), ov.params_sha(sid)) for sid in ov.SPECS}
     assert {sid: v["spec"] for sid, v in reg["specs"].items()} == json.loads(json.dumps(ov.SPECS))
+    assert {sid: v["params"] for sid, v in reg["specs"].items()} == \
+        json.loads(json.dumps({sid: ov.params_of(ov.SPECS[sid]) for sid in ov.SPECS}))
     assert reg["pass_bars"] == json.loads(json.dumps(ov.PASS_BARS))
     assert reg["stress"] == json.loads(json.dumps(ov.STRESS))
     assert reg["lab_code_sha256"] == lab.CODE_SHA
     assert reg["iv_hv"]["sha256"] == ivr.REGISTERED_INPUTS["implied_vol_sha256"]
     assert reg["daily_prices_sha256"] == ir.DAILY_PRICES_SHA256
-    assert reg["variants"] == {"this_round": ov.VARIANTS_THIS_ROUND, "lab_log": lab.variants_tried(lab.read_log()),
-                               "total": ov.VARIANTS_THIS_ROUND + lab.variants_tried(lab.read_log())}
-    assert reg["variants"]["this_round"] == 1413 and reg["variants"]["lab_log"] == 16
+    # a snapshot at registration: later lab tries can only add to the lab log's count
+    assert reg["variants"] == {"this_round": 1413, "lab_log": 16, "total": 1429}
+    assert ov.VARIANTS_THIS_ROUND == 1413 and lab.variants_tried(lab.read_log()) >= 16
+    # each owner decision names the spec's value; its choice is empty until the owner makes it, then the spec's
+    assert set(reg["owner_decisions"]) == set(ov.OWNER_DECISIONS)
+    for key, value in ov.OWNER_DECISIONS.items():
+        decision = reg["owner_decisions"][key]
+        assert decision["in_the_spec"] == value and decision["choice"] in (None, value)
+        assert set(decision["options"]) == set(ov.SPY_CLOSES)
 
 
 def test_the_recorded_calibration_reproduces_the_research_synthesis():

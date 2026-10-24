@@ -9,11 +9,12 @@ round made), applies the overlays and checks that the module reproduces the rese
 S5 over the 1,900 v1 trades, SW's gain at equal exposure in each half, P2's kept trades and mean at 10 bps, IVR's kept
 trades, mean at 5 bps and kept-minus-removed. A mismatch is a bug in the module, never a reason to change a constant.
 It also prints the in-sample dry run of the pass bars and the stress tables (they prove nothing: these months chose
-the overlays).
+the overlays), and, for the owner's choice of the SPY close PXC reads (adjusted, as the spec says, or raw, as the
+research script computed it), the secondary with each close.
 
-Reads nothing dated 2020-01-01 or later: the bar loader refuses later months and the daily prices and the implied and
-historical volatility are cut at 2019-12-31 as they are loaded. Never calls intraday_lab.run (it appends to the lab's
-log) and writes nothing to the repository.
+Uses nothing dated 2020-01-01 or later: the bar loader refuses later months, and the daily price and IV/HV files are
+parsed whole and cut at 2019-12-31 before any value is used (the lab's replay gets the cut daily rows too). Never
+calls intraday_lab.run (it appends to the lab's log) and writes nothing to the repository.
 """
 from __future__ import annotations
 
@@ -77,6 +78,33 @@ def summary(rows: list[dict], sessions: list[str]) -> dict:
     return out
 
 
+def secondary_by_spy_close(trades: list[dict], days: dict, prices: dict, vols: dict) -> dict:
+    """For the owner's choice only: the secondary on each period with each SPY close, through the module's own
+    features. The spec's close is restored before anything else runs, and its digest is checked."""
+    kind, before = ov.PXC["spy_fell"]["close"], ov.spec_sha(ov.IVR)
+    rows = {}
+    try:
+        for close in ov.SPY_CLOSES:
+            ov.PXC["spy_fell"]["close"] = close
+            rows[close] = ov.features(trades, days, prices, vols)
+    finally:
+        ov.PXC["spy_fell"]["close"] = kind
+    if ov.spec_sha(ov.IVR) != before:
+        raise SystemExit("THE_SPEC_WAS_NOT_RESTORED")
+    out = {"in_the_spec": kind}
+    for close, rs in rows.items():
+        out[close] = {}
+        for name, period in (("H1", ov.HALVES["H1"]), ("H2", ov.HALVES["H2"]), ("all", ov.CALIBRATION)):
+            sec = ov.secondary([r for r in rs if in_period(r, period)], years=())
+            out[close][name] = {k: sec[k] for k in ("among", "kept", "kept_mean", "removed", "removed_mean", "mean",
+                                                    "t")}
+    a, b = rows["adjusted"], rows["raw"]
+    differ = [(x["ticker"], x["session"], x["inputs"]["prior_date"]) for x, y in zip(a, b) if x["pxc"] != y["pxc"]]
+    out["trades_whose_pxc_differs"] = len(differ)
+    out["prior_sessions_where_it_differs"] = sorted({p for _, _, p in differ})
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dev-root", default=str(ROOT / "data/ibkr_intraday/v1"))
@@ -105,7 +133,8 @@ def main() -> int:
     rows_0932 = ov.features([t for t in run["trades"] if t["variant"] == ov.ENTRY_0932], days, prices, vols)
     sessions = sorted(run["eligible"])
     report = {"months": list(ov.CALIBRATION), "last_day_read": last, "lab_code_sha256": lab.CODE_SHA,
-              "module_sha256": ov.module_sha(), "daily_prices_sha256": prices_sha, "iv_hv_sha256": vol_sha,
+              "module_sha256": ov.MODULE_SHA, "daily_prices_sha256": prices_sha, "iv_hv_sha256": vol_sha,
+              "pxc_spy_close": ov.PXC["spy_fell"]["close"],
               "skips": {k: v for k, v in run["skips"].items() if k.startswith(ov.BASE + ":")},
               "periods": {}}
     for name, period in (("H1", ov.HALVES["H1"]), ("H2", ov.HALVES["H2"]), ("all", ov.CALIBRATION)):
@@ -123,6 +152,9 @@ def main() -> int:
     report["s5_counts"] = {s: sum(1 for r in rows if r["s5"] == s) for s in range(6)}
     report["dry_run"] = ov.evaluate(rows, sessions, years=("2016", "2017", "2018", "2019"))
     report["stress_dry_run"] = ov.stress(rows, rows_0932, years=("2016", "2017", "2018", "2019"))
+    report["secondary_by_spy_close"] = secondary_by_spy_close(v1, days, prices, vols)
+    if ov.module_sha() != ov.MODULE_SHA:
+        raise SystemExit("MODULE_CHANGED_DURING_THE_CALIBRATION")
     print(render(report))
     if args.json:
         Path(args.json).write_text(json.dumps(report, indent=1, sort_keys=True, default=str))
@@ -138,7 +170,8 @@ def render(report: dict) -> str:
     lines = [f"EXT-FADE.v1 overlays: calibration on {report['months'][0]}..{report['months'][1]} "
              f"(nothing after {report['last_day_read']} read)",
              f"lab code {report['lab_code_sha256'][:12]}  module {report['module_sha256'][:12]}  "
-             f"daily prices {report['daily_prices_sha256'][:12]}  IV/HV files {report['iv_hv_sha256'][:12]}",
+             f"daily prices {report['daily_prices_sha256'][:12]}  IV/HV files {report['iv_hv_sha256'][:12]}  "
+             f"PXC reads SPY's {report['pxc_spy_close']} close",
              f"v1 skips: {report['skips']}", "", "Reproduction of the research synthesis:"]
     for k, x in report["reproduction"].items():
         lines.append(f"  {k:30s} expected {x['expected']:>8}  got {x['got']!s:>22}  -> {x['rounded']!s:>8}  "
@@ -187,6 +220,14 @@ def render(report: dict) -> str:
         years = [f"{y} {_f(v['at_5']['mean'])}/{_f(v['at_10']['mean'])}" for y, v in table["by_year"].items()]
         lines.append(f"  {book}: " + "; ".join(cells))
         lines.append(f"  {' ' * len(book)}  by year at 5/10: " + "; ".join(years))
+    sbc = report["secondary_by_spy_close"]
+    lines += ["", f"The secondary with each SPY close, for the owner's choice (the spec reads {sbc['in_the_spec']}):"]
+    for close in ov.SPY_CLOSES:
+        lines.append(f"  {close:8s} " + "; ".join(
+            f"{name}: among {x['among']}, IV>=HV {x['kept']} at {_f(x['kept_mean'])} vs IV<HV {x['removed']} at "
+            f"{_f(x['removed_mean'])}, diff {_f(x['mean'])} (t {_f(x['t'], '.2f')})" for name, x in sbc[close].items()))
+    lines.append(f"  PXC differs on {sbc['trades_whose_pxc_differs']} trades, the sessions after "
+                 + ", ".join(sbc["prior_sessions_where_it_differs"]))
     return "\n".join(lines)
 
 

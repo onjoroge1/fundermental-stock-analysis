@@ -7,12 +7,17 @@
 docs/evidence/ext-fade-overlays-registration-2026-10-24.md)
 
 The run order is fixed: first EXT-FADE.v1's one check, unchanged (python scripts/run_intraday_lab.py check --variants
-EXT-FADE.v1), then this, once. It refuses unless the module, this runner and the IV/HV files are the registered ones,
-the lab's code is the code of v1's logged check, and none of the three overlays has a check in
-docs/evidence/ext-fade-overlays-log.json. It replays v1 on the check months with the lab's own replay (unlogged) and
-refuses unless the trade count and the mean net at 10 bps equal v1's logged check exactly; only then are the overlays
-applied to those trades. It appends one entry per overlay to the log before it returns, then writes
-data/ext_fade_overlays/check-2020-01-2023-12-entry-<n>.{json,md} (aggregates only). It never reads 2024-01 or later.
+EXT-FADE.v1), then this, once. It refuses unless the module (on disk and as imported), this runner (on disk and as
+started) and the IV/HV files are the registered ones, the registration records the owner's choices and they are the
+specs', the lab's code is the code of v1's logged check, and docs/evidence/ext-fade-overlays-log.json holds no check
+at all. It replays v1 on the check months with the lab's own replay (unlogged) and refuses unless the trade count and
+the mean net at 10 bps equal v1's logged check exactly; only then are the overlays applied to those trades. It appends
+one entry per overlay to the log before it returns, then writes
+data/ext_fade_overlays/check-2020-01-2023-12-entry-<n>.{json,md} (aggregates only).
+
+It opens no bar month after 2023-12, and the overlays' own daily rows and IV/HV series are cut at 2023-12-31. The
+daily price rows go to the lab's replay uncut, exactly as in v1's check: the lab's printing-error test reads the next
+session's open, so the last 2023 session's eligibility reads the 2024-01-02 open.
 """
 from __future__ import annotations
 
@@ -26,6 +31,8 @@ sys.path.insert(0, str(ROOT))
 
 from stock_machine.agents.contracts import AGENT_UNIVERSE  # noqa: E402
 from stock_machine.backtest import ext_fade_overlays as ov  # noqa: E402
+
+RUNNER_SHA = ov.file_sha(__file__)      # this runner as it started: refused if the file changes before the check
 
 
 def main() -> int:
@@ -45,7 +52,8 @@ def main() -> int:
                   f"{e['verdict']}  ({e['reading']})")
         return 0
     out = ov.run_check(dev_root=args.dev_root, prices_dir=args.prices_dir, iv_dir=args.iv_dir,
-                       tickers=sorted(AGENT_UNIVERSE), runner_path=Path(__file__).resolve())
+                       tickers=sorted(AGENT_UNIVERSE), runner_path=Path(__file__).resolve(),
+                       runner_sha=RUNNER_SHA)
     if out["status"] != "OK":
         print(json.dumps(out, indent=1), file=sys.stderr)
         return 2
