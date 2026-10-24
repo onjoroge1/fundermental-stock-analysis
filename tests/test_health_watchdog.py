@@ -43,8 +43,8 @@ def test_a_refresh_retry_counts_only_if_its_gate_ran_the_job():
     for repair in ({**retry[0], "gate_ran": False}, {"conclusion": "success", "created_at": "2026-10-14T01:38Z"}):
         result = wd.check_refresh([repair, *retry[1:]], "2026-10-13")
         assert result["severity"] == "critical" and result["keys"] == ["INGESTION_FAILED"] and result["url"] == "u"
-        assert "last 1 run(s) that ingested failure" in result["summary"]
-        assert "the 2 newer run(s) were gate skips" in result["summary"]
+        assert "last 1 ingestion attempt(s) failure" in result["summary"]
+        assert "the 2 newer run(s) ingested nothing: 2 gate skip(s)" in result["summary"]
 
 
 def test_a_day_of_gate_skips_only_means_the_session_was_not_ingested():
@@ -54,7 +54,8 @@ def test_a_day_of_gate_skips_only_means_the_session_was_not_ingested():
     ingested_21st = {"conclusion": "success", "created_at": "2026-10-21T21:36:00Z", "gate_ran": True, "html_url": "u"}
     result = wd.check_refresh([*skips, ingested_21st], "2026-10-22")
     assert result["severity"] == "critical" and result["keys"] == ["NOT_INGESTED"]
-    assert "2026-10-22 not ingested" in result["summary"] and "the 3 newer run(s) were gate skips" in result["summary"]
+    assert "2026-10-22 not ingested" in result["summary"]
+    assert "the 3 newer run(s) ingested nothing: 3 gate skip(s)" in result["summary"]
     assert wd.check_refresh([*skips, ingested_21st], "2026-10-21")["severity"] is None
     only = wd.check_refresh(skips, "2026-10-22")
     assert only["keys"] == ["NOT_INGESTED"] and "none of the last 3 completed run(s) ingested" in only["summary"]
@@ -66,6 +67,32 @@ def test_a_day_of_gate_skips_only_means_the_session_was_not_ingested():
                for at in ("2026-11-27T01:31:00Z", "2026-11-26T22:33:00Z", "2026-11-26T21:35:00Z")]
     wednesday = {**ingested_21st, "created_at": "2026-11-25T21:33:00Z"}
     assert wd.check_refresh([*holiday, wednesday], "2026-11-25")["severity"] is None
+
+
+def test_a_run_that_stopped_before_its_gate_neither_ingested_nor_failed_an_ingestion():
+    # The off-DST trigger failed at checkout, setup or install (or in the gate's own lookup), or was
+    # cancelled while pending: it never tried to ingest, so the 21:30 run's ingest still stands.
+    repair_skip = {"conclusion": "success", "created_at": "2026-10-23T01:31:00Z", "gate_ran": False}
+    off_trigger = {"conclusion": "failure", "created_at": "2026-10-22T22:30:00Z", "gate_ran": False, "html_url": "f"}
+    ingested = {"conclusion": "success", "created_at": "2026-10-22T21:30:00Z", "gate_ran": True, "html_url": "u"}
+    for stopped in (off_trigger, {**off_trigger, "conclusion": "cancelled"}):
+        result = wd.check_refresh([repair_skip, stopped, ingested], "2026-10-22")
+        assert result["severity"] is None and "keys" not in result
+        assert result["summary"].endswith(f"2026-10-22 ingested (run of 2026-10-22T21:30:00Z); the "
+                                          f"2026-10-22T22:30:00Z run stopped before its gate ({stopped['conclusion']})")
+    # It cannot stand in for an ingest either: with only the previous session ingested, it is a gap.
+    previous = {**ingested, "created_at": "2026-10-21T21:30:00Z"}
+    gap = wd.check_refresh([repair_skip, off_trigger, previous], "2026-10-22")
+    assert gap["severity"] == "critical" and gap["keys"] == ["NOT_INGESTED"] and gap["url"] == "u"
+    assert ("the 2 newer run(s) ingested nothing: 1 gate skip(s) (not due), the 2026-10-22T22:30:00Z run "
+            "stopped before its gate (failure)") in gap["summary"]
+    alone = wd.check_refresh([repair_skip, off_trigger], "2026-10-22")
+    assert alone["keys"] == ["NOT_INGESTED"] and "url" not in alone
+    assert "none of the last 2 completed run(s) ingested anything: 1 gate skip(s)" in alone["summary"]
+    # A failure past its gate is a failed ingestion, and so is a failure not known to have stopped early.
+    for failed in ({**off_trigger, "gate_ran": True}, {k: v for k, v in off_trigger.items() if k != "gate_ran"}):
+        result = wd.check_refresh([repair_skip, failed, previous], "2026-10-22")
+        assert result["keys"] == ["INGESTION_FAILED"] and result["url"] == "f"
 
 
 def test_failure_streak_is_reported_with_its_severity():
@@ -448,29 +475,55 @@ def test_acknowledgements_are_well_formed():
         assert a["key"] is None or " " not in a["key"]
 
 
-def test_the_ingestion_step_runs_exactly_when_the_refresh_gate_runs_the_job():
+def test_the_gated_step_runs_exactly_when_the_refresh_gate_runs_the_job():
     text = (Path(__file__).resolve().parents[1] / ".github/workflows/daily-data-refresh.yml").read_text()
-    step = text[text.index(f"- name: {wd.REFRESH_INGEST_STEP}\n"):]
-    step = step[:step.index("- name:", 1)]
-    assert "if: steps.gate.outputs.run == 'true'\n" in step and "scripts.run_agent_ingestion" in step
+    gate = text[text.index(f"- name: {wd.REFRESH_GATE_STEP}\n"):]
+    gated = gate[gate.index("- name:", 1):]
+    gate, gated = gate[:gate.index("- name:", 1)], gated[:gated.index("- name:", 1)]
+    assert "id: gate\n" in gate and "run=" in gate
+    # The very next step, gated on run=true alone (no always()), so skipped unless the job went on to ingest.
+    assert gated.startswith(f"- name: {wd.REFRESH_GATED_STEP}\n")
+    assert "if: steps.gate.outputs.run == 'true'\n" in gated
 
 
-def test_refresh_runs_are_told_apart_by_their_ingestion_step(monkeypatch):
+def test_refresh_runs_are_told_apart_by_their_gate_and_gated_steps(monkeypatch):
     monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
     calls = []
+
+    def steps(gate, gated):
+        return [{"name": wd.REFRESH_GATE_STEP, "conclusion": gate}, {"name": wd.REFRESH_GATED_STEP, "conclusion": gated}]
+    jobs = {1: steps("success", "skipped"),     # gate skip
+            2: steps("success", "success"),     # ingested
+            3: steps("success", "failure"),     # failed past its gate: a failed ingestion
+            4: steps("failure", "skipped"),     # the gate's own lookup failed
+            5: steps("skipped", "skipped"),     # failed at checkout, setup or install
+            6: [],                              # cancelled while pending: no job ran
+            7: [{"name": "Renamed", "conclusion": "success"}]}
 
     def fake_run(cmd, **kwargs):
         calls.append(cmd[2])
         if "/actions/workflows/" in cmd[2]:
             out = [{"id": 1, "conclusion": "success"}, {"id": 2, "conclusion": "success"},
-                   {"id": 3, "conclusion": "failure"}, {"id": 4, "conclusion": "success"}]
+                   {"id": 3, "conclusion": "failure"}, {"id": 4, "conclusion": "failure"},
+                   {"id": 5, "conclusion": "failure"}, {"id": 6, "conclusion": "cancelled"},
+                   {"id": 7, "conclusion": "success"}, {"id": 8, "conclusion": None}]
         else:
-            assert wd.REFRESH_INGEST_STEP in cmd[4]
-            out = {"repos/o/r/actions/runs/1/jobs": ["skipped"], "repos/o/r/actions/runs/2/jobs": ["success"],
-                   "repos/o/r/actions/runs/4/jobs": []}[cmd[2]]
+            assert wd.REFRESH_GATE_STEP in cmd[4] and wd.REFRESH_GATED_STEP in cmd[4]
+            out = jobs[int(cmd[2].split("/")[-2])]
         return SimpleNamespace(stdout=json.dumps(out))
     monkeypatch.setattr(wd.subprocess, "run", fake_run)
     runs = wd._workflow_runs(wd.REFRESH)
-    assert [r.get("gate_ran") for r in runs] == [False, True, None, False]   # a renamed step reads as a skip
-    assert len(calls) == 4                                                    # a failed run needs no lookup
+    assert [r.get("gate_ran") for r in runs] == [False, True, True, False, False, False, False, None]
+    assert len(calls) == 8                                  # every completed run is looked up, a running one not
     assert all("gate_ran" not in r for r in wd._workflow_runs("option-surface-capture.yml"))
+
+
+def test_collect_applies_the_acknowledgements(monkeypatch):
+    monkeypatch.setattr(wd, "_get", lambda path, params=None: {})
+    monkeypatch.setattr(wd, "_workflow_runs", lambda f: [{"conclusion": "failure", "created_at": "2026-11-03T12:00:00Z"}])
+    monkeypatch.setattr(wd, "ACKNOWLEDGED", ({"check": "option-surface-capture.yml", "key": None, "until": "2026-11-05",
+                                              "note": "item 51: owner aligns the admin tokens"},))
+    checks = {c["check"]: c for c in wd.collect(NOW)}
+    acked, other = checks["option-surface-capture.yml"], checks["company-events-refresh.yml"]
+    assert acked["acknowledged"] is True and acked["severity"] is None and "acknowledged until 2026-11-05" in acked["summary"]
+    assert other["severity"] == "warning" and "acknowledged" not in other

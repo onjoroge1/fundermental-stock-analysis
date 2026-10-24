@@ -39,10 +39,13 @@ FUNDAMENTAL_BLOCKERS = {"FINANCIAL_DEPENDENCIES_UNVERIFIED", "REQUIRED_DATA_NOT_
 MAX_RUN_AGE = timedelta(hours=36)
 # The daily refresh's gate step succeeds without doing anything when nothing is due (the other DST
 # trigger, a day without a completed session, a repair of a session already ingested), so a green run
-# is no evidence that anything was ingested. This step runs exactly when the gate ran the job
-# (`if: steps.gate.outputs.run == 'true'`); GitHub reports it `skipped` in a gate skip.
+# is no evidence that anything was ingested; and a run that stopped before its gate (failed at checkout,
+# setup, install or in the gate itself, or was cancelled while pending) never tried to ingest. The gated
+# step is the first one after the gate (`if: steps.gate.outputs.run == 'true'`): GitHub reports it
+# `skipped` unless the gate concluded `success` with run=true, i.e. unless the job went on to ingest.
 REFRESH = "daily-data-refresh.yml"
-REFRESH_INGEST_STEP = "Refresh company inputs and canonical forecasts"
+REFRESH_GATE_STEP = "Select completed-session Eastern ingestion window"
+REFRESH_GATED_STEP = "Apply migrations"
 # A run that ingested session D was created after D closed (16:00 ET: 20:00 UTC in summer, 21:00 in
 # winter); a scheduled run for an earlier session ends its window by 06:00 ET on D.
 SESSION_CLOSED_UTC = timedelta(hours=21)
@@ -123,17 +126,25 @@ def check_workflow(name: str, severity: str, runs: list[dict], *, now: datetime 
 def check_refresh(runs: list[dict], session: str | None, codes: dict | None = None, *,
                   now: datetime | None = None, severity: str = "critical") -> dict:
     """The daily refresh judged by what it ingested, not by its latest green run. runs: newest first,
-    each {conclusion, created_at, html_url, gate_ran}; a success whose gate did not run the job (or not
-    known to have) is a gate skip and no evidence either way. The newest run that ingested decides and
-    must have started after `session` (the latest completed session, from data-health) closed; without
-    a session, within MAX_RUN_AGE of `now`. codes: {error code: stocks} from error_codes, listed in the
-    issue; on a failure each TICKER:CODE pair is a signature key next to the failure's kind."""
+    each {conclusion, created_at, html_url, gate_ran}: gate_ran is True when the gate ran the job, False
+    when it did not (a gate skip, or a run that stopped before its gate) and absent when not known. A
+    success is evidence only if its gate is known to have run; any other conclusion is a failed
+    ingestion attempt unless its run is known to have stopped before its gate. The newest attempt
+    decides and must have started after `session` (the latest completed session, from data-health)
+    closed; without a session, within MAX_RUN_AGE of `now`. codes: {error code: stocks} from
+    error_codes, listed in the issue; on a failure each TICKER:CODE pair is a signature key next to the
+    failure's kind."""
     completed = [r for r in runs if r.get("conclusion")]
     if not completed:
         return {"check": REFRESH, "severity": "warning", "summary": f"{REFRESH}: no completed runs found"}
-    ran = [r for r in completed if r["conclusion"] != "success" or r.get("gate_ran") is True]
+    ran = [r for r in completed
+           if r.get("gate_ran") is True or (r["conclusion"] != "success" and r.get("gate_ran") is None)]
     latest = ran[0] if ran else None
-    skips = next((i for i, r in enumerate(completed) if r is latest), len(completed))  # gate skips newer than it
+    newer = completed[:next((i for i, r in enumerate(completed) if r is latest), len(completed))]  # ingested nothing
+    stopped = [f"the {r['created_at']} run stopped before its gate ({r['conclusion']})"
+               for r in newer if r["conclusion"] != "success"]
+    skips = len(newer) - len(stopped)
+    nothing = ", ".join(([f"{skips} gate skip(s) (not due)"] if skips else []) + stopped)
     if latest is None:
         fresh = False
     elif session:
@@ -142,19 +153,19 @@ def check_refresh(runs: list[dict], session: str | None, codes: dict | None = No
         fresh = now is None or now - _ts(latest["created_at"]) <= MAX_RUN_AGE
     result = {"check": REFRESH, "severity": None, **({"codes": codes} if codes else {})}
     if fresh and latest["conclusion"] == "success":
-        return {**result, "summary": f"{REFRESH}: {session or 'latest session'} ingested (run of {latest['created_at']})"}
+        return {**result, "summary": f"{REFRESH}: {session or 'latest session'} ingested (run of {latest['created_at']})"
+                                     + "".join(f"; {s}" for s in stopped)}
     if latest is None:
-        kind, text = "NOT_INGESTED", (f"none of the last {len(completed)} completed run(s) ingested anything "
-                                      "(each was a gate skip: not due)")
+        kind, text = "NOT_INGESTED", f"none of the last {len(completed)} completed run(s) ingested anything: {nothing}"
     elif latest["conclusion"] != "success":
         streak = next((i for i, r in enumerate(ran) if r["conclusion"] == "success"), len(ran))
-        kind, text = "INGESTION_FAILED", (f"last {streak} run(s) that ingested {latest['conclusion']}; "
+        kind, text = "INGESTION_FAILED", (f"last {streak} ingestion attempt(s) {latest['conclusion']}; "
                                           f"latest {latest['created_at']}")
     else:
         kind, text = "NOT_INGESTED", (f"{session or 'latest session'} not ingested: the newest run that ingested "
                                       f"started {latest['created_at']}")
-    if latest is not None and skips:
-        text += f"; the {skips} newer run(s) were gate skips that ingested nothing"
+    if latest is not None and newer:
+        text += f"; the {len(newer)} newer run(s) ingested nothing: {nothing}"
     pairs = sorted({"_".join(f"{ticker}:{code}".split()) for code, tickers in (codes or {}).items() for ticker in tickers})
     return {**result, "severity": severity, "summary": f"{REFRESH}: {text}", "keys": [kind, *pairs],
             **({"url": latest["html_url"]} if latest is not None and latest.get("html_url") else {})}
@@ -375,11 +386,12 @@ def forward_checks(learning: dict, today) -> list[dict]:
     return [check_forward(check, tests.get(source), today) for check, source in FORWARD_SOURCE.items()]
 
 
-def acknowledge(checks: list[dict], today, acknowledged=ACKNOWLEDGED) -> list[dict]:
-    """Apply ACKNOWLEDGED to failing checks: a problem (one of its keys, or the check itself) acknowledged
-    through `today` leaves the check's keys, and so the signature; a check left with none stops alerting
-    and is marked acknowledged. An expired acknowledgement changes nothing but is named in the summary,
-    so the owner sees why a known problem alerts again."""
+def acknowledge(checks: list[dict], today, acknowledged=None) -> list[dict]:
+    """Apply ACKNOWLEDGED (or `acknowledged`) to failing checks: a problem (one of its keys, or the check
+    itself) acknowledged through `today` leaves the check's keys, and so the signature; a check left with
+    none stops alerting and is marked acknowledged. An expired acknowledgement changes nothing but is
+    named in the summary, so the owner sees why a known problem alerts again."""
+    acknowledged = ACKNOWLEDGED if acknowledged is None else acknowledged
     for c in checks:
         if not c["severity"]:
             continue
@@ -450,12 +462,17 @@ def _workflow_runs(file: str) -> list[dict]:
     runs = _gh(f"repos/{repo}/actions/workflows/{file}/runs?per_page=10&exclude_pull_requests=true&branch=main",
                "[.workflow_runs[] | {id, conclusion, created_at, html_url}]")
     if file == REFRESH:
-        # A gate skip and a run that ingested both conclude `success`; only the run's steps differ.
+        # A gate skip and a run that ingested both conclude `success`, and a run that failed or was
+        # cancelled before its gate never tried to ingest; only the run's steps tell them apart. A
+        # missing step (a run cancelled while pending, or a renamed step) reads as not run.
         for run in runs:
-            if run.get("conclusion") == "success":
-                steps = _gh(f"repos/{repo}/actions/runs/{run['id']}/jobs",
-                            f'[.jobs[].steps[] | select(.name == "{REFRESH_INGEST_STEP}") | .conclusion]')
-                run["gate_ran"] = bool(steps) and "skipped" not in steps
+            if run.get("conclusion"):
+                steps = {s["name"]: s["conclusion"] for s in _gh(
+                    f"repos/{repo}/actions/runs/{run['id']}/jobs",
+                    f'[.jobs[].steps[] | select(.name == "{REFRESH_GATE_STEP}" or .name == "{REFRESH_GATED_STEP}")'
+                    ' | {name, conclusion}]')}
+                run["gate_ran"] = (steps.get(REFRESH_GATE_STEP) == "success"
+                                   and steps.get(REFRESH_GATED_STEP) not in (None, "skipped"))
     return runs
 
 
