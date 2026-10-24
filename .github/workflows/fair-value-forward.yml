@@ -2,12 +2,23 @@ name: Fair Value Forward Tracking
 
 # Daily: on a month-end, freeze that session's decisions before the next open,
 # then score matured months. The night run follows ingestion and its repair
-# run; the three morning runs are all final attempts (within 4h of the open)
-# in both EST (14:30 UTC open) and EDT (13:30 UTC open).
+# run. GitHub can start a schedule hours late, so three early fallbacks land
+# 5h+ before the open (never a final attempt: they freeze only with every bar);
+# the last three morning runs are all final attempts (within 4h of the open)
+# in both EST (14:30 UTC open) and EDT (13:30 UTC open). Morning runs are on
+# the deadline's own day (Mon-Fri; Monday covers Friday's session).
+# Accepted: nothing loads prices between the 01:30 UTC repair and the early
+# fallbacks, so a month-end still waiting for a bar almost always fails them
+# the same way (exit 1, one failure email each). They exist for a night run
+# that failed or never started; the final attempts and the watchdog decide a
+# real miss.
 on:
   workflow_dispatch:
   schedule:
     - cron: "15 4 * * 2-6"
+    - cron: "45 6 * * 1-5"
+    - cron: "45 7 * * 1-5"
+    - cron: "30 8 * * 1-5"
     - cron: "45 10 * * 1-5"
     - cron: "45 11 * * 1-5"
     - cron: "30 12 * * 1-5"
