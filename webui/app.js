@@ -210,10 +210,11 @@ async function fetchJSON(url) {
 }
 
 /* ---------------- price freshness ---------------- */
-/* Prices go stale between daily runs; this states the age plainly and lets a
-   refresh be triggered at any moment. Prices only — fundamentals, consensus
-   and forecasts are NOT refreshed, so a green badge here never means the
-   analysis below it is fresh. */
+/* Prices go stale between daily runs; this states the age plainly. Refreshing
+   is admin-only (it spends the paid price-provider quota), so the public page
+   offers no refresh control; the post-close cron keeps prices current. Prices
+   only — fundamentals, consensus and forecasts are separate, so a green badge
+   here never means the analysis below it is fresh. */
 async function renderPriceFreshness() {
   const el = $("#price-freshness");
   if (!el) return;
@@ -232,26 +233,7 @@ async function renderPriceFreshness() {
   el.innerHTML = `<div class="freshness">
       <span class="fresh-dot ${cls}"></span>
       <span class="fresh-text">Prices ${st.latest_price_date || "—"}${behind}</span>
-      <button class="fresh-btn" id="fresh-refresh">Refresh</button>
     </div>`;
-  $("#fresh-refresh").onclick = async (ev) => {
-    const btn = ev.target;
-    btn.disabled = true;
-    btn.textContent = "…";
-    $(".fresh-text").textContent = "Refreshing prices (~3 min)";
-    try {
-      const r = await fetch("/api/prices/refresh", { method: "POST" });
-      if (!r.ok) throw new Error(r.status);
-      const out = await r.json();
-      if (out.failed) console.warn("price refresh failures", out.failed);
-    } catch (e) {
-      $(".fresh-text").textContent = "Refresh failed";
-      btn.disabled = false;
-      btn.textContent = "Retry";
-      return;
-    }
-    await renderPriceFreshness();
-  };
 }
 
 /* ---------------- sidebar ---------------- */

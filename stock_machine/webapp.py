@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import time
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -67,14 +67,20 @@ def prices_status() -> dict:
 
 @app.post("/api/prices/refresh")
 def prices_refresh(ticker: str | None = None, days: int = 10,
-                   prefer: str = "auto") -> dict:
-    """Bring stored prices current on demand.
+                   prefer: str = "auto",
+                   authorization: str | None = Header(default=None)) -> dict:
+    """Admin-only: bring stored prices current on demand.
 
     Refreshes a coherent completed-session price vintage and its manifest.
     Fundamentals and forecasts require their separate scheduled refresh. Omit `ticker` to refresh the whole universe (~3-4 minutes).
+    Every call rewrites stored series and spends the paid price-provider
+    quota, so the public dashboard never triggers it; the scheduled
+    post-close cron keeps prices current.
     """
+    from .api_v1_compat import _require_admin
     from .prices_live import refresh_many, refresh_universe
 
+    _require_admin(authorization)
     result = (refresh_many([ticker], days, prefer) if ticker
               else refresh_universe(days, prefer))
     _CACHE.clear()          # bundles cache prices; drop them after a refresh
