@@ -70,6 +70,35 @@ were read, and chosen by the owner:
 - These are the discovery months, so they only show the code reproduces the research. The confirm decides.
 - The six gap variants stay negative at 10 bps a side over the longer explore window.
 
+## The confirm, 2026-10-24: one of four passed
+
+Run once on 2017-07..2019-12 with the explore's code (`518b5557`): log entries 17-20,
+`intraday-lab-confirm-2026-10-24.md`. 629 sessions, 27,734 eligible stock-days.
+
+| Variant | Trades | Net bps at 5 a side | t (jackknife) | 2017H2 | 2018 | 2019 | Verdict | Explore, net at 5 |
+|---|---|---|---|---|---|---|---|---|
+| EXT-FADE.v1 | 1,353 | +26.3 | 3.80 | +19.9 | +39.7 | +11.8 | **PASS** | +21.7 |
+| EXT-FADE.v2 | 505 | +5.2 | 0.65 | +20.2 | +4.6 | −1.4 | FAIL | +40.9 |
+| EARN-FH.v1 | 178 | +6.9 | 0.52 | +14.4 | −6.3 | +20.8 | FAIL | +33.6 |
+| EARN-FH15.v1 | 138 | +4.6 | 0.29 | +28.1 | −11.7 | +18.3 | FAIL | +49.3 |
+
+**What it means**
+- **The plain extension fade held up; the refinements did not.** The control, EXT-FADE.v1, earned more than in
+  discovery. The quiet-market version, v2, fell from +40.9 to +5.2. This is the reading fixed before the run: if v2
+  fails while v1 passes, the SPY filter was overfit. The earnings first-hour rule kept a fifth (v1) or a tenth (the 1.5% version) of its discovery
+  edge, too little to tell from luck.
+- **EXT-FADE.v1 still has weak spots.**
+  - It leans on 2018 (669 of its 1,353 trades, +39.7). 2019 was +11.8 at 5 bps a side and only +1.8 at 10.
+  - At 10 bps a side it averages +16.3, and its book's lower bound at 10 bps is about 0.
+  - It enters at 09:31, when spreads are widest.
+- **Next:** EXT-FADE.v1's one check on 2020-01..2023-12, unchanged. It needs at least 3 of the 4 years positive at 5
+  bps a side, with the jackknife t above 2. It runs when the fetch finishes 2023-12.
+  - Until then, the lab, the replay, the runner and the daily-price loader must not change, or the check is refused
+    (`CONFIRMED_WITH_OTHER_CODE`).
+  - The replay's previews and development run stop at 2019-12 until the check is logged.
+- **The three that failed are closed.** They cannot be confirmed again; a new idea needs a new variant and its own
+  confirm on months not yet read.
+
 ## The six variants (v1)
 
 **Every variant shares:**
