@@ -378,15 +378,21 @@ def _crons():
     return [(int(h), int(m), days) for m, h, days in re.findall(r'cron: "(\d+) (\d+) \* \* ([\d-]+)"', text)]
 
 
-@pytest.mark.parametrize("session", ["2026-10-30", "2027-03-05", "2027-03-15", "2027-11-05"])
+@pytest.mark.parametrize("session", ["2026-10-26", "2026-10-30", "2027-03-05", "2027-03-15", "2027-11-05"])
 def test_morning_runs_wait_for_data_then_at_least_two_final_attempts_before_the_open(session):
     from datetime import timedelta
+
+    from stock_machine.market_calendar import latest_completed_session
     opening = f.deadline_for(session)
     morning = sorted((h, m) for h, m, days in _crons() if days == "1-5")
     lead = [opening - opening.replace(hour=h, minute=m) for h, m in morning]
     assert all(t > timedelta(0) for t in lead), session
     final = [t <= timedelta(hours=f.FINAL_ATTEMPT_HOURS) for t in lead]
     assert not final[0] and sum(final) >= 2 and final[-1], (session, lead)
+    early = lead[:3]   # fallbacks for the night run: hours of GitHub delay still land before the open
+    assert min(early) >= timedelta(hours=4, minutes=55) and not any(final[:3]), (session, lead)
+    for h, m in morning:   # every morning run freezes this session, against this open
+        assert latest_completed_session(opening.replace(hour=h, minute=m)) == session and (h, m) > (4, 20)
     assert [(h, m) for h, m, days in _crons() if days == "2-6"] == [(4, 20)]
 
 

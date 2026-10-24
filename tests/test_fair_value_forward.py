@@ -294,13 +294,18 @@ def _crons():
 
 
 @pytest.mark.parametrize("entry", ["2026-11-02", "2027-05-03", "2027-03-15", "2026-12-01"])
-def test_every_morning_run_is_a_final_attempt_in_both_seasons(entry):
+def test_early_fallbacks_then_three_final_attempts_before_the_open_in_both_seasons(entry):
+    from stock_machine.market_calendar import latest_completed_session
     opening = f.session_open(entry)
-    morning = [(h, m) for h, m, days in _crons() if days == "1-5"]
-    assert len(morning) >= 3
-    for h, m in morning:
-        run_at = opening.replace(hour=h, minute=m)
-        assert timedelta(0) < opening - run_at <= timedelta(hours=f.FINAL_ATTEMPT_HOURS), (entry, h, m)
+    morning = sorted((h, m) for h, m, days in _crons() if days == "1-5")
+    lead = [opening - opening.replace(hour=h, minute=m) for h, m in morning]
+    final = [t <= timedelta(hours=f.FINAL_ATTEMPT_HOURS) for t in lead]
+    assert all(t > timedelta(0) for t in lead) and final[-3:] == [True] * 3, (entry, lead)
+    early = [t for t, is_final in zip(lead, final) if not is_final]
+    assert len(early) >= 3 and min(early) >= timedelta(hours=5), (entry, lead)   # hours late is still in time
+    for h, m in morning:   # every morning run freezes the session whose deadline is this open
+        completed = latest_completed_session(opening.replace(hour=h, minute=m))
+        assert f.windows(completed)[0] == entry and (h, m) > (4, 15), (entry, h, m)
     night = [(h, m) for h, m, days in _crons() if days == "2-6"]
     assert night == [(4, 15)]
 

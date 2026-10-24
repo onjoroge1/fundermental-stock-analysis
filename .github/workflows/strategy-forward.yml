@@ -2,13 +2,23 @@ name: Strategy Forward Shadow
 
 # Daily: after each session, freeze the event strategies' entry flags before
 # the next open, then record trades whose windows have completed. The night
-# run follows ingestion; the morning runs wait for late data until the final
-# attempts (within 2h of the open): two in EST (14:30 UTC open), three in EDT
-# (13:30 UTC open).
+# run follows ingestion. GitHub can start a schedule hours late, so three early
+# fallbacks land 4h55m+ before the open (never a final attempt: they freeze only
+# with every bar and filing); the morning runs wait for late data until the
+# final attempts (within 2h of the open): two in EST (14:30 UTC open), three in
+# EDT (13:30 UTC open). Morning runs are on the deadline's own day (Mon-Fri).
+# Accepted: nothing loads prices between the 01:30 UTC repair and the early
+# fallbacks, so a night still waiting for a bar almost always fails them the
+# same way (exit 1, one failure email each). They exist for a night run that
+# failed, never started or met an SEC outage; the final attempts and the
+# watchdog decide a real miss.
 on:
   workflow_dispatch:
   schedule:
     - cron: "20 4 * * 2-6"
+    - cron: "50 6 * * 1-5"
+    - cron: "50 7 * * 1-5"
+    - cron: "35 8 * * 1-5"
     - cron: "50 10 * * 1-5"
     - cron: "50 11 * * 1-5"
     - cron: "35 12 * * 1-5"
