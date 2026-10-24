@@ -68,3 +68,13 @@ def test_reviewed_field_without_a_same_accession_fact_uses_the_period_filing_dat
     monkeypatch.setattr(fp, "validate_reviewed_field", lambda evidence, fields, sources: evidence["value"])
     latest = fp.build_periods(companyfacts("total_liabilities"))[0][-1]
     assert latest["fields"]["_financial_provenance"]["total_liabilities"]["filed_at"] == latest["filed_at"] == FILED
+
+
+def test_reviewed_field_keeps_its_own_filing_date_when_a_later_filing_moves_the_period(monkeypatch):
+    monkeypatch.setattr(fp, "reviewed_balance_fields", lambda: (review("total_liabilities"),))
+    facts = companyfacts("total_liabilities")
+    facts["facts"]["us-gaap"]["AccountsPayableCurrent"] = {"units": {"USD": [
+        {"val": 1, "end": END, "filed": "2026-09-20", "form": "10-Q/A", "fy": 2026, "fp": "Q2", "accn": "A-2"}]}}
+    latest = fp.build_periods(facts)[0][-1]
+    assert latest["filed_at"] == "2026-09-20"                   # the period now dates from the amendment
+    assert latest["fields"]["_financial_provenance"]["total_liabilities"]["filed_at"] == FILED   # the review's own filing
