@@ -4,8 +4,9 @@ financials that a newer filing has superseded (they need a re-review).
 
 Writes a JSON summary and a Markdown report; the workflow turns problems into
 one GitHub issue labelled `health-alert` (GitHub notifies the owner by email
-and the mobile app) and closes it when everything recovers. Read-only: uses
-the app's public endpoints and the workflow's GitHub token.
+and the mobile app) and closes it when everything recovers. Known owner-pending
+problems are listed as acknowledged until a date (ACKNOWLEDGED), then alert
+again. Read-only: uses the app's public endpoints and the workflow's GitHub token.
 
   python scripts/health_watchdog.py --json out.json --markdown out.md
 """
@@ -20,7 +21,7 @@ from datetime import date, datetime, timedelta, timezone
 BASE_URL = os.environ.get("STOCK_MACHINE_API_BASE_URL", "https://fundermental-stock-analysis.vercel.app")
 UNIVERSE = 54
 COVERAGE_CRITICAL_BELOW = 45
-# Workflow file, severity when its latest completed run failed.
+# Workflow file, severity when its latest completed run failed (the daily refresh: see check_refresh).
 WORKFLOWS = (
     ("daily-data-refresh.yml", "critical"),
     ("technical-setup-shadow.yml", "warning"),
@@ -36,6 +37,23 @@ FUNDAMENTAL_BLOCKERS = {"FINANCIAL_DEPENDENCIES_UNVERIFIED", "REQUIRED_DATA_NOT_
 # firing) stays green forever; every watched schedule has a run under 18h old at 13:15 UTC
 # Tue-Sat. (A repository-wide 60-day inactivity disable also stops this watchdog itself.)
 MAX_RUN_AGE = timedelta(hours=36)
+# The daily refresh's gate step succeeds without doing anything when nothing is due (the other DST
+# trigger, a day without a completed session, a repair of a session already ingested), so a green run
+# is no evidence that anything was ingested. This step runs exactly when the gate ran the job
+# (`if: steps.gate.outputs.run == 'true'`); GitHub reports it `skipped` in a gate skip.
+REFRESH = "daily-data-refresh.yml"
+REFRESH_INGEST_STEP = "Refresh company inputs and canonical forecasts"
+# A run that ingested session D was created after D closed (16:00 ET: 20:00 UTC in summer, 21:00 in
+# winter); a scheduled run for an earlier session ends its window by 06:00 ET on D.
+SESSION_CLOSED_UTC = timedelta(hours=21)
+TOP_ERROR_CODES = 5  # listed with their stocks in the issue body; the rest by count
+# Known owner-pending problems, each {"check", "key", "until": "YYYY-MM-DD", "note"}. Through `until`
+# a failing check's problem with that key is listed as acknowledged instead of alerting, and a check
+# whose problems are all acknowledged stops alerting; the day after, it alerts again (its signature
+# changes, so the issue is commented on or reopened). `key` is one of the check's `keys` (for the daily
+# refresh INGESTION_FAILED, NOT_INGESTED or a TICKER:CODE pair), or None for a check without keys.
+# Keep expiries short: an acknowledgement is a reminder date, not a mute.
+ACKNOWLEDGED: tuple[dict, ...] = ()
 # Forward trackers, read from GET /api/v1/agent/learning-status (the watchdog has no database).
 MAX_ISOLATED_GAP_TICKERS = 3  # strategy_forward's rule: a partial session this small needs no action
 # The market benchmark's stored history must reach back this far (Yahoo serves about 15 years);
@@ -71,6 +89,10 @@ def check_prices(health: dict) -> dict:
     }
 
 
+def _ts(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
 def check_workflow(name: str, severity: str, runs: list[dict], *, now: datetime | None = None) -> dict:
     """runs: newest first, each {conclusion, created_at, html_url}. The latest
     completed run decides: a failed first attempt followed by a successful
@@ -80,8 +102,7 @@ def check_workflow(name: str, severity: str, runs: list[dict], *, now: datetime 
     if not completed:
         return {"check": name, "severity": "warning", "summary": f"{name}: no completed runs found"}
     latest = completed[0]
-    if latest["conclusion"] == "success" and now is not None and \
-            now - datetime.fromisoformat(latest["created_at"].replace("Z", "+00:00")) > MAX_RUN_AGE:
+    if latest["conclusion"] == "success" and now is not None and now - _ts(latest["created_at"]) > MAX_RUN_AGE:
         return {"check": name, "severity": severity, "summary": f"{name}: no completed run since {latest['created_at']}",
                 "url": latest.get("html_url")}
     if latest["conclusion"] == "success":
@@ -99,8 +120,48 @@ def check_workflow(name: str, severity: str, runs: list[dict], *, now: datetime 
     }
 
 
-def check_coverage(decisions: list[dict], session: str) -> dict:
-    """decisions: journal rows; counts the latest decision per ticker for `session`."""
+def check_refresh(runs: list[dict], session: str | None, codes: dict | None = None, *,
+                  now: datetime | None = None, severity: str = "critical") -> dict:
+    """The daily refresh judged by what it ingested, not by its latest green run. runs: newest first,
+    each {conclusion, created_at, html_url, gate_ran}; a success whose gate did not run the job (or not
+    known to have) is a gate skip and no evidence either way. The newest run that ingested decides and
+    must have started after `session` (the latest completed session, from data-health) closed; without
+    a session, within MAX_RUN_AGE of `now`. codes: {error code: stocks} from error_codes, listed in the
+    issue; on a failure each TICKER:CODE pair is a signature key next to the failure's kind."""
+    completed = [r for r in runs if r.get("conclusion")]
+    if not completed:
+        return {"check": REFRESH, "severity": "warning", "summary": f"{REFRESH}: no completed runs found"}
+    ran = [r for r in completed if r["conclusion"] != "success" or r.get("gate_ran") is True]
+    latest = ran[0] if ran else None
+    skips = next((i for i, r in enumerate(completed) if r is latest), len(completed))  # gate skips newer than it
+    if latest is None:
+        fresh = False
+    elif session:
+        fresh = _ts(latest["created_at"]) >= datetime.fromisoformat(session).replace(tzinfo=timezone.utc) + SESSION_CLOSED_UTC
+    else:
+        fresh = now is None or now - _ts(latest["created_at"]) <= MAX_RUN_AGE
+    result = {"check": REFRESH, "severity": None, **({"codes": codes} if codes else {})}
+    if fresh and latest["conclusion"] == "success":
+        return {**result, "summary": f"{REFRESH}: {session or 'latest session'} ingested (run of {latest['created_at']})"}
+    if latest is None:
+        kind, text = "NOT_INGESTED", (f"none of the last {len(completed)} completed run(s) ingested anything "
+                                      "(each was a gate skip: not due)")
+    elif latest["conclusion"] != "success":
+        streak = next((i for i, r in enumerate(ran) if r["conclusion"] == "success"), len(ran))
+        kind, text = "INGESTION_FAILED", (f"last {streak} run(s) that ingested {latest['conclusion']}; "
+                                          f"latest {latest['created_at']}")
+    else:
+        kind, text = "NOT_INGESTED", (f"{session or 'latest session'} not ingested: the newest run that ingested "
+                                      f"started {latest['created_at']}")
+    if latest is not None and skips:
+        text += f"; the {skips} newer run(s) were gate skips that ingested nothing"
+    pairs = sorted({"_".join(f"{ticker}:{code}".split()) for code, tickers in (codes or {}).items() for ticker in tickers})
+    return {**result, "severity": severity, "summary": f"{REFRESH}: {text}", "keys": [kind, *pairs],
+            **({"url": latest["html_url"]} if latest is not None and latest.get("html_url") else {})}
+
+
+def _latest_decisions(decisions: list[dict], session: str | None) -> dict[str, dict]:
+    """The latest journal decision per ticker for `session`."""
     latest: dict[str, dict] = {}
     for d in decisions:
         if d.get("price_date") != session:
@@ -108,6 +169,28 @@ def check_coverage(decisions: list[dict], session: str) -> dict:
         prior = latest.get(d["ticker"])
         if prior is None or d.get("decided_at", "") > prior.get("decided_at", ""):
             latest[d["ticker"]] = d
+    return latest
+
+
+def error_codes(health: dict | None, decisions: list[dict], session: str | None) -> dict[str, list[str]]:
+    """Affected stocks per error code, from what the watchdog already reads: data-health's state of
+    each stock whose price is not current (PRICES_<state>), and the blockers of each stock's latest
+    journal decision for `session` that is not recorded, less those that only withhold fundamentals
+    (such a decision is still learnable, see check_coverage)."""
+    codes: dict[str, set[str]] = {}
+    for row in (health or {}).get("tickers") or []:
+        if row.get("state") and row["state"] != "CURRENT":
+            codes.setdefault(f"PRICES_{row['state']}", set()).add(row["ticker"])
+    for d in _latest_decisions(decisions, session).values():
+        if d.get("status") != "RECORDED":
+            for code in set(d.get("blockers") or [f"DECISION_{d.get('status')}"]) - FUNDAMENTAL_BLOCKERS:
+                codes.setdefault(code, set()).add(d["ticker"])
+    return {code: sorted(tickers) for code, tickers in sorted(codes.items())}
+
+
+def check_coverage(decisions: list[dict], session: str) -> dict:
+    """decisions: journal rows; counts the latest decision per ticker for `session`."""
+    latest = _latest_decisions(decisions, session)
     covered = len(latest)
     paper = sum(d.get("status") == "RECORDED" for d in latest.values())
     withheld = sum(
@@ -292,6 +375,33 @@ def forward_checks(learning: dict, today) -> list[dict]:
     return [check_forward(check, tests.get(source), today) for check, source in FORWARD_SOURCE.items()]
 
 
+def acknowledge(checks: list[dict], today, acknowledged=ACKNOWLEDGED) -> list[dict]:
+    """Apply ACKNOWLEDGED to failing checks: a problem (one of its keys, or the check itself) acknowledged
+    through `today` leaves the check's keys, and so the signature; a check left with none stops alerting
+    and is marked acknowledged. An expired acknowledgement changes nothing but is named in the summary,
+    so the owner sees why a known problem alerts again."""
+    for c in checks:
+        if not c["severity"]:
+            continue
+        problems = c.get("keys") or [None]
+        live, expired = {}, {}
+        for a in acknowledged:
+            if a["check"] == c["check"] and a.get("key") in problems:
+                (live if today <= date.fromisoformat(a["until"]) else expired).setdefault(a.get("key"), a)
+        notes = [f"acknowledged until {a['until']}{f' ({k})' if k else ''}: {a['note']}" for k, a in live.items()]
+        notes += [f"acknowledgement expired {a['until']}{f' ({k})' if k else ''}: {a['note']}"
+                  for k, a in expired.items() if k not in live]
+        if not notes:
+            continue
+        c["summary"] += "; " + "; ".join(notes)
+        remaining = [p for p in problems if p not in live]
+        if not remaining:
+            c["severity"], c["acknowledged"] = None, True
+        elif c.get("keys"):
+            c["keys"] = remaining
+    return checks
+
+
 def overall(checks: list[dict]) -> str:
     severities = {c["severity"] for c in checks}
     return "CRITICAL" if "critical" in severities else ("WARNING" if "warning" in severities else "OK")
@@ -302,9 +412,17 @@ def markdown(checks: list[dict], status: str, now: datetime) -> str:
     lines = [f"**Health check {now.strftime('%Y-%m-%d %H:%M UTC')}: {status}**", ""]
     for c in sorted(checks, key=lambda c: {"critical": 0, "warning": 1, None: 2}[c["severity"]]):
         link = f" ([run]({c['url']}))" if c.get("url") else ""
-        lines.append(f"- {icon[c['severity']]} {c['summary']}{link}")
-    lines += ["", "_Automated by `health-watchdog.yml`; this issue closes itself when all checks pass._",
-              f"<!-- watchdog-signature: {signature(checks)} -->"]
+        lines.append(f"- {'⚪' if c.get('acknowledged') else icon[c['severity']]} {c['summary']}{link}")
+        codes = c.get("codes") or {}
+        top = sorted(codes, key=lambda code: (-len(codes[code]), code))
+        lines += [f"  - `{code}` ({len(codes[code])}): {', '.join(codes[code])}" for code in top[:TOP_ERROR_CODES]]
+        if top[TOP_ERROR_CODES:]:
+            lines.append("  - also " + ", ".join(f"`{code}` ({len(codes[code])})" for code in top[TOP_ERROR_CODES:]))
+    lines += ["", "_Automated by `health-watchdog.yml`; this issue closes itself when all checks pass._"]
+    if any(c.get("acknowledged") for c in checks):
+        lines.append("_⚪ acknowledged until the date shown (`ACKNOWLEDGED` in `scripts/health_watchdog.py`); "
+                     "it alerts again after that._")
+    lines.append(f"<!-- watchdog-signature: {signature(checks)} -->")
     return "\n".join(lines)
 
 
@@ -322,14 +440,23 @@ def _get(path: str, params: dict | None = None) -> dict:
     return response.json()
 
 
+def _gh(path: str, jq: str):
+    out = subprocess.run(["gh", "api", path, "--jq", jq], check=True, capture_output=True, text=True)
+    return json.loads(out.stdout)
+
+
 def _workflow_runs(file: str) -> list[dict]:
     repo = os.environ["GITHUB_REPOSITORY"]
-    out = subprocess.run(
-        ["gh", "api", f"repos/{repo}/actions/workflows/{file}/runs?per_page=10&exclude_pull_requests=true&branch=main",
-         "--jq", "[.workflow_runs[] | {conclusion, created_at, html_url}]"],
-        check=True, capture_output=True, text=True,
-    )
-    return json.loads(out.stdout)
+    runs = _gh(f"repos/{repo}/actions/workflows/{file}/runs?per_page=10&exclude_pull_requests=true&branch=main",
+               "[.workflow_runs[] | {id, conclusion, created_at, html_url}]")
+    if file == REFRESH:
+        # A gate skip and a run that ingested both conclude `success`; only the run's steps differ.
+        for run in runs:
+            if run.get("conclusion") == "success":
+                steps = _gh(f"repos/{repo}/actions/runs/{run['id']}/jobs",
+                            f'[.jobs[].steps[] | select(.name == "{REFRESH_INGEST_STEP}") | .conclusion]')
+                run["gate_ran"] = bool(steps) and "skipped" not in steps
+    return runs
 
 
 def collect(now: datetime) -> list[dict]:
@@ -341,10 +468,23 @@ def collect(now: datetime) -> list[dict]:
     except Exception as exc:
         checks.append({"check": "prices", "severity": "critical",
                        "summary": f"Data-health endpoint unreachable: {type(exc).__name__}"})
-        session = None
+        health, session = None, None
+    decisions, journal_error = [], None
+    if session:
+        try:
+            for day in (now.date(), now.date() - timedelta(days=1)):
+                decisions += _get("/api/agent-lab", {"day": day.isoformat(), "limit": 100})["decisions"]
+        except Exception as exc:
+            decisions, journal_error = [], exc
+    try:
+        codes = error_codes(health, decisions, session)
+    except Exception:  # malformed rows: the coverage check below reports the journal
+        codes = {}
     for file, severity in WORKFLOWS:
         try:
-            checks.append(check_workflow(file, severity, _workflow_runs(file), now=now))
+            runs = _workflow_runs(file)
+            checks.append(check_refresh(runs, session, codes, now=now, severity=severity) if file == REFRESH else
+                          check_workflow(file, severity, runs, now=now))
         except Exception as exc:
             checks.append({"check": file, "severity": "warning",
                            "summary": f"{file}: could not read runs ({type(exc).__name__})"})
@@ -368,14 +508,13 @@ def collect(now: datetime) -> list[dict]:
                        "summary": f"Financial-review status unreachable: {type(exc).__name__}"})
     if session:
         try:
-            decisions = []
-            for day in (now.date(), now.date() - timedelta(days=1)):
-                decisions += _get("/api/agent-lab", {"day": day.isoformat(), "limit": 100})["decisions"]
+            if journal_error is not None:
+                raise journal_error
             checks.append(check_coverage(decisions, session))
         except Exception as exc:
             checks.append({"check": "research_coverage", "severity": "warning",
                            "summary": f"Research journal unreachable: {type(exc).__name__}"})
-    return checks
+    return acknowledge(checks, now.date())
 
 
 def main() -> int:

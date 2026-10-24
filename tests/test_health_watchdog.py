@@ -1,10 +1,12 @@
 """The health watchdog's checks classify real failure patterns correctly."""
 
 import importlib.util
+import json
 
 import pytest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 
 def load():
@@ -28,7 +30,42 @@ def test_prices_healthy_and_stale():
 def test_failed_first_attempt_with_successful_retry_is_healthy():
     runs = [{"conclusion": "success", "created_at": "2026-10-14T01:18Z"},
             {"conclusion": "failure", "created_at": "2026-10-14T00:24Z"}]
-    assert wd.check_workflow("daily-data-refresh.yml", "critical", runs)["severity"] is None
+    assert wd.check_workflow("company-events-refresh.yml", "warning", runs)["severity"] is None
+
+
+def test_a_refresh_retry_counts_only_if_its_gate_ran_the_job():
+    retry = [{"conclusion": "success", "created_at": "2026-10-14T01:38Z", "gate_ran": True},     # 01:30 repair
+             {"conclusion": "success", "created_at": "2026-10-13T22:33Z", "gate_ran": False},    # other DST trigger
+             {"conclusion": "failure", "created_at": "2026-10-13T21:34Z", "html_url": "u"}]
+    assert wd.check_refresh(retry, "2026-10-13")["severity"] is None
+    # A repair the gate skipped (the failed run's ATTENTION receipt counts as ingested) is green but did
+    # nothing, and so is a run not known to have ingested: the failure stands.
+    for repair in ({**retry[0], "gate_ran": False}, {"conclusion": "success", "created_at": "2026-10-14T01:38Z"}):
+        result = wd.check_refresh([repair, *retry[1:]], "2026-10-13")
+        assert result["severity"] == "critical" and result["keys"] == ["INGESTION_FAILED"] and result["url"] == "u"
+        assert "last 1 run(s) that ingested failure" in result["summary"]
+        assert "the 2 newer run(s) were gate skips" in result["summary"]
+
+
+def test_a_day_of_gate_skips_only_means_the_session_was_not_ingested():
+    skips = [{"conclusion": "success", "created_at": "2026-10-23T01:31:00Z", "gate_ran": False},
+             {"conclusion": "success", "created_at": "2026-10-22T22:33:00Z", "gate_ran": False},
+             {"conclusion": "success", "created_at": "2026-10-22T21:35:00Z", "gate_ran": False}]
+    ingested_21st = {"conclusion": "success", "created_at": "2026-10-21T21:36:00Z", "gate_ran": True, "html_url": "u"}
+    result = wd.check_refresh([*skips, ingested_21st], "2026-10-22")
+    assert result["severity"] == "critical" and result["keys"] == ["NOT_INGESTED"]
+    assert "2026-10-22 not ingested" in result["summary"] and "the 3 newer run(s) were gate skips" in result["summary"]
+    assert wd.check_refresh([*skips, ingested_21st], "2026-10-21")["severity"] is None
+    only = wd.check_refresh(skips, "2026-10-22")
+    assert only["keys"] == ["NOT_INGESTED"] and "none of the last 3 completed run(s) ingested" in only["summary"]
+    # Without data-health's session the newest run that ingested must be under 36 hours old.
+    assert wd.check_refresh([*skips, ingested_21st], None,
+                            now=datetime(2026, 10, 23, 13, 15, tzinfo=timezone.utc))["keys"] == ["NOT_INGESTED"]
+    # A market holiday is no gap: Thanksgiving's runs all skip, Wednesday's session was ingested.
+    holiday = [{"conclusion": "success", "created_at": at, "gate_ran": False}
+               for at in ("2026-11-27T01:31:00Z", "2026-11-26T22:33:00Z", "2026-11-26T21:35:00Z")]
+    wednesday = {**ingested_21st, "created_at": "2026-11-25T21:33:00Z"}
+    assert wd.check_refresh([*holiday, wednesday], "2026-11-25")["severity"] is None
 
 
 def test_failure_streak_is_reported_with_its_severity():
@@ -58,6 +95,41 @@ def test_coverage_counts_latest_decision_per_stock_for_the_session():
     # 49 recorded + T0's newer withheld decision + 2 withheld = 52 learnable; X is not.
     assert result["learnable"] == 52
     assert wd.check_coverage(rows[:30], "2026-10-16")["severity"] == "critical"
+
+
+def test_the_issue_lists_the_top_error_codes_with_their_stocks():
+    health = {"tickers": [{"ticker": "F", "state": "STALE"}, {"ticker": "GM", "state": "CURRENT"},
+                          {"ticker": "LUV", "state": "MISSING"}]}
+    rows = [decision("GM", "BLOCKED", ["STALE_INPUTS", "FINANCIAL_DEPENDENCIES_UNVERIFIED"]),
+            decision("F", "BLOCKED", ["STALE_INPUTS", "PRICE_NOT_LATEST_COMPLETED_SESSION"]),
+            decision("AAL", "BLOCKED", ["FINANCIAL_DEPENDENCIES_UNVERIFIED"]),        # withheld, still learnable
+            decision("NVDA"),
+            decision("TSLA", "BLOCKED", ["STALE_INPUTS"], price_date="2026-10-15")]  # another session
+    codes = wd.error_codes(health, rows, "2026-10-16")
+    assert codes == {"PRICES_MISSING": ["LUV"], "PRICES_STALE": ["F"], "PRICE_NOT_LATEST_COMPLETED_SESSION": ["F"],
+                     "STALE_INPUTS": ["F", "GM"]}
+    failed = wd.check_refresh([{"conclusion": "failure", "created_at": "2026-10-16T21:40:00Z"}], "2026-10-16", codes)
+    text = wd.markdown([failed], "CRITICAL", NOW)
+    assert text.index("  - `STALE_INPUTS` (2): F, GM") < text.index("  - `PRICES_MISSING` (1): LUV")   # most stocks first
+    many = {f"C{i}": ["X"] for i in range(7)}
+    text = wd.markdown([wd.check_refresh([{"conclusion": "failure", "created_at": "x"}], None, many)], "CRITICAL", NOW)
+    assert "`C4` (1): X" in text and "  - also `C5` (1), `C6` (1)" in text and "`C5` (1): X" not in text
+    assert wd.error_codes(None, [], None) == {}
+
+
+def test_a_failed_refresh_keys_each_affected_stock_so_the_issue_updates_only_when_they_change():
+    codes = {"STALE_INPUTS": ["F", "GM"], "PRICES_STALE": ["F"]}
+    runs = [{"conclusion": "failure", "created_at": "2026-10-16T21:40:00Z"}]
+    failed = wd.check_refresh(runs, "2026-10-16", codes)
+    assert failed["keys"] == ["INGESTION_FAILED", "F:PRICES_STALE", "F:STALE_INPUTS", "GM:STALE_INPUTS"]
+    next_day = wd.check_refresh([{"conclusion": "failure", "created_at": "2026-10-19T21:41:00Z"}, *runs], "2026-10-19",
+                                codes)
+    assert wd.signature([next_day]) == wd.signature([failed])                    # same problems: no comment
+    worse = wd.check_refresh(runs, "2026-10-16", {**codes, "STALE_INPUTS": ["F", "GM", "TSLA"]})
+    assert wd.signature([worse]) != wd.signature([failed]) and " " not in wd.signature([worse])
+    ok = wd.check_refresh([{"conclusion": "success", "created_at": "2026-10-16T21:40:00Z", "gate_ran": True}],
+                          "2026-10-16", codes)
+    assert ok["severity"] is None and "keys" not in ok and ok["codes"] == codes   # listed, not alerting
 
 
 def test_overall_status_and_markdown():
@@ -200,7 +272,8 @@ def test_collect_feeds_now_to_every_workflow_and_reports_an_unreachable_tracker_
     monkeypatch.setattr(wd, "_get", fake_get)
     monkeypatch.setattr(wd, "_workflow_runs", lambda f: [{"conclusion": "success", "created_at": "2026-11-01T04:20:00Z"}])
     checks = {c["check"]: c for c in wd.collect(NOW)}
-    assert all("no completed run since" in checks[f]["summary"] for f, _ in wd.WORKFLOWS)   # 57h old: stale
+    assert all("no completed run since" in checks[f]["summary"] for f, _ in wd.WORKFLOWS if f != wd.REFRESH)  # 57h old
+    assert checks[wd.REFRESH]["keys"] == ["NOT_INGESTED"]       # its one green run is not known to have ingested
     assert checks["fair_value_forward"]["severity"] == checks["strategy_forward"]["severity"] == "warning"
     assert "unreachable: RuntimeError" in checks["strategy_forward"]["summary"]
     assert "fair_value_forward=warning" in wd.signature(list(checks.values()))
@@ -317,3 +390,87 @@ def test_a_missed_registration_a_late_one_or_a_changed_ledger_row_warns_with_sta
     assert wd.check_paper_ledger(paper_status(exception_share_so_far=0.06))["keys"] == ["EXCEPTIONS_ABOVE_5PCT"]
     assert wd.check_paper_ledger(paper_status(superseded_protocols=["agent-paper-ledger.v0:x"]))["keys"] == \
         ["SUPERSEDED_PROTOCOL"]
+
+
+def test_collect_lists_the_stocks_behind_a_failed_refresh(monkeypatch):
+    def fake_get(path, params=None):
+        if path == "/api/v1/data-health":
+            return {"status": "STALE", "stale_count": 1, "missing_count": 0, "latest_market_date": "2026-11-02",
+                    "expected_market_date": "2026-11-02", "tickers": [{"ticker": "F", "state": "STALE"}]}
+        if path == "/api/agent-lab":
+            return {"decisions": [decision("GM", "BLOCKED", ["STALE_INPUTS"], price_date="2026-11-02")]}
+        return {}
+    monkeypatch.setattr(wd, "_get", fake_get)
+    monkeypatch.setattr(wd, "_workflow_runs", lambda f: [{"conclusion": "failure", "created_at": "2026-11-02T21:40:00Z"}])
+    refresh = {c["check"]: c for c in wd.collect(NOW)}[wd.REFRESH]
+    assert refresh["codes"] == {"PRICES_STALE": ["F"], "STALE_INPUTS": ["GM"]}
+    assert refresh["keys"] == ["INGESTION_FAILED", "F:PRICES_STALE", "GM:STALE_INPUTS"]
+
+
+def test_an_acknowledged_failure_alerts_again_after_its_expiry():
+    ack = ({"check": "option-surface-capture.yml", "key": None, "until": "2026-11-05",
+            "note": "item 51: owner aligns the admin tokens"},)
+
+    def failing():
+        return [{"check": "option-surface-capture.yml", "severity": "warning", "summary": "last 30 completed run(s) failure"},
+                {"check": "prices", "severity": None, "summary": "fine"}]
+    quiet = wd.acknowledge(failing(), date(2026, 11, 5), ack)
+    assert quiet[0]["severity"] is None and wd.overall(quiet) == "OK" and wd.signature(quiet) == "ok"
+    assert "acknowledged until 2026-11-05: item 51" in quiet[0]["summary"]
+    text = wd.markdown(quiet, "OK", NOW)
+    assert "- ⚪ last 30" in text and "`ACKNOWLEDGED`" in text
+    again = wd.acknowledge(failing(), date(2026, 11, 6), ack)
+    assert again[0]["severity"] == "warning" and "acknowledgement expired 2026-11-05" in again[0]["summary"]
+    assert wd.signature(again) == "option-surface-capture.yml=warning" != wd.signature(quiet)   # comments again
+    assert "⚪" not in wd.markdown(again, "WARNING", NOW)
+
+
+def test_an_acknowledged_stock_hides_neither_a_new_stock_nor_the_failed_run():
+    runs = [{"conclusion": "failure", "created_at": "2026-10-16T21:40:00Z"}]
+    day = date(2026, 10, 17)
+
+    def refresh(*tickers, acks):
+        return wd.acknowledge([wd.check_refresh(runs, "2026-10-16", {"STALE_INPUTS": list(tickers)})], day, acks)[0]
+    f_only = ({"check": wd.REFRESH, "key": "F:STALE_INPUTS", "until": "2026-11-07", "note": "owner re-reviews F"},)
+    known = refresh("F", acks=f_only)
+    assert known["severity"] == "critical" and known["keys"] == ["INGESTION_FAILED"]
+    assert "acknowledged until 2026-11-07 (F:STALE_INPUTS): owner re-reviews F" in known["summary"]
+    assert refresh("F", "GM", acks=f_only)["keys"] == ["INGESTION_FAILED", "GM:STALE_INPUTS"]
+    run_too = f_only + ({"check": wd.REFRESH, "key": "INGESTION_FAILED", "until": "2026-11-07", "note": "same cause"},)
+    assert refresh("F", acks=run_too)["severity"] is None
+    assert refresh("F", "GM", acks=run_too)["keys"] == ["GM:STALE_INPUTS"]
+
+
+def test_acknowledgements_are_well_formed():
+    for a in wd.ACKNOWLEDGED:
+        assert set(a) == {"check", "key", "until", "note"} and a["note"]
+        date.fromisoformat(a["until"])
+        assert a["key"] is None or " " not in a["key"]
+
+
+def test_the_ingestion_step_runs_exactly_when_the_refresh_gate_runs_the_job():
+    text = (Path(__file__).resolve().parents[1] / ".github/workflows/daily-data-refresh.yml").read_text()
+    step = text[text.index(f"- name: {wd.REFRESH_INGEST_STEP}\n"):]
+    step = step[:step.index("- name:", 1)]
+    assert "if: steps.gate.outputs.run == 'true'\n" in step and "scripts.run_agent_ingestion" in step
+
+
+def test_refresh_runs_are_told_apart_by_their_ingestion_step(monkeypatch):
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd[2])
+        if "/actions/workflows/" in cmd[2]:
+            out = [{"id": 1, "conclusion": "success"}, {"id": 2, "conclusion": "success"},
+                   {"id": 3, "conclusion": "failure"}, {"id": 4, "conclusion": "success"}]
+        else:
+            assert wd.REFRESH_INGEST_STEP in cmd[4]
+            out = {"repos/o/r/actions/runs/1/jobs": ["skipped"], "repos/o/r/actions/runs/2/jobs": ["success"],
+                   "repos/o/r/actions/runs/4/jobs": []}[cmd[2]]
+        return SimpleNamespace(stdout=json.dumps(out))
+    monkeypatch.setattr(wd.subprocess, "run", fake_run)
+    runs = wd._workflow_runs(wd.REFRESH)
+    assert [r.get("gate_ran") for r in runs] == [False, True, None, False]   # a renamed step reads as a skip
+    assert len(calls) == 4                                                    # a failed run needs no lookup
+    assert all("gate_ran" not in r for r in wd._workflow_runs("option-surface-capture.yml"))
