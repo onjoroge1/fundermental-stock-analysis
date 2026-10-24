@@ -379,6 +379,11 @@ def build_periods(companyfacts: dict) -> tuple[list[dict], list[dict], list[dict
     reviewed_fields = reviewed_balance_fields()
     # Facts merged from a lagging filing's own XBRL cite that filing.
     filing_sources = {r["accession"]: r for r in companyfacts.get("_filing_supplements") or []}
+    # A reviewed field is read from a filing, so it carries that filing's date
+    # (not available_at); claims on it are checked against the report date.
+    filed_by_accession: dict[str, str] = {}
+    for f in facts:
+        filed_by_accession[f["accn"]] = max(filed_by_accession.get(f["accn"], ""), f["filed"])
     for p in quarterly + annual:
         provenance = {}
         for f in facts:
@@ -407,6 +412,7 @@ def build_periods(companyfacts: dict) -> tuple[list[dict], list[dict], list[dict
                     p["field_sources"][field] = evidence["accession_number"]
                     provenance[field] = {
                         "tag": "REVIEWED:" + evidence["method"], "accession_number": evidence["accession_number"],
+                        "filed_at": filed_by_accession.get(evidence["accession_number"], p["filed_at"]),
                         "period_end": p["period_end"], "source_id": evidence["source_id"],
                         "source_url": evidence["source_url"],
                         "source_content_sha256": evidence["source_sha256"], "unit": "USD", "value": value,
