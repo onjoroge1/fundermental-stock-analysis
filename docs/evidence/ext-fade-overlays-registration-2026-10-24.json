@@ -275,10 +275,10 @@
   "pxc_spy_close": {
    "question": "Which SPY close does the secondary's 'SPY fell' condition (PXC) read?",
    "in_the_spec": "adjusted",
-   "choice": null,
-   "decided_by": null,
-   "decided_on": null,
-   "status": "PENDING. The owner's explicit choice is needed before this registration is merged. The runner refuses (OWNER_CHOICE_NOT_RECORDED) until 'choice' here equals 'in_the_spec'.",
+   "choice": "adjusted",
+   "decided_by": "owner",
+   "decided_on": "2026-10-24",
+   "status": "DECIDED by the owner on 2026-10-24: adjusted, the rule as written (a dividend is not a fall). Recorded before any 2020+ data was read.",
    "options": {
     "adjusted": "SPY's dividend-adjusted closes, as the frozen rule text says (round2_synthesis.txt, the secondary diagnostic: SPY's adjusted close on the prior session below its adjusted close the session before). The spec and the module read these now.",
     "raw": "SPY's printed closes, as the research script that produced the evidence computed them (ivlens/s5_spy_chg.py). Choosing it means changing the spec's 'close' to 'raw' in ext_fade_overlays.py, which changes the IVR spec and parameter digests and the module hash; then the calibration is rerun and this registration regenerated."

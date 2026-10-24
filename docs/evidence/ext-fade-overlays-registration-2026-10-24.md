@@ -84,7 +84,7 @@ row equals the research's figures trade for trade.
   `"choice": "raw"`.
 - Until the choice is recorded and equals the spec's, the runner refuses (`OWNER_CHOICE_NOT_RECORDED`).
 
-**Owner's choice:** pending.
+**Owner's choice:** adjusted (the owner, 2026-10-24), recorded before any 2020+ data was read.
 
 ## The pass bars, fixed now
 
