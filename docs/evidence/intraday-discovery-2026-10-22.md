@@ -89,6 +89,10 @@ least 3 of the 4 years (`intraday-lab.md`).
 - an opening-spike fade (fragile to fill quality);
 - a month-end short of losers (18 dates, could be luck).
 
+**The confirm (2026-10-24)** passed only the control, `EXT-FADE.v1`: +26.3 bps net at 5 a side over 1,353 trades,
+t 3.80, positive in all three periods. `EXT-FADE.v2` (+5.2), `EARN-FH.v1` (+6.9) and `EARN-FH15.v1` (+4.6) failed.
+The refinements shrank most, as warned below (`intraday-lab.md`).
+
 ## Warnings
 
 - **These numbers are optimistic.** About 2,500 variants were tried across the lenses, so expect 30–50% shrinkage:
