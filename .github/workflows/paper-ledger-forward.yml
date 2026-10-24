@@ -2,13 +2,18 @@ name: Paper Ledger Evaluation
 
 # Nightly, after the paper stage (17:00-22:59 ET): snapshot the agent's paper
 # ledger append-only, score positions whose 20-session window and label are
-# complete, and evaluate once at the pre-registered horizon (item 52). The
+# complete, and evaluate once at the pre-registered horizon (item 52). GitHub
+# can start a schedule hours late or drop it, so two morning fallbacks (Mon-Fri,
+# 4h45m+ before the open) copy the same night; a repeat writes nothing twice
+# and still lists a new loss or exclusion for a week (sticky_attention). The
 # first run on main registers the protocol: dispatch it before the 2026-11-10
 # open. Read-only toward the ledger; never changes the mode or a trade.
 on:
   workflow_dispatch:
   schedule:
     - cron: "30 4 * * 2-6"
+    - cron: "55 6 * * 1-5"
+    - cron: "45 8 * * 1-5"
 
 permissions:
   contents: read

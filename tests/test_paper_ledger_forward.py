@@ -237,6 +237,42 @@ def test_the_workflow_runs_nightly_after_the_paper_stage_on_main_only():
     assert "python -m scripts.run_paper_ledger_forward" in text and "SEC_USER_AGENT" not in text
 
 
+@pytest.mark.parametrize("session", ["2026-10-26", "2026-10-30", "2027-03-12", "2027-03-15"])
+def test_morning_fallbacks_copy_the_same_night_well_before_the_open_in_both_seasons(session):
+    from stock_machine.market_calendar import EASTERN, latest_completed_session, session_offset
+    text = (ROOT / ".github/workflows/paper-ledger-forward.yml").read_text()
+    crons = [(int(h), int(m), days) for m, h, days in re.findall(r'cron: "(\d+) (\d+) \* \* ([\d-]+)"', text)]
+    assert [(h, m) for h, m, days in crons if days == "2-6"] == [(4, 30)]
+    morning = [(h, m) for h, m, days in crons if days == "1-5"]
+    opening = fvf.session_open(session_offset(session, 1))
+    stage_end = datetime.fromisoformat(f"{session}T23:00").replace(tzinfo=EASTERN)
+    assert morning
+    for h, m in morning:   # after the paper stage, on the deadline's day: the night of `session` again
+        run_at = opening.replace(hour=h, minute=m)
+        assert run_at > stage_end and opening - run_at >= timedelta(hours=4, minutes=45), (session, h, m)
+        assert latest_completed_session(run_at) == session and (h, m) > (4, 30)
+
+
+def test_an_exclusion_stays_listed_for_a_week_so_a_fallback_for_the_same_night_cannot_hide_it(monkeypatch):
+    now = datetime(2026, 12, 30, 6, 55, tzinfo=timezone.utc)          # the 06:55 fallback after the 04:30 run
+
+    def rec(status, pid, recorded_at, **extra):
+        return {"payload": {"status": status, "position_id": pid, **extra}, "recorded_at": recorded_at.isoformat()}
+    night = datetime(2026, 12, 30, 4, 30, tzinfo=timezone.utc)
+    rows = {
+        plf.OUTCOME_KIND: {"o1": rec("EXCLUDED_MISSING_LABEL", "p1", night),
+                           "o2": rec("EXCLUDED_LABEL_INCOMPLETE", "p2", now - timedelta(days=plf.STICKY_DAYS)),
+                           "o3": rec("ENTRY_MISMATCH", "p3", now - timedelta(days=plf.STICKY_DAYS, seconds=1)),
+                           "o4": rec("SCORED", "p4", night)},
+        plf.CHECK_KIND: {"c1": rec("LEDGER_MUTATED", "p5", night, field="entry_price", session="2026-12-29"),
+                         "c2": rec("DECISION_SOURCES_CHANGED", None, night, session="2026-12-29")}}
+    assert plf.OUTCOME_KIND != plf.CHECK_KIND
+    monkeypatch.setattr(plf, "_records", lambda conn, kind, prefix: rows.get(kind, {}))
+    assert plf.sticky_attention(None, now) == ["LEDGER_MUTATED:p5:entry_price:2026-12-29",
+                                               "EXCLUDED_MISSING_LABEL:p1", "EXCLUDED_LABEL_INCOMPLETE:p2"]
+    assert set(plf.EXCLUDED).isdisjoint(plf.LOSS_STATUSES)            # the final record's integrity block is as before
+
+
 def test_the_watchdog_reads_every_field_the_summary_publishes():
     import importlib.util
     spec = importlib.util.spec_from_file_location("health_watchdog", ROOT / "scripts" / "health_watchdog.py")
