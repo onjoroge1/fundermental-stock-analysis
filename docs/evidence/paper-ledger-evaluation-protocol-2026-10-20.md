@@ -13,7 +13,7 @@ Until its one final record exists, paper P&L is not evidence of anything.
 | Behaviour pin (evaluation code on a fixed synthetic ledger) | `c8336b1c998eadb31017ad3c840caebccfb68f0a69c6c34df68d4e98141e232d` |
 | Protocol record | `evidence_31e325659d608fb4cce9c6ce935982ae72125323de1c0bfb165f641601758bab` (kind `FV_FORWARD_PROTOCOL_V1`) |
 | Registration deadline | before the 2026-11-10 open (14:30 UTC); later is `REGISTERED_LATE`, no verdict |
-| Runs | `.github/workflows/paper-ledger-forward.yml`, 04:30 UTC Tue–Sat, main only. The first run registers. |
+| Runs | `.github/workflows/paper-ledger-forward.yml`, 04:30 UTC Tue–Sat, with fallbacks at 06:55 and 08:45 UTC Mon–Fri that copy the same night (idempotent); main only. The first run registers. |
 
 The first prospective learning labels mature on 2026-11-10. The confidence-gated bandit cannot act before
 labels exist, so no in-scope position can exist before registration.
@@ -78,6 +78,9 @@ position.
 | `EXCLUDED_MISSING_LABEL` | No label 10 sessions after the due session. |
 | `ENTRY_MISMATCH` | The label's entry session differs from the position's. |
 | `EXCLUDED_LABEL_INCOMPLETE` | The label has no finite residual or cost, or no positive risk scale. |
+
+- Each exclusion is listed for a week from the run that writes it (`sticky_attention`), so a fallback run for
+  the same night still reports it.
 
 ## Statistic and verdict
 

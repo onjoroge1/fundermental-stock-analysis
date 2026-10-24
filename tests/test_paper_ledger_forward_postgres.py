@@ -243,6 +243,26 @@ def test_a_new_selector_version_stays_in_scope_and_an_intent_edit_cannot_hide_an
     assert result["status"] == "SCORED" and result["score"] == pytest.approx((-3.4 - 0.2) / 3.0)   # still counted
 
 
+def test_an_exclusion_still_needs_attention_on_a_fallback_run_for_the_same_night_and_for_a_week(ledger):
+    from scripts.run_paper_ledger_forward import exit_code
+    run(night_after("2026-11-05"))
+    with ledger() as conn:
+        pid, _ = open_position(conn, "AAPL", "2026-11-13", "2026-11-12T21:05:00Z")   # never labelled
+        conn.commit()
+    nightly("2026-11-06", "2026-12-28")
+    excluded = run(night_after("2026-12-29"))                                  # due + 10 sessions
+    assert excluded["outcomes"]["excluded"] == [f"{pid}:EXCLUDED_MISSING_LABEL"] and exit_code(excluded) == 1
+    fallback = run(at(2026, 12, 30, 6, 55))                                    # the 06:55 copy of the same night
+    assert fallback["completed_session"] == "2026-12-29" and fallback["outcomes"]["excluded"] == []
+    assert fallback["status"] == "ATTENTION" and exit_code(fallback) == 1
+    assert fallback["sticky_attention"] == [f"EXCLUDED_MISSING_LABEL:{pid}"]
+    with ledger() as conn:
+        assert plf.summary(conn, now=at(2026, 12, 30, 13, 15))["sticky_attention"] == [f"EXCLUDED_MISSING_LABEL:{pid}"]
+        assert len(plf.outcomes(conn)) == 1 and plf.checks(conn) == []        # listed from the outcome alone
+    later = nightly("2026-12-30", "2027-01-06")                                # 8 days after it was written
+    assert later["status"] == "OK" and later["sticky_attention"] == []
+
+
 def test_a_capture_pause_counts_against_paper_and_a_labelled_position_is_scored_unsettled(ledger):
     run(night_after("2026-11-05"))
     with ledger() as conn:

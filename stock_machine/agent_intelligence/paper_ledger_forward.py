@@ -83,7 +83,8 @@ SIDES = {"LONG": "LONG_STOCK", "SHORT": "SHORT_STOCK"}
 SCORED = ("SCORED",)
 EXCLUDED = ("EXCLUDED_MISSING_LABEL", "ENTRY_MISMATCH", "EXCLUDED_LABEL_INCOMPLETE")
 OUT_OF_SCOPE = ("PRE_REGISTRATION", "OTHER_SELECTOR", "LEGACY_CONTRACT", "OUTSIDE_WINDOW")
-# Listed for STICKY_DAYS (and counted for good in recorded_checks and the final record).
+# Listed for STICKY_DAYS (and counted for good in recorded_checks and the final record). EXCLUDED
+# outcomes are listed for STICKY_DAYS too (sticky_attention) and counted in the evaluation.
 LOSS_STATUSES = ("LEDGER_MUTATED", "SNAPSHOT_LATE", "NIGHT_MISSED", "POLICY_VERSION_CHANGED",
                  "SCOPE_EXCLUDED_AFTER_REGISTRATION")
 RECORDED_STATUSES = (*LOSS_STATUSES, "DECISION_SOURCES_CHANGED", "EXTENDED_TO_36_MONTHS")
@@ -719,13 +720,21 @@ def recorded_checks(conn) -> dict:
 
 
 def sticky_attention(conn, now: datetime) -> list[str]:
+    """Losses and exclusions recorded in the last STICKY_DAYS. An exclusion writes no check, only its
+    outcome, so the outcome is listed: a later run for the same night (a morning fallback) or the next
+    nights still need attention, and the watchdog, which reads the latest run, sees it."""
+    def recent(record):
+        return timedelta(0) <= now - fvf._recorded_at(record) <= timedelta(days=STICKY_DAYS)
     out = []
     for r in checks(conn, LOSS_STATUSES):
-        recorded = fvf._recorded_at(r)
-        if timedelta(0) <= now - recorded <= timedelta(days=STICKY_DAYS):
+        if recent(r):
             p = r["payload"]
             out.append(":".join(str(x) for x in (p["status"], p.get("position_id"), p.get("field"), p.get("session"))
                                 if x not in (None, "")))
+    for r in _records(conn, OUTCOME_KIND, f"{FORWARD_ID}:outcome:").values():
+        p = r["payload"]
+        if p.get("status") in EXCLUDED and recent(r):
+            out.append(f"{p['status']}:{p.get('position_id')}")
     return out
 
 

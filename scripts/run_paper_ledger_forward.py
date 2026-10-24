@@ -6,7 +6,9 @@ evaluate once at the pre-registered horizon (paper-ledger-evaluation, item 52).
 Writes data/paper_ledger_forward/<completed session>.json and prints the receipt.
 Exit 1 when attention is needed: a ledger row that changed after its snapshot, a late
 snapshot, a policy-version change, an excluded or failed position, a protocol change,
-a refused non-main run, failure or contention. Read-only toward the ledger.
+a refused non-main run, failure or contention. A loss or exclusion keeps exiting 1 for a
+week (sticky_attention), so a morning fallback for the same night cannot hide it.
+Read-only toward the ledger.
 """
 import json
 import sys
