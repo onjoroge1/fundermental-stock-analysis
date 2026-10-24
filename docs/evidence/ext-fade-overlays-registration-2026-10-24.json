@@ -1,0 +1,1141 @@
+{
+ "registration": "ext-fade-overlays.v1",
+ "date": "2026-10-24",
+ "status": "REGISTERED_BEFORE_ANY_2020_DATA_WAS_READ",
+ "module": "stock_machine/backtest/ext_fade_overlays.py",
+ "module_sha256": "aa4f0782d9e7124a9c9a6ce3265fc6c080fbf3db45a60b1774f335db903e22f8",
+ "runner": "scripts/run_ext_fade_overlays.py",
+ "runner_sha256": "d969668572cd6c824529934c9c07c41822c3279a3540792452df49aed450ab7a",
+ "calibration_script": "scripts/calibrate_ext_fade_overlays.py",
+ "calibration_script_sha256": "b7eead61268c08aaab67d1869d293da7adbc40e3aa6ce72db98691b82b9e2eee",
+ "tests": "tests/test_ext_fade_overlays.py",
+ "lab_code_sha256": "518b55575f3cd4d7ba453927eb63cdb4af21989acd1f653f39af552fca5db150",
+ "base": {
+  "variant": "EXT-FADE.v1",
+  "spec": {
+   "setup": "EXTENSION_FADE",
+   "gap": 0.01,
+   "prior": 0.01,
+   "spy_gap_max": null,
+   "entry_bar": 1,
+   "cap": null,
+   "scale": "X1"
+  },
+  "spec_sha256": "368e410c1a1702dd88051e6c1bf6f82cdf55e0236fb38867b199842d2ad62e71",
+  "definition_sha256": "c8c1ba1b49eacd2704301d079e3f821d003438dda5369b1e346159e5501b7f7a",
+  "confirm_entry": 17,
+  "confirm_verdict": "PASS",
+  "confirm_lab_code_sha256": "518b55575f3cd4d7ba453927eb63cdb4af21989acd1f653f39af552fca5db150",
+  "check": "not yet run: the lab log holds no check entry for EXT-FADE.v1 at registration"
+ },
+ "specs": {
+  "EXT-FADE-SW.v1": {
+   "spec_sha256": "0e3b5ae165e6217661a637f90056ba84e6340a7826c9fa542e506104e52a769d",
+   "spec": {
+    "overlay": "SIZE_BY_SCORE",
+    "on": {
+     "variant": "EXT-FADE.v1",
+     "spec": {
+      "setup": "EXTENSION_FADE",
+      "gap": 0.01,
+      "prior": 0.01,
+      "spy_gap_max": null,
+      "entry_bar": 1,
+      "cap": null,
+      "scale": "X1"
+     },
+     "trades": "the lab's own EXT-FADE.v1 trades (lab.replay), unchanged"
+    },
+    "flags": [
+     {
+      "name": "prior_move",
+      "input": "|prior_close_raw / close_before_prior - 1|, v1's own prior-move quantity",
+      "at_least": 0.02
+     },
+     {
+      "name": "gap",
+      "input": "|09:30 open / dividend-adjusted prior close - 1|, v1's gap",
+      "at_least": 0.015
+     },
+     {
+      "name": "prior_range_atr",
+      "input": "(the prior session's daily high - daily low) / atr14, from the registered daily price rows",
+      "at_least": 0.879
+     },
+     {
+      "name": "prior_leg",
+      "input": "(the close of the prior session's last traded minute / the close of its 10:29 minute - 1) x sign(gap)",
+      "at_least": 0.0,
+      "missing": "0 if the prior session is not one of the run's eligible stock-days (the lab judges eligibility only within the run's months, so a run's first session has none) or its 10:29 minute did not trade"
+     },
+     {
+      "name": "iv",
+      "input": "the stock's 30-day ATM implied vol at the prior close",
+      "at_least": 0.2805
+     }
+    ],
+    "score": "S5 = the number of flags met (0 to 5)",
+    "weight": {
+     "of": "S5 / s_bar",
+     "s_bar": 3.186,
+     "s_bar_is": "the mean S5 over the 1,900 v1 trades of 2016-2019",
+     "zero": "S5 = 0: no trade",
+     "hedge": "the beta x SPY hedge scales with the position"
+    },
+    "missing": "a flag or condition whose input is missing is 0 (not met): no daily row for the prior session, no atr14, no implied or historical vol at the prior close, no SPY IV at the prior close or before it, no SPY daily row for the prior session or the one before, no sigma_d",
+    "evaluation": "weights are normalised by the evaluated period's own mean weight (equal exposure with v1)"
+   }
+  },
+  "EXT-FADE-P2.v1": {
+   "spec_sha256": "ba936efba2907617ee54dfca64611b2402e9e1f197fb4229920c727aa51ed3da",
+   "spec": {
+    "overlay": "FILTER",
+    "on": {
+     "variant": "EXT-FADE.v1",
+     "spec": {
+      "setup": "EXTENSION_FADE",
+      "gap": 0.01,
+      "prior": 0.01,
+      "spy_gap_max": null,
+      "entry_bar": 1,
+      "cap": null,
+      "scale": "X1"
+     },
+     "trades": "the lab's own EXT-FADE.v1 trades (lab.replay), unchanged"
+    },
+    "keep": [
+     {
+      "name": "prior_move",
+      "input": "|prior_close_raw / close_before_prior - 1|, v1's own prior-move quantity",
+      "at_least": 0.02
+     }
+    ],
+    "min_met": 1,
+    "equals": "the lab spec {setup EXTENSION_FADE, gap 0.01, prior 0.02, spy_gap_max None, entry_bar 1, no cap}, applied as a subset of v1's trades",
+    "missing": "a flag or condition whose input is missing is 0 (not met): no daily row for the prior session, no atr14, no implied or historical vol at the prior close, no SPY IV at the prior close or before it, no SPY daily row for the prior session or the one before, no sigma_d"
+   }
+  },
+  "EXT-FADE-IVR.v1": {
+   "spec_sha256": "e63f86fa9e4cdbe8131940f7dc84e5c7eeacbbe81d6ba41ad787eb8cabf10369",
+   "spec": {
+    "overlay": "FILTER",
+    "on": {
+     "variant": "EXT-FADE.v1",
+     "spec": {
+      "setup": "EXTENSION_FADE",
+      "gap": 0.01,
+      "prior": 0.01,
+      "spy_gap_max": null,
+      "entry_bar": 1,
+      "cap": null,
+      "scale": "X1"
+     },
+     "trades": "the lab's own EXT-FADE.v1 trades (lab.replay), unchanged"
+    },
+    "keep": [
+     {
+      "name": "iv_over_hv",
+      "input": "iv_prior / hv_prior, the stock's 30-day ATM implied vol over its 30-day historical vol, both at the prior close",
+      "at_least": 1.0
+     },
+     {
+      "name": "spy_iv_change",
+      "input": "SPY's 30-day ATM IV at the prior close / SPY's IV at the IV observation before it (dates before the prior session) - 1",
+      "above": 0.0
+     },
+     {
+      "name": "iv",
+      "input": "iv_prior",
+      "at_least": 0.28
+     }
+    ],
+    "min_met": 2,
+    "missing": "a flag or condition whose input is missing is 0 (not met): no daily row for the prior session, no atr14, no implied or historical vol at the prior close, no SPY IV at the prior close or before it, no SPY daily row for the prior session or the one before, no sigma_d",
+    "secondary": {
+     "gating": false,
+     "pxc": [
+      {
+       "name": "spy_fell",
+       "input": "SPY's adjusted close on the prior session / its adjusted close the session before - 1",
+       "below": 0.0
+      },
+      {
+       "name": "rv",
+       "input": "sigma_d x sqrt(252)",
+       "at_least": 0.28
+      }
+     ],
+     "among": "trades with PXC (the number of the two price-only conditions met) at most max_pxc",
+     "max_pxc": 1,
+     "compare": "mean net of IV >= HV trades minus IV < HV trades (trades with both IV and HV known)"
+    }
+   }
+  }
+ },
+ "pass_bars": {
+  "EXT-FADE-SW.v1": {
+   "standalone": {
+    "of": "v_i = (w_i / w_bar) x net_i over all v1 trades",
+    "cost_bps": 5,
+    "mean_above": 0.0,
+    "t_above": 2.0,
+    "min_positive_years": 3
+   },
+   "gain": {
+    "of": "d_i = (w_i / w_bar - 1) x net_i over all v1 trades",
+    "cost_bps": 5,
+    "mean_above": 0.0,
+    "t_at_least": 2.0,
+    "min_positive_years": 3
+   },
+   "book_sharpe": {
+    "cost_bps": 5,
+    "at_least": "EXT-FADE.v1"
+   },
+   "w_bar": "the check period's mean weight, for evaluation only"
+  },
+  "EXT-FADE-P2.v1": {
+   "kept": {
+    "cost_bps": 10,
+    "mean_above": 0.0,
+    "t_above": 2.0,
+    "min_positive_years": 3,
+    "and_lab_check_bar": "lab.pass_bar(kept, 'check'): 5 bps, mean above 0, t above 2, 3 of 4 years"
+   },
+   "kept_minus_removed": {
+    "cost_bps": 10,
+    "mean_above": 0.0,
+    "t_at_least": 2.0
+   },
+   "book_sharpe": {
+    "cost_bps": 10,
+    "at_least": "EXT-FADE.v1"
+   }
+  },
+  "EXT-FADE-IVR.v1": {
+   "kept": {
+    "cost_bps": 5,
+    "mean_above": 0.0,
+    "t_above": 2.0,
+    "min_positive_years": 3
+   },
+   "kept_minus_removed": {
+    "cost_bps": 5,
+    "mean_above": 0.0,
+    "t_at_least": 2.0,
+    "min_positive_years": 3
+   },
+   "book_sharpe": {
+    "cost_bps": 5,
+    "at_least": "EXT-FADE.v1"
+   },
+   "secondary": {
+    "cost_bps": 5,
+    "mean_above": 0.0,
+    "t_at_least": 2.0,
+    "gating": false,
+    "if_it_fails": "record that the options data adds nothing over prices here"
+   }
+  }
+ },
+ "pass_bar_conventions": "Costs are per side. t is lab.session_t, the leave-one-session-out jackknife; a difference of two means (kept minus removed, the secondary) uses the same jackknife, centred on the full-sample estimate as lab.session_t is. Years are 2020, 2021, 2022 and 2023; a year is positive when its mean is above 0. The book Sharpe sums each session's P&L over the period's sessions with an eligible stock-day, counting sessions without trades as 0, and is mean / sd x sqrt(252). w_bar is the check period's mean SW weight, for evaluation only.",
+ "verdicts": "An overlay counts only if EXT-FADE.v1 also passes its check. If v1 fails, an overlay that passes its own standalone part becomes a new strategy and can go forward only as such. Overlays that pass go into the 2024+ hold-out protocol as pre-registered secondary hypotheses to v1, with a Holm correction across them. A failure is final for these data: any change to a spec is a new variant.",
+ "stress": {
+  "cost_bps": 5,
+  "costs_bps": [
+   10,
+   15
+  ],
+  "entry_0932": {
+   "setup": "EXTENSION_FADE",
+   "gap": 0.01,
+   "prior": 0.01,
+   "spy_gap_max": null,
+   "entry_bar": 2,
+   "cap": null,
+   "scale": "X1"
+  },
+  "drop_best_sessions": 20,
+  "drop_top_stocks": 3,
+  "trim_sessions": 20,
+  "by_year": true
+ },
+ "iv_hv": {
+  "directory": "data/ibkr_iv/2026-10-20",
+  "files": 55,
+  "sha256": "37e9e03bec8806754df868b9c808adea159594e553d8ece69716f82aa05fdffa",
+  "same_as": "implied_vol_replay.REGISTERED_INPUTS['implied_vol_sha256']",
+  "note": "IBKR's vendor-computed 30-day ATM implied vol and 30-day historical vol, current vintage, not observed quotes: a re-fetch could restate history, so the files are pinned"
+ },
+ "daily_prices_sha256": "2f8bc6ff4e45eb7bb4525cf56b5f22d5cf68a452db207c35e6d2d5b6a8db147f",
+ "protected_files": {
+  "stock_machine/backtest/intraday_lab.py": "edbe325902862a570c0c232ade0bd75309940703764502518464184618db2613",
+  "stock_machine/backtest/intraday_replay.py": "a7e8f134ed191b9764c62e027a9be0c8af2157a853fa8be6fa2670253abb7315",
+  "scripts/run_intraday_lab.py": "605d45c86671692b190a296c32ceaf4ce6c04650a12375b12330c4349c74e9a4",
+  "stock_machine/backtest/implied_vol_replay.py": "abb3dd3e37a311e29d9588519ea6738ae7017d757a8435db3dc5208e221dec23"
+ },
+ "variants": {
+  "this_round": 1413,
+  "lab_log": 16,
+  "total": 1429
+ },
+ "calibration": {
+  "daily_prices_sha256": "2f8bc6ff4e45eb7bb4525cf56b5f22d5cf68a452db207c35e6d2d5b6a8db147f",
+  "dry_run": {
+   "EXT-FADE-IVR.v1": {
+    "book_sharpe": {
+     "EXT-FADE.v1": 2.104779612924637,
+     "cost_bps": 5,
+     "overlay": 2.478709282765257,
+     "pass": true
+    },
+    "kept": {
+     "by_year": {
+      "2016": 23.20996178574176,
+      "2017": 55.16036172184609,
+      "2018": 63.2660260007723,
+      "2019": 28.991376422225212
+     },
+     "mean": 43.27105959755033,
+     "pass": true,
+     "positive_years": 4,
+     "t": 5.60451727632158,
+     "trades": 1112
+    },
+    "kept_minus_removed": {
+     "by_year": {
+      "2016": 22.532745787244732,
+      "2017": 59.23509992267599,
+      "2018": 57.770832612001826,
+      "2019": 35.80422765393436
+     },
+     "kept": 1112,
+     "kept_mean": 43.27105959755033,
+     "mean": 44.132125342028594,
+     "pass": true,
+     "positive_years": 4,
+     "removed": 788,
+     "removed_mean": -0.8610657444782706,
+     "t": 4.6935104146246385
+    },
+    "kept_trades": 1112,
+    "secondary": {
+     "among": 1353,
+     "by_year": {
+      "2016": 9.713907435397237,
+      "2017": 63.421409433141164,
+      "2018": 38.80543537303773,
+      "2019": 36.228292294345856
+     },
+     "kept": 733,
+     "kept_mean": 29.633958844699954,
+     "mean": 34.33635126760166,
+     "pass": true,
+     "positive_years": 4,
+     "reading": "IV >= HV adds to the price-only stand-ins",
+     "removed": 620,
+     "removed_mean": -4.7023924229017044,
+     "t": 3.7935913443625,
+     "verdict": "PASS"
+    },
+    "standalone_pass": true,
+    "stocks": 48,
+    "verdict": "PASS"
+   },
+   "EXT-FADE-P2.v1": {
+    "book_sharpe": {
+     "EXT-FADE.v1": 1.3137555287603815,
+     "cost_bps": 10,
+     "overlay": 1.745143969046163,
+     "pass": true
+    },
+    "kept": {
+     "by_year": {
+      "2016": 16.559314895795783,
+      "2017": 51.990958439746166,
+      "2018": 42.78298566052891,
+      "2019": 16.456448308126355
+     },
+     "lab_check_bar": {
+      "mean": 42.06472087364627,
+      "pass": true,
+      "positive_periods": 4,
+      "t": 4.957097486227437
+     },
+     "mean": 32.06472087364627,
+     "pass": true,
+     "positive_years": 4,
+     "t": 3.7786521326691607,
+     "trades": 1016
+    },
+    "kept_minus_removed": {
+     "by_year": {
+      "2016": 23.132236737785604,
+      "2017": 66.23911285484189,
+      "2018": 35.45863690467072,
+      "2019": 25.732044381623282
+     },
+     "kept": 1016,
+     "kept_mean": 32.06472087364627,
+     "mean": 36.74668687115479,
+     "pass": true,
+     "positive_years": 4,
+     "removed": 884,
+     "removed_mean": -4.681965997508522,
+     "t": 3.90592075757393
+    },
+    "kept_trades": 1016,
+    "standalone_pass": true,
+    "stocks": 48,
+    "verdict": "PASS"
+   },
+   "EXT-FADE-SW.v1": {
+    "book_sharpe": {
+     "EXT-FADE.v1": 2.104779612924637,
+     "cost_bps": 5,
+     "overlay": 2.2641250488684657,
+     "pass": true
+    },
+    "gain": {
+     "by_year": {
+      "2016": 7.9359653007106585,
+      "2017": 13.610888295609401,
+      "2018": 16.36376852555944,
+      "2019": 5.547361646291758
+     },
+     "mean": 10.926327707808307,
+     "pass": true,
+     "positive_years": 4,
+     "t": 4.661019453331963,
+     "trades": 1900
+    },
+    "no_trade": 30,
+    "s5_counts": {
+     "0": 30,
+     "1": 154,
+     "2": 375,
+     "3": 540,
+     "4": 476,
+     "5": 325
+    },
+    "s5_mean": 3.1857894736842107,
+    "standalone": {
+     "by_year": {
+      "2016": 23.434477678681773,
+      "2017": 44.88612908089259,
+      "2018": 56.05514982816059,
+      "2019": 17.35772514876563
+     },
+     "mean": 35.894169005612035,
+     "pass": true,
+     "positive_years": 4,
+     "t": 4.946856439286251,
+     "trades": 1900
+    },
+    "standalone_pass": true,
+    "unit_mean_at_10": 25.894169005612035,
+    "verdict": "PASS",
+    "w_bar": 0.9999339214325833
+   },
+   "EXT-FADE.v1": {
+    "mean_at_0": 34.96784129780373,
+    "mean_at_10": 14.967841297803727,
+    "mean_at_15": 4.967841297803729,
+    "mean_at_2": 30.96784129780373,
+    "mean_at_5": 24.967841297803727,
+    "sharpe_at_10": 1.3137555287603815,
+    "sharpe_at_5": 2.104779612924637,
+    "t_at_10": 2.727712933177404,
+    "t_at_5": 4.550095251980884,
+    "trades": 1900
+   },
+   "sessions": 1006,
+   "trades": 1900,
+   "years": [
+    "2016",
+    "2017",
+    "2018",
+    "2019"
+   ]
+  },
+  "iv_hv_sha256": "37e9e03bec8806754df868b9c808adea159594e553d8ece69716f82aa05fdffa",
+  "lab_code_sha256": "518b55575f3cd4d7ba453927eb63cdb4af21989acd1f653f39af552fca5db150",
+  "last_day_read": "2019-12-31",
+  "module_sha256": "aa4f0782d9e7124a9c9a6ce3265fc6c080fbf3db45a60b1774f335db903e22f8",
+  "months": [
+   "2016-01",
+   "2019-12"
+  ],
+  "periods": {
+   "H1": {
+    "EXT-FADE-IVR.v1": {
+     "cost_bps": 5,
+     "kept": 419,
+     "kept_mean": 34.495544579401525,
+     "kept_mean_at_5": 34.495544579401525,
+     "kept_minus_removed": 35.790093808840986,
+     "kept_minus_removed_t": 2.5703841246506993,
+     "kept_t": 3.2830627616166614,
+     "removed_mean": -1.2945492294394578
+    },
+    "EXT-FADE-P2.v1": {
+     "cost_bps": 10,
+     "kept": 348,
+     "kept_mean": 30.10071889391475,
+     "kept_mean_at_5": 40.10071889391475,
+     "kept_minus_removed": 39.502652742017325,
+     "kept_minus_removed_t": 2.704034789038477,
+     "kept_t": 2.4930722306365083,
+     "removed_mean": -9.401933848102578
+    },
+    "mean_s5": 3.184848484848485,
+    "secondary": {
+     "among": 488,
+     "kept": 312,
+     "kept_mean": 23.066611499594735,
+     "mean": 30.611663060987215,
+     "removed": 176,
+     "removed_mean": -7.54505156139248,
+     "t": 2.0051188225016214
+    },
+    "sharpe": {
+     "at_10": {
+      "EXT-FADE-IVR.v1": 1.763856702010457,
+      "EXT-FADE-P2.v1": 1.8710180616338816,
+      "EXT-FADE-SW.v1": 1.660570993298252,
+      "EXT-FADE.v1": 1.1079153223063942
+     },
+     "at_5": {
+      "EXT-FADE-IVR.v1": 2.489105482720963,
+      "EXT-FADE-P2.v1": 2.4766045204798846,
+      "EXT-FADE-SW.v1": 2.4235817719378736,
+      "EXT-FADE.v1": 2.077345669596459
+     }
+    },
+    "sw": {
+     "gain_at_10": 10.077666085345438,
+     "gain_at_5": 10.077666085345436,
+     "gain_t": 3.448777137439472,
+     "no_trade": 10,
+     "unit_at_5": 31.50440368303381
+    },
+    "trades": 660,
+    "v1": {
+     "mean_at_10": 11.426737597688376,
+     "mean_at_5": 21.426737597688376,
+     "t_at_5": 2.8649118517351124
+    },
+    "w_bar": 0.9996385702600392
+   },
+   "H2": {
+    "EXT-FADE-IVR.v1": {
+     "cost_bps": 5,
+     "kept": 693,
+     "kept_mean": 48.576890467109266,
+     "kept_mean_at_5": 48.576890467109266,
+     "kept_minus_removed": 49.24696988640354,
+     "kept_minus_removed_t": 3.9793367016888803,
+     "kept_t": 4.6525132614344615,
+     "removed_mean": -0.6700794192942738
+    },
+    "EXT-FADE-P2.v1": {
+     "cost_bps": 10,
+     "kept": 668,
+     "kept_mean": 33.087883581650125,
+     "kept_mean_at_5": 43.087883581650125,
+     "kept_minus_removed": 35.1953216606528,
+     "kept_minus_removed_t": 2.8859768814036175,
+     "kept_t": 2.914879871157684,
+     "removed_mean": -2.1074380790026734
+    },
+    "mean_s5": 3.1862903225806454,
+    "secondary": {
+     "among": 865,
+     "kept": 421,
+     "kept_mean": 34.500971604017835,
+     "mean": 38.07654418823851,
+     "removed": 444,
+     "removed_mean": -3.5755725842206756,
+     "t": 3.317045553525889
+    },
+    "sharpe": {
+     "at_10": {
+      "EXT-FADE-IVR.v1": 2.2617664194394154,
+      "EXT-FADE-P2.v1": 1.8496059185512466,
+      "EXT-FADE-SW.v1": 1.8894228349263424,
+      "EXT-FADE.v1": 1.5247396646971374
+     },
+     "at_5": {
+      "EXT-FADE-IVR.v1": 2.7113495114590958,
+      "EXT-FADE-P2.v1": 2.301326709611106,
+      "EXT-FADE-SW.v1": 2.4349714670731375,
+      "EXT-FADE.v1": 2.313335080081683
+     }
+    },
+    "sw": {
+     "gain_at_10": 11.37697740926218,
+     "gain_at_5": 11.37697740926218,
+     "gain_t": 3.5032905176585394,
+     "no_trade": 20,
+     "unit_at_5": 38.2295997087402
+    },
+    "trades": 1240,
+    "v1": {
+     "mean_at_10": 16.85262229947803,
+     "mean_at_5": 26.852622299478025,
+     "t_at_5": 3.6379936638055765
+    },
+    "w_bar": 1.0000911244760342
+   },
+   "all": {
+    "EXT-FADE-IVR.v1": {
+     "cost_bps": 5,
+     "kept": 1112,
+     "kept_mean": 43.27105959755033,
+     "kept_mean_at_5": 43.27105959755033,
+     "kept_minus_removed": 44.132125342028594,
+     "kept_minus_removed_t": 4.6935104146246385,
+     "kept_t": 5.60451727632158,
+     "removed_mean": -0.8610657444782706
+    },
+    "EXT-FADE-P2.v1": {
+     "cost_bps": 10,
+     "kept": 1016,
+     "kept_mean": 32.06472087364627,
+     "kept_mean_at_5": 42.06472087364627,
+     "kept_minus_removed": 36.74668687115479,
+     "kept_minus_removed_t": 3.90592075757393,
+     "kept_t": 3.7786521326691607,
+     "removed_mean": -4.681965997508522
+    },
+    "mean_s5": 3.1857894736842107,
+    "secondary": {
+     "among": 1353,
+     "kept": 733,
+     "kept_mean": 29.633958844699954,
+     "mean": 34.33635126760166,
+     "removed": 620,
+     "removed_mean": -4.7023924229017044,
+     "t": 3.7935913443625
+    },
+    "sharpe": {
+     "at_10": {
+      "EXT-FADE-IVR.v1": 1.983643174914341,
+      "EXT-FADE-P2.v1": 1.745143969046163,
+      "EXT-FADE-SW.v1": 1.7040277362165952,
+      "EXT-FADE.v1": 1.3137555287603815
+     },
+     "at_5": {
+      "EXT-FADE-IVR.v1": 2.478709282765257,
+      "EXT-FADE-P2.v1": 2.2015442498168203,
+      "EXT-FADE-SW.v1": 2.2641250488684657,
+      "EXT-FADE.v1": 2.104779612924637
+     }
+    },
+    "sw": {
+     "gain_at_10": 10.926327707808305,
+     "gain_at_5": 10.926327707808307,
+     "gain_t": 4.661019453331963,
+     "no_trade": 30,
+     "unit_at_5": 35.894169005612035
+    },
+    "trades": 1900,
+    "v1": {
+     "mean_at_10": 14.967841297803727,
+     "mean_at_5": 24.967841297803727,
+     "t_at_5": 4.550095251980884
+    },
+    "w_bar": 0.9999339214325833
+   }
+  },
+  "reproduction": {
+   "ivr_kept": {
+    "expected": 1112,
+    "got": 1112,
+    "match": true,
+    "rounded": 1112
+   },
+   "ivr_kept_mean_at_5": {
+    "expected": 43.3,
+    "got": 43.27105959755033,
+    "match": true,
+    "rounded": 43.3
+   },
+   "ivr_kept_minus_removed_at_5": {
+    "expected": 44.1,
+    "got": 44.132125342028594,
+    "match": true,
+    "rounded": 44.1
+   },
+   "mean_s5": {
+    "expected": 3.186,
+    "got": 3.1857894736842107,
+    "match": true,
+    "rounded": 3.186
+   },
+   "p2_kept": {
+    "expected": 1016,
+    "got": 1016,
+    "match": true,
+    "rounded": 1016
+   },
+   "p2_kept_mean_at_10": {
+    "expected": 32.1,
+    "got": 32.06472087364627,
+    "match": true,
+    "rounded": 32.1
+   },
+   "sw_gain_H1": {
+    "expected": 10.1,
+    "got": 10.077666085345436,
+    "match": true,
+    "rounded": 10.1
+   },
+   "sw_gain_H2": {
+    "expected": 11.4,
+    "got": 11.37697740926218,
+    "match": true,
+    "rounded": 11.4
+   },
+   "sw_gain_all": {
+    "expected": 10.9,
+    "got": 10.926327707808307,
+    "match": true,
+    "rounded": 10.9
+   },
+   "v1_trades": {
+    "expected": 1900,
+    "got": 1900,
+    "match": true,
+    "rounded": 1900
+   }
+  },
+  "s5_counts": {
+   "0": 30,
+   "1": 154,
+   "2": 375,
+   "3": 540,
+   "4": 476,
+   "5": 325
+  },
+  "skips": {
+   "EXT-FADE.v1:ENTRY_BEYOND_TARGET": 5
+  },
+  "stress_dry_run": {
+   "EXT-FADE-IVR.v1": {
+    "at_10": {
+     "mean": 33.27105959755033,
+     "t": 4.309305805087151,
+     "trades": 1112
+    },
+    "at_15": {
+     "mean": 23.271059597550323,
+     "t": 3.014094333852719,
+     "trades": 1112
+    },
+    "at_5": {
+     "mean": 43.27105959755033,
+     "t": 5.60451727632158,
+     "trades": 1112
+    },
+    "best_and_worst_20_sessions_trimmed": {
+     "mean": 37.21722495987225,
+     "t": 7.287530052219696,
+     "trades": 836
+    },
+    "by_year": {
+     "2016": {
+      "at_10": {
+       "mean": 13.20996178574176,
+       "t": 1.0129028626339516,
+       "trades": 271
+      },
+      "at_5": {
+       "mean": 23.20996178574176,
+       "t": 1.7796748480966456,
+       "trades": 271
+      }
+     },
+     "2017": {
+      "at_10": {
+       "mean": 45.16036172184609,
+       "t": 2.9570678337919913,
+       "trades": 148
+      },
+      "at_5": {
+       "mean": 55.16036172184609,
+       "t": 3.611860603611974,
+       "trades": 148
+      }
+     },
+     "2018": {
+      "at_10": {
+       "mean": 53.2660260007723,
+       "t": 3.387547309782163,
+       "trades": 396
+      },
+      "at_5": {
+       "mean": 63.2660260007723,
+       "t": 4.023515029569076,
+       "trades": 396
+      }
+     },
+     "2019": {
+      "at_10": {
+       "mean": 18.991376422225215,
+       "t": 1.5951815418963986,
+       "trades": 297
+      },
+      "at_5": {
+       "mean": 28.991376422225212,
+       "t": 2.435132004902118,
+       "trades": 297
+      }
+     }
+    },
+    "entry_0932_at_10": {
+     "mean": 27.78754710988661,
+     "t": 3.7906618331492834,
+     "trades": 1107
+    },
+    "entry_0932_at_5": {
+     "mean": 37.78754710988661,
+     "t": 5.154820324058541,
+     "trades": 1107
+    },
+    "without_best_20_sessions": {
+     "mean": 22.30255021494858,
+     "t": 3.7945032757648853,
+     "trades": 900
+    },
+    "without_top_3_stocks": {
+     "mean": 33.69809859504174,
+     "stocks": [
+      "AMD",
+      "NOW",
+      "TSLA"
+     ],
+     "t": 4.290224930170013,
+     "trades": 893
+    }
+   },
+   "EXT-FADE-P2.v1": {
+    "at_10": {
+     "mean": 32.06472087364627,
+     "t": 3.7786521326691607,
+     "trades": 1016
+    },
+    "at_15": {
+     "mean": 22.064720873646277,
+     "t": 2.6002067791108816,
+     "trades": 1016
+    },
+    "at_5": {
+     "mean": 42.06472087364627,
+     "t": 4.957097486227437,
+     "trades": 1016
+    },
+    "best_and_worst_20_sessions_trimmed": {
+     "mean": 38.155041776775874,
+     "t": 6.945534122633822,
+     "trades": 720
+    },
+    "by_year": {
+     "2016": {
+      "at_10": {
+       "mean": 16.559314895795783,
+       "t": 1.056626153922595,
+       "trades": 215
+      },
+      "at_5": {
+       "mean": 26.55931489579578,
+       "t": 1.6947118238743515,
+       "trades": 215
+      }
+     },
+     "2017": {
+      "at_10": {
+       "mean": 51.990958439746166,
+       "t": 3.3387378874325004,
+       "trades": 133
+      },
+      "at_5": {
+       "mean": 61.990958439746166,
+       "t": 3.9809145249918663,
+       "trades": 133
+      }
+     },
+     "2018": {
+      "at_10": {
+       "mean": 42.78298566052891,
+       "t": 2.673447676277872,
+       "trades": 422
+      },
+      "at_5": {
+       "mean": 52.78298566052891,
+       "t": 3.298333395449258,
+       "trades": 422
+      }
+     },
+     "2019": {
+      "at_10": {
+       "mean": 16.456448308126355,
+       "t": 1.292627400836841,
+       "trades": 246
+      },
+      "at_5": {
+       "mean": 26.45644830812635,
+       "t": 2.07811122859482,
+       "trades": 246
+      }
+     }
+    },
+    "entry_0932_at_10": {
+     "mean": 26.151015090031464,
+     "t": 3.1896824436496996,
+     "trades": 1012
+    },
+    "entry_0932_at_5": {
+     "mean": 36.151015090031464,
+     "t": 4.409398937509846,
+     "trades": 1012
+    },
+    "without_best_20_sessions": {
+     "mean": 18.566393138490444,
+     "t": 2.7876035973225157,
+     "trades": 797
+    },
+    "without_top_3_stocks": {
+     "mean": 34.47825081867865,
+     "stocks": [
+      "AMD",
+      "MU",
+      "NOW"
+     ],
+     "t": 4.221971494728829,
+     "trades": 778
+    }
+   },
+   "EXT-FADE-SW.v1": {
+    "at_10": {
+     "mean": 25.894169005612035,
+     "t": 3.604317434426304,
+     "trades": 1870
+    },
+    "at_15": {
+     "mean": 15.894169005612033,
+     "t": 2.233484036397775,
+     "trades": 1870
+    },
+    "at_5": {
+     "mean": 35.894169005612035,
+     "t": 4.946856439286251,
+     "trades": 1870
+    },
+    "best_and_worst_20_sessions_trimmed": {
+     "mean": 30.084840350385168,
+     "t": 6.7752974901714955,
+     "trades": 1487
+    },
+    "by_year": {
+     "2016": {
+      "at_10": {
+       "mean": 13.444216975406382,
+       "t": 1.1377683074905134,
+       "trades": 404
+      },
+      "at_5": {
+       "mean": 23.44421697540638,
+       "t": 1.9965363868061645,
+       "trades": 404
+      }
+     },
+     "2017": {
+      "at_10": {
+       "mean": 34.89043527848596,
+       "t": 2.393795378860432,
+       "trades": 246
+      },
+      "at_5": {
+       "mean": 44.89043527848596,
+       "t": 3.060468246411413,
+       "trades": 246
+      }
+     },
+     "2018": {
+      "at_10": {
+       "mean": 41.56234669552136,
+       "t": 2.833595225769407,
+       "trades": 665
+      },
+      "at_5": {
+       "mean": 51.56234669552136,
+       "t": 3.4757170234560015,
+       "trades": 665
+      }
+     },
+     "2019": {
+      "at_10": {
+       "mean": 9.323862396395077,
+       "t": 0.9365639065792211,
+       "trades": 555
+      },
+      "at_5": {
+       "mean": 19.323862396395075,
+       "t": 1.9333865284026603,
+       "trades": 555
+      }
+     }
+    },
+    "entry_0932_at_10": {
+     "mean": 19.97853316450492,
+     "t": 2.9109283049987402,
+     "trades": 1863
+    },
+    "entry_0932_at_5": {
+     "mean": 29.97853316450492,
+     "t": 4.326679595001449,
+     "trades": 1863
+    },
+    "without_best_20_sessions": {
+     "mean": 16.27696137238114,
+     "t": 3.152858543684695,
+     "trades": 1586
+    },
+    "without_top_3_stocks": {
+     "mean": 28.51773138981935,
+     "stocks": [
+      "AMAT",
+      "AMD",
+      "NOW"
+     ],
+     "t": 4.053137602167839,
+     "trades": 1583
+    }
+   },
+   "EXT-FADE.v1": {
+    "at_10": {
+     "mean": 14.967841297803727,
+     "t": 2.727712933177404,
+     "trades": 1900
+    },
+    "at_15": {
+     "mean": 4.967841297803729,
+     "t": 0.9053306143739246,
+     "trades": 1900
+    },
+    "at_5": {
+     "mean": 24.967841297803727,
+     "t": 4.550095251980884,
+     "trades": 1900
+    },
+    "best_and_worst_20_sessions_trimmed": {
+     "mean": 21.133044244035112,
+     "t": 5.7739140562691365,
+     "trades": 1509
+    },
+    "by_year": {
+     "2016": {
+      "at_10": {
+       "mean": 5.498512377971112,
+       "t": 0.6108182248034849,
+       "trades": 412
+      },
+      "at_5": {
+       "mean": 15.49851237797111,
+       "t": 1.7216972822929757,
+       "trades": 412
+      }
+     },
+     "2017": {
+      "at_10": {
+       "mean": 21.27524078528319,
+       "t": 1.7050686964334694,
+       "trades": 248
+      },
+      "at_5": {
+       "mean": 31.275240785283184,
+       "t": 2.5065020215091236,
+       "trades": 248
+      }
+     },
+     "2018": {
+      "at_10": {
+       "mean": 29.691381302601155,
+       "t": 2.563932421594631,
+       "trades": 669
+      },
+      "at_5": {
+       "mean": 39.69138130260115,
+       "t": 3.4274599198488174,
+       "trades": 669
+      }
+     },
+     "2019": {
+      "at_10": {
+       "mean": 1.8103635024738742,
+       "t": 0.22909914312268762,
+       "trades": 571
+      },
+      "at_5": {
+       "mean": 11.810363502473873,
+       "t": 1.4945861174768547,
+       "trades": 571
+      }
+     }
+    },
+    "entry_0932_at_10": {
+     "mean": 10.353912258441818,
+     "t": 1.941807299703036,
+     "trades": 1893
+    },
+    "entry_0932_at_5": {
+     "mean": 20.353912258441817,
+     "t": 3.8172407119572593,
+     "trades": 1893
+    },
+    "without_best_20_sessions": {
+     "mean": 9.615377567943122,
+     "t": 2.2452056902989765,
+     "trades": 1613
+    },
+    "without_top_3_stocks": {
+     "mean": 19.18471754050088,
+     "stocks": [
+      "AMAT",
+      "AMD",
+      "NOW"
+     ],
+     "t": 3.6489730506667417,
+     "trades": 1613
+    }
+   }
+  }
+ },
+ "differences_from_the_synthesis": [
+  {
+   "what": "PXC's 'SPY fell' condition (the secondary, not gating)",
+   "frozen_rule": "SPY's adjusted close on the prior session below its adjusted close the session before",
+   "synthesis_code": "used SPY's raw close (price rows' 'close'), contrary to its own rule text",
+   "effect": "7 of the 1,900 trades of 2016-2019 differ, all on the session after an SPY ex-dividend day (2016-03-18, 2017-06-16, 2017-09-15, 2018-03-16), where the raw close fell and the adjusted close rose. The secondary becomes +23.1 vs -7.5 (312 / 176 trades) in 2016-17 and +34.5 vs -3.6 (421 / 444) in 2018-19, against the synthesis's +23.8 vs -7.4 (311 / 175) and +34.5 vs -4.0 (421 / 442). With the raw close the module reproduces the synthesis's PXC on all 1,900 trades. The frozen rule (adjusted) is kept."
+  },
+  {
+   "what": "the t of a difference of two means (kept minus removed, the secondary)",
+   "frozen_rule": "the leave-one-session-out jackknife of lab.session_t, centred on the full-sample difference",
+   "synthesis_code": "s2_passbar_dryrun centred on the replicates' mean; s1 used a session-clustered regression (CR1) for the secondary",
+   "effect": "kept minus removed t is the same to two decimals (P2 2.70 / 2.89 / 3.91, IVR 2.57 / 3.98 / 4.69). The secondary's t is 2.01 / 3.32 here against CR1's 2.04 / 3.38 (with the two extra trades above)."
+  },
+  {
+   "what": "flag 4 (the prior intraday leg) on a run's first session",
+   "frozen_rule": "0 when the prior session is not one of the run's eligible stock-days; the lab judges eligibility only within the run's months",
+   "effect": "the same as the synthesis on 2016-2019 (the 2016-01-04 trades had no 2015-12-31 leg). At the check it sets flag 4 to 0 for trades on 2020-01-02 only."
+  }
+ ],
+ "data_read": "No intraday bar, daily price or implied- or historical-vol value dated 2020-01-01 or later has been read for this work. The calibration's bar loader refuses every month after 2019-12, so no 2020 bar file was opened. The daily price and IV/HV files hold one JSON document per ticker; they are loaded whole, as the research round's loaders load them, and cut at 2019-12-31 before any value is used, so nothing dated 2020 or later entered a computation, a printout or this record. Their sha256 is taken over the files' bytes. The tests use synthetic data only.",
+ "run_order": [
+  "Merge this registration to main in its own PR, with the owner's explicit approval, before any 2020-23 bar is opened (not stacked on another PR).",
+  "Finish the 2020-01..2023-12 intraday fetch.",
+  "Run EXT-FADE.v1's one-time check, unchanged: python scripts/run_intraday_lab.py check --variants EXT-FADE.v1",
+  "Run this check once: python scripts/run_ext_fade_overlays.py check"
+ ]
+}
