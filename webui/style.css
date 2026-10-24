@@ -188,8 +188,3 @@ details.qtable summary { cursor: pointer; color: var(--text-2); font-size: 13px;
 .fresh-dot.warn { background:#d09a2c; }
 .fresh-dot.bad { background:var(--neg, #c0483f); }
 .fresh-text { flex:1 1 auto; }
-.fresh-btn { font:inherit; font-size:10px; padding:2px 7px; cursor:pointer;
-  color:var(--text-2); background:transparent;
-  border:1px solid var(--line); border-radius:4px; }
-.fresh-btn:hover:not(:disabled) { color:var(--text-1); border-color:var(--text-3); }
-.fresh-btn:disabled { opacity:.5; cursor:default; }
