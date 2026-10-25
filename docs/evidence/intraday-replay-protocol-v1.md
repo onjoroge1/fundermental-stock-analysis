@@ -42,7 +42,8 @@ registration.
   While the fetch runs, `scripts/report_intraday_replay.py preview` runs the development stage on the finished
   months only, labelled a preview. The intraday lab holds back 2017-07..2019-12 for one-time confirms and
   2020-01..2023-12 for one-time checks (`intraday-lab.md`), so previews stop at 2017-06 until the frozen variants'
-  confirms are logged, and at 2019-12 until the checks of those that passed are.
+  confirms are logged, and at 2019-12 until the checks of those that passed are. Since 2026-10-25 every one-time look is logged (the
+  confirm and EXT-FADE.v1's check), so previews and the development run may read all of 2016-2023.
 - **Storage:** files are split by stock and month (`data/ibkr_intraday/v1/<TICKER>/<YYYY-MM>.csv.gz`, about
   140 KB each), so a fetch resumes where it stopped and space stays bounded:
   - development is about 0.75 GB;

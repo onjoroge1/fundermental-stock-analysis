@@ -99,6 +99,38 @@ Run once on 2017-07..2019-12 with the explore's code (`518b5557`): log entries 1
 - **The three that failed are closed.** They cannot be confirmed again; a new idea needs a new variant and its own
   confirm on months not yet read.
 
+## The check, 2026-10-25: EXT-FADE.v1 failed
+
+Run once on 2020-01..2023-12 with the confirm's code (`518b5557`): log entry 21, `intraday-lab-check-2026-10-25.md`.
+The three overlays and the constrained book then ran once each on the same trades
+(`ext-fade-overlays-check-2026-10-25.md`, `ext-fade-portfolio-check-2026-10-25.md`). Before the runs, the fetcher's
+repair pass re-asked IBKR for the 249 short sessions in 2020-2023 and changed none: they are real (listing days,
+halts, thin minutes).
+
+| Test | Result on 2020-2023 | Verdict |
+|---|---|---|
+| EXT-FADE.v1 | 5,131 trades. +3.5 bps net at 5 a side (t 0.70). By year: 2020 +4.9, 2021 +15.2, 2022 +0.3, 2023 -5.4. At 10 bps a side: -6.5. | **FAIL** (t far under 2) |
+| EXT-FADE-SW (score sizing) | +5.9 per unit (t 1.00); gain over v1 +2.4 (t 1.85) | FAIL |
+| EXT-FADE-P2 (prior move of 2% or more) | Kept trades -0.0 at 10 bps. Kept minus removed +17.8 (t 2.34), positive in every year. | FAIL |
+| EXT-FADE-IVR (IV regime) | Kept +4.4 (t 0.72); kept minus removed +2.8 (t 0.32) | FAIL |
+| Secondary: IV at or above HV, beyond price data | -3.6 (t -0.36) | The options data adds nothing here |
+| EXT-FADE-CB (constrained book) | At equal gross: worst-5%-days loss 1.03x v1's, Sharpe 0.25 lower. Peak gross 47 -> 19 units. | FAIL, as its registration expected |
+
+**What it means**
+- **The edge shrank by about two thirds.** v1 earned +13.5 bps per trade before costs in 2020-2023, against +36.3 in
+  the confirm and +31.7 in discovery. Costs eat the rest.
+- **It also traded far more:** about 1,280 trades a year against about 540 in 2017-2019. The volatile 2020-2022
+  markets produced many more 1% extensions, and most of them were weak.
+- **The direction is still right more often than not.** The book beat its random-direction twin, with an interval
+  above zero, but the move it catches is too small to pay for the trade.
+- **One fact held in every year:** larger prior moves fade better (P2's kept minus removed). But even the stronger
+  half nets about zero at a realistic 10 bps a side.
+- **All five verdicts are final for these data.** v1 goes to no hold-out protocol, and the lab hands nothing on.
+  - The lab's months are all used. intraday_replay's previews and development run may now read all of 2016-2023
+    (`replay_reads_through` is open).
+  - Any new idea, such as a version of the 2% effect built for lower costs, needs data never read: forward data, or
+    a new set of stocks (tracker item 80).
+
 ## The six variants (v1)
 
 **Every variant shares:**

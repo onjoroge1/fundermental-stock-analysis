@@ -1010,5 +1010,65 @@
    "verdict": "FAIL"
   },
   "verdict": "FAIL"
+ },
+ {
+  "entry": 21,
+  "at": "2026-10-25T12:45:42+00:00",
+  "lab_id": "intraday-lab.v1",
+  "split": "check",
+  "months": [
+   "2020-01",
+   "2023-12"
+  ],
+  "variant": "EXT-FADE.v1",
+  "definition_sha256": "c8c1ba1b49eacd2704301d079e3f821d003438dda5369b1e346159e5501b7f7a",
+  "spec": {
+   "setup": "EXTENSION_FADE",
+   "gap": 0.01,
+   "prior": 0.01,
+   "spy_gap_max": null,
+   "entry_bar": 1,
+   "cap": null,
+   "scale": "X1"
+  },
+  "spec_sha256": "368e410c1a1702dd88051e6c1bf6f82cdf55e0236fb38867b199842d2ad62e71",
+  "lab_code_sha256": "518b55575f3cd4d7ba453927eb63cdb4af21989acd1f653f39af552fca5db150",
+  "bars_sha256": "56f8a17f146cb4337f93eb1fa158f51b5ddbc9ef01b91e6ff3ae2bc45b23f7ba",
+  "tickers_sha256": "26d9e909bdb4ea9cd921fda543863843c59971f925708f37558cd1e6b06eb0de",
+  "inputs_sha256": "ddccfd3ad77f3f7fabbc9b880730b4379b94f8f6614bb74d4a544b297101eac8",
+  "trades": 5131,
+  "net_bps_at_10": -6.4822550006904525,
+  "net_bps_at_2": 9.517744999309551,
+  "gross_bps": 13.51774499930955,
+  "book_at_10": {
+   "mean": -0.004765076140885439,
+   "lower": -0.008586539882642472,
+   "upper": -0.0009436123991284052
+  },
+  "direction_skill": {
+   "mean": 0.004911630506588824,
+   "lower": 0.0010708829344462595,
+   "upper": 0.008752378078731388
+  },
+  "pass_bar": {
+   "split": "check",
+   "cost_bps": 5,
+   "min_t": 2.0,
+   "min_positive_periods": 3,
+   "trades": 5131,
+   "sessions": 831,
+   "mean_net_bps": 3.517744999309546,
+   "session_t": 0.703697321795689,
+   "largest_session_share": 0.009160007795751315,
+   "periods": {
+    "2020-01..2020-12": 4.901761561629367,
+    "2021-01..2021-12": 15.209838193309315,
+    "2022-01..2022-12": 0.2853292449821793,
+    "2023-01..2023-12": -5.371917799410475
+   },
+   "positive_periods": 3,
+   "verdict": "FAIL"
+  },
+  "verdict": "FAIL"
  }
 ]

@@ -1,0 +1,624 @@
+[
+ {
+  "entry": 1,
+  "at": "2026-10-25T12:49:18+00:00",
+  "overlay_id": "ext-fade-overlays.v1",
+  "split": "check",
+  "months": [
+   "2020-01",
+   "2023-12"
+  ],
+  "spec_id": "EXT-FADE-SW.v1",
+  "spec": {
+   "overlay": "SIZE_BY_SCORE",
+   "on": {
+    "variant": "EXT-FADE.v1",
+    "spec": {
+     "setup": "EXTENSION_FADE",
+     "gap": 0.01,
+     "prior": 0.01,
+     "spy_gap_max": null,
+     "entry_bar": 1,
+     "cap": null,
+     "scale": "X1"
+    },
+    "trades": "the lab's own EXT-FADE.v1 trades (lab.replay), unchanged"
+   },
+   "flags": [
+    {
+     "name": "prior_move",
+     "input": "|prior_close_raw / close_before_prior - 1|, v1's own prior-move quantity",
+     "at_least": 0.02
+    },
+    {
+     "name": "gap",
+     "input": "|09:30 open / dividend-adjusted prior close - 1|, v1's gap",
+     "at_least": 0.015
+    },
+    {
+     "name": "prior_range_atr",
+     "input": "(the prior session's daily high - daily low) / atr14, from the registered daily price rows",
+     "at_least": 0.879
+    },
+    {
+     "name": "prior_leg",
+     "input": "(the close of the prior session's last traded minute / the close of its 10:29 minute - 1) x sign(gap)",
+     "at_least": 0.0,
+     "missing": "0 if the prior session is not one of the run's eligible stock-days (the lab judges eligibility only within the run's months, so a run's first session has none) or its 10:29 minute did not trade"
+    },
+    {
+     "name": "iv",
+     "input": "the stock's 30-day ATM implied vol at the prior close",
+     "at_least": 0.2805
+    }
+   ],
+   "score": "S5 = the number of flags met (0 to 5)",
+   "weight": {
+    "of": "S5 / s_bar",
+    "s_bar": 3.186,
+    "s_bar_is": "the mean S5 over the 1,900 v1 trades of 2016-2019",
+    "zero": "S5 = 0: no trade",
+    "hedge": "the beta x SPY hedge scales with the position"
+   },
+   "missing": "a flag or condition whose input is missing is 0 (not met): no daily row for the prior session, no atr14, no implied or historical vol at the prior close, no SPY IV at the prior close or before it, no SPY daily row for the prior session or the one before, no sigma_d",
+   "evaluation": "weights are normalised by the evaluated period's own mean weight (equal exposure with v1)"
+  },
+  "spec_sha256": "0e3b5ae165e6217661a637f90056ba84e6340a7826c9fa542e506104e52a769d",
+  "params_sha256": "dff9ed3c59dcd5f648fdcfa2eae5322b8b77e25cba1232c37edb6011928568a8",
+  "owner_decisions": {
+   "pxc_spy_close": {
+    "question": "Which SPY close does the secondary's 'SPY fell' condition (PXC) read?",
+    "in_the_spec": "adjusted",
+    "choice": "adjusted",
+    "decided_by": "owner",
+    "decided_on": "2026-10-24",
+    "status": "DECIDED by the owner on 2026-10-24: adjusted, the rule as written (a dividend is not a fall). Recorded before any 2020+ data was read.",
+    "options": {
+     "adjusted": "SPY's dividend-adjusted closes, as the frozen rule text says (round2_synthesis.txt, the secondary diagnostic: SPY's adjusted close on the prior session below its adjusted close the session before). The spec and the module read these now.",
+     "raw": "SPY's printed closes, as the research script that produced the evidence computed them (ivlens/s5_spy_chg.py). Choosing it means changing the spec's 'close' to 'raw' in ext_fade_overlays.py, which changes the IVR spec and parameter digests and the module hash; then the calibration is rerun and this registration regenerated."
+    },
+    "effect_2016_2019": {
+     "trades_whose_pxc_differs": 7,
+     "prior_sessions_where_it_differs": [
+      "2016-03-18",
+      "2017-06-16",
+      "2017-09-15",
+      "2018-03-16"
+     ],
+     "secondary": {
+      "adjusted": {
+       "H1": {
+        "among": 488,
+        "kept": 312,
+        "kept_mean": 23.066611499594735,
+        "mean": 30.611663060987215,
+        "removed": 176,
+        "removed_mean": -7.54505156139248,
+        "t": 2.0051188225016214
+       },
+       "H2": {
+        "among": 865,
+        "kept": 421,
+        "kept_mean": 34.500971604017835,
+        "mean": 38.07654418823851,
+        "removed": 444,
+        "removed_mean": -3.5755725842206756,
+        "t": 3.317045553525889
+       },
+       "all": {
+        "among": 1353,
+        "kept": 733,
+        "kept_mean": 29.633958844699954,
+        "mean": 34.33635126760166,
+        "removed": 620,
+        "removed_mean": -4.7023924229017044,
+        "t": 3.7935913443625
+       }
+      },
+      "raw": {
+       "H1": {
+        "among": 486,
+        "kept": 311,
+        "kept_mean": 23.759388633275226,
+        "mean": 31.180243503480842,
+        "removed": 175,
+        "removed_mean": -7.420854870205617,
+        "t": 2.0334593459013313
+       },
+       "H2": {
+        "among": 863,
+        "kept": 421,
+        "kept_mean": 34.500971604017835,
+        "mean": 38.461402547924145,
+        "removed": 442,
+        "removed_mean": -3.960430943906307,
+        "t": 3.3429062281331867
+       },
+       "all": {
+        "among": 1349,
+        "kept": 732,
+        "kept_mean": 29.93726627081982,
+        "mean": 34.87917887939773,
+        "removed": 617,
+        "removed_mean": -4.94191260857791,
+        "t": 3.8432461670711526
+       }
+      }
+     },
+     "summary": "The closes differ only on the session after an SPY ex-dividend day, where the raw close falls by the dividend: 7 of the 1,900 trades. IV >= HV vs IV < HV within PXC <= 1 at 5 bps: adjusted +23.1 vs -7.5 (312 / 176 trades, t 2.01) in 2016-17 and +34.5 vs -3.6 (421 / 444 trades, t 3.32) in 2018-19; raw +23.8 vs -7.4 (311 / 175 trades, t 2.03) and +34.5 vs -4.0 (421 / 442 trades, t 3.34). The raw figures equal the research's trade for trade."
+    },
+    "gates": "nothing: the secondary is reported and does not gate any verdict",
+    "how_to_record": "Set 'choice' (and 'decided_by', 'decided_on') here, and the matching line in the .md. Choosing 'adjusted' changes no hash. Choosing 'raw' needs the code change above first."
+   }
+  },
+  "module_sha256": "a1b546803aa3303ef11a7a2b5f401743321a85cad2c556e96f50632195a56c1c",
+  "runner_sha256": "f46fe30e572205103037f7e10544a4f96b94de09914a5142bf159f217ba741af",
+  "lab_code_sha256": "518b55575f3cd4d7ba453927eb63cdb4af21989acd1f653f39af552fca5db150",
+  "v1_check_entry": 21,
+  "v1_check_verdict": "FAIL",
+  "iv_hv_sha256": "37e9e03bec8806754df868b9c808adea159594e553d8ece69716f82aa05fdffa",
+  "daily_prices_sha256": "2f8bc6ff4e45eb7bb4525cf56b5f22d5cf68a452db207c35e6d2d5b6a8db147f",
+  "bars_sha256": "56f8a17f146cb4337f93eb1fa158f51b5ddbc9ef01b91e6ff3ae2bc45b23f7ba",
+  "inputs_sha256": "ddccfd3ad77f3f7fabbc9b880730b4379b94f8f6614bb74d4a544b297101eac8",
+  "trades": 5131,
+  "result": {
+   "w_bar": 1.104459274968212,
+   "s5_mean": 3.5188072500487233,
+   "s5_counts": {
+    "0": 21,
+    "1": 214,
+    "2": 738,
+    "3": 1347,
+    "4": 1731,
+    "5": 1080
+   },
+   "no_trade": 21,
+   "standalone": {
+    "trades": 5131,
+    "mean": 5.945115097415268,
+    "t": 1.0016460417466744,
+    "by_year": {
+     "2020": 9.503861006681147,
+     "2021": 20.60448057126195,
+     "2022": 0.7400123849056875,
+     "2023": -6.5296220103989
+    },
+    "positive_years": 3,
+    "pass": false
+   },
+   "gain": {
+    "trades": 5131,
+    "mean": 2.4273700981057216,
+    "t": 1.8530198706325092,
+    "by_year": {
+     "2020": 4.602099445051781,
+     "2021": 5.394642377952634,
+     "2022": 0.45468313992350834,
+     "2023": -1.1577042109884246
+    },
+    "positive_years": 3,
+    "pass": false
+   },
+   "book_sharpe": {
+    "cost_bps": 5,
+    "overlay": 0.49908154963862456,
+    "EXT-FADE.v1": 0.3513433443818627,
+    "pass": true
+   },
+   "unit_mean_at_10": -4.05488490258473,
+   "verdict": "FAIL",
+   "standalone_pass": false
+  },
+  "verdict": "FAIL",
+  "reading": "does not go forward"
+ },
+ {
+  "entry": 2,
+  "at": "2026-10-25T12:49:18+00:00",
+  "overlay_id": "ext-fade-overlays.v1",
+  "split": "check",
+  "months": [
+   "2020-01",
+   "2023-12"
+  ],
+  "spec_id": "EXT-FADE-P2.v1",
+  "spec": {
+   "overlay": "FILTER",
+   "on": {
+    "variant": "EXT-FADE.v1",
+    "spec": {
+     "setup": "EXTENSION_FADE",
+     "gap": 0.01,
+     "prior": 0.01,
+     "spy_gap_max": null,
+     "entry_bar": 1,
+     "cap": null,
+     "scale": "X1"
+    },
+    "trades": "the lab's own EXT-FADE.v1 trades (lab.replay), unchanged"
+   },
+   "keep": [
+    {
+     "name": "prior_move",
+     "input": "|prior_close_raw / close_before_prior - 1|, v1's own prior-move quantity",
+     "at_least": 0.02
+    }
+   ],
+   "min_met": 1,
+   "equals": "the lab spec {setup EXTENSION_FADE, gap 0.01, prior 0.02, spy_gap_max None, entry_bar 1, no cap}, applied as a subset of v1's trades",
+   "missing": "a flag or condition whose input is missing is 0 (not met): no daily row for the prior session, no atr14, no implied or historical vol at the prior close, no SPY IV at the prior close or before it, no SPY daily row for the prior session or the one before, no sigma_d"
+  },
+  "spec_sha256": "ba936efba2907617ee54dfca64611b2402e9e1f197fb4229920c727aa51ed3da",
+  "params_sha256": "317eb95f15441088d4cf860a14b3f20723e6c73a357bbc7b1110722596c07b5b",
+  "owner_decisions": {
+   "pxc_spy_close": {
+    "question": "Which SPY close does the secondary's 'SPY fell' condition (PXC) read?",
+    "in_the_spec": "adjusted",
+    "choice": "adjusted",
+    "decided_by": "owner",
+    "decided_on": "2026-10-24",
+    "status": "DECIDED by the owner on 2026-10-24: adjusted, the rule as written (a dividend is not a fall). Recorded before any 2020+ data was read.",
+    "options": {
+     "adjusted": "SPY's dividend-adjusted closes, as the frozen rule text says (round2_synthesis.txt, the secondary diagnostic: SPY's adjusted close on the prior session below its adjusted close the session before). The spec and the module read these now.",
+     "raw": "SPY's printed closes, as the research script that produced the evidence computed them (ivlens/s5_spy_chg.py). Choosing it means changing the spec's 'close' to 'raw' in ext_fade_overlays.py, which changes the IVR spec and parameter digests and the module hash; then the calibration is rerun and this registration regenerated."
+    },
+    "effect_2016_2019": {
+     "trades_whose_pxc_differs": 7,
+     "prior_sessions_where_it_differs": [
+      "2016-03-18",
+      "2017-06-16",
+      "2017-09-15",
+      "2018-03-16"
+     ],
+     "secondary": {
+      "adjusted": {
+       "H1": {
+        "among": 488,
+        "kept": 312,
+        "kept_mean": 23.066611499594735,
+        "mean": 30.611663060987215,
+        "removed": 176,
+        "removed_mean": -7.54505156139248,
+        "t": 2.0051188225016214
+       },
+       "H2": {
+        "among": 865,
+        "kept": 421,
+        "kept_mean": 34.500971604017835,
+        "mean": 38.07654418823851,
+        "removed": 444,
+        "removed_mean": -3.5755725842206756,
+        "t": 3.317045553525889
+       },
+       "all": {
+        "among": 1353,
+        "kept": 733,
+        "kept_mean": 29.633958844699954,
+        "mean": 34.33635126760166,
+        "removed": 620,
+        "removed_mean": -4.7023924229017044,
+        "t": 3.7935913443625
+       }
+      },
+      "raw": {
+       "H1": {
+        "among": 486,
+        "kept": 311,
+        "kept_mean": 23.759388633275226,
+        "mean": 31.180243503480842,
+        "removed": 175,
+        "removed_mean": -7.420854870205617,
+        "t": 2.0334593459013313
+       },
+       "H2": {
+        "among": 863,
+        "kept": 421,
+        "kept_mean": 34.500971604017835,
+        "mean": 38.461402547924145,
+        "removed": 442,
+        "removed_mean": -3.960430943906307,
+        "t": 3.3429062281331867
+       },
+       "all": {
+        "among": 1349,
+        "kept": 732,
+        "kept_mean": 29.93726627081982,
+        "mean": 34.87917887939773,
+        "removed": 617,
+        "removed_mean": -4.94191260857791,
+        "t": 3.8432461670711526
+       }
+      }
+     },
+     "summary": "The closes differ only on the session after an SPY ex-dividend day, where the raw close falls by the dividend: 7 of the 1,900 trades. IV >= HV vs IV < HV within PXC <= 1 at 5 bps: adjusted +23.1 vs -7.5 (312 / 176 trades, t 2.01) in 2016-17 and +34.5 vs -3.6 (421 / 444 trades, t 3.32) in 2018-19; raw +23.8 vs -7.4 (311 / 175 trades, t 2.03) and +34.5 vs -4.0 (421 / 442 trades, t 3.34). The raw figures equal the research's trade for trade."
+    },
+    "gates": "nothing: the secondary is reported and does not gate any verdict",
+    "how_to_record": "Set 'choice' (and 'decided_by', 'decided_on') here, and the matching line in the .md. Choosing 'adjusted' changes no hash. Choosing 'raw' needs the code change above first."
+   }
+  },
+  "module_sha256": "a1b546803aa3303ef11a7a2b5f401743321a85cad2c556e96f50632195a56c1c",
+  "runner_sha256": "f46fe30e572205103037f7e10544a4f96b94de09914a5142bf159f217ba741af",
+  "lab_code_sha256": "518b55575f3cd4d7ba453927eb63cdb4af21989acd1f653f39af552fca5db150",
+  "v1_check_entry": 21,
+  "v1_check_verdict": "FAIL",
+  "iv_hv_sha256": "37e9e03bec8806754df868b9c808adea159594e553d8ece69716f82aa05fdffa",
+  "daily_prices_sha256": "2f8bc6ff4e45eb7bb4525cf56b5f22d5cf68a452db207c35e6d2d5b6a8db147f",
+  "bars_sha256": "56f8a17f146cb4337f93eb1fa158f51b5ddbc9ef01b91e6ff3ae2bc45b23f7ba",
+  "inputs_sha256": "ddccfd3ad77f3f7fabbc9b880730b4379b94f8f6614bb74d4a544b297101eac8",
+  "trades": 5131,
+  "result": {
+   "kept": {
+    "trades": 3269,
+    "mean": -0.027467632212114648,
+    "t": -0.0039642835499283545,
+    "by_year": {
+     "2020": 0.1088798388429812,
+     "2021": 21.595438882370313,
+     "2022": -4.47267537805835,
+     "2023": -14.848543973821263
+    },
+    "positive_years": 2,
+    "pass": false,
+    "lab_check_bar": {
+     "mean": 9.972532367787885,
+     "t": 1.4392920988403601,
+     "positive_periods": 3,
+     "pass": false
+    }
+   },
+   "kept_minus_removed": {
+    "kept": 3269,
+    "removed": 1862,
+    "kept_mean": -0.027467632212114648,
+    "removed_mean": -17.81453207241746,
+    "mean": 17.787064440205345,
+    "t": 2.343701903037718,
+    "by_year": {
+     "2020": 15.847751278476219,
+     "2021": 41.14114335172343,
+     "2022": 15.49807328840191,
+     "2023": 1.2005224349855599
+    },
+    "positive_years": 4,
+    "pass": true
+   },
+   "book_sharpe": {
+    "cost_bps": 10,
+    "overlay": -0.0019893201915183395,
+    "EXT-FADE.v1": -0.6538162120348316,
+    "pass": true
+   },
+   "kept_trades": 3269,
+   "stocks": 54,
+   "verdict": "FAIL",
+   "standalone_pass": false
+  },
+  "verdict": "FAIL",
+  "reading": "does not go forward"
+ },
+ {
+  "entry": 3,
+  "at": "2026-10-25T12:49:18+00:00",
+  "overlay_id": "ext-fade-overlays.v1",
+  "split": "check",
+  "months": [
+   "2020-01",
+   "2023-12"
+  ],
+  "spec_id": "EXT-FADE-IVR.v1",
+  "spec": {
+   "overlay": "FILTER",
+   "on": {
+    "variant": "EXT-FADE.v1",
+    "spec": {
+     "setup": "EXTENSION_FADE",
+     "gap": 0.01,
+     "prior": 0.01,
+     "spy_gap_max": null,
+     "entry_bar": 1,
+     "cap": null,
+     "scale": "X1"
+    },
+    "trades": "the lab's own EXT-FADE.v1 trades (lab.replay), unchanged"
+   },
+   "keep": [
+    {
+     "name": "iv_over_hv",
+     "input": "iv_prior / hv_prior, the stock's 30-day ATM implied vol over its 30-day historical vol, both at the prior close",
+     "at_least": 1.0
+    },
+    {
+     "name": "spy_iv_change",
+     "input": "SPY's 30-day ATM IV at the prior close / SPY's IV at the IV observation before it (dates before the prior session) - 1",
+     "above": 0.0
+    },
+    {
+     "name": "iv",
+     "input": "iv_prior",
+     "at_least": 0.28
+    }
+   ],
+   "min_met": 2,
+   "missing": "a flag or condition whose input is missing is 0 (not met): no daily row for the prior session, no atr14, no implied or historical vol at the prior close, no SPY IV at the prior close or before it, no SPY daily row for the prior session or the one before, no sigma_d",
+   "secondary": {
+    "gating": false,
+    "pxc": [
+     {
+      "name": "spy_fell",
+      "input": "SPY's close on the prior session / its close the session before - 1, both of the kind 'close' names (adjusted: the dividend-adjusted closes; raw: the printed closes)",
+      "close": "adjusted",
+      "below": 0.0
+     },
+     {
+      "name": "rv",
+      "input": "sigma_d x sqrt(252)",
+      "at_least": 0.28
+     }
+    ],
+    "among": "trades with PXC (the number of the two price-only conditions met) at most max_pxc",
+    "max_pxc": 1,
+    "compare": "mean net of IV >= HV trades minus IV < HV trades (trades with both IV and HV known)"
+   }
+  },
+  "spec_sha256": "66008d6bd23085d9156db1b5bc8d334e415774681721d28391c13fb6eb7f0f42",
+  "params_sha256": "30a3210a46a801d80445e8000701a43e591d3b85497aa1c95961b67ebeb2c101",
+  "owner_decisions": {
+   "pxc_spy_close": {
+    "question": "Which SPY close does the secondary's 'SPY fell' condition (PXC) read?",
+    "in_the_spec": "adjusted",
+    "choice": "adjusted",
+    "decided_by": "owner",
+    "decided_on": "2026-10-24",
+    "status": "DECIDED by the owner on 2026-10-24: adjusted, the rule as written (a dividend is not a fall). Recorded before any 2020+ data was read.",
+    "options": {
+     "adjusted": "SPY's dividend-adjusted closes, as the frozen rule text says (round2_synthesis.txt, the secondary diagnostic: SPY's adjusted close on the prior session below its adjusted close the session before). The spec and the module read these now.",
+     "raw": "SPY's printed closes, as the research script that produced the evidence computed them (ivlens/s5_spy_chg.py). Choosing it means changing the spec's 'close' to 'raw' in ext_fade_overlays.py, which changes the IVR spec and parameter digests and the module hash; then the calibration is rerun and this registration regenerated."
+    },
+    "effect_2016_2019": {
+     "trades_whose_pxc_differs": 7,
+     "prior_sessions_where_it_differs": [
+      "2016-03-18",
+      "2017-06-16",
+      "2017-09-15",
+      "2018-03-16"
+     ],
+     "secondary": {
+      "adjusted": {
+       "H1": {
+        "among": 488,
+        "kept": 312,
+        "kept_mean": 23.066611499594735,
+        "mean": 30.611663060987215,
+        "removed": 176,
+        "removed_mean": -7.54505156139248,
+        "t": 2.0051188225016214
+       },
+       "H2": {
+        "among": 865,
+        "kept": 421,
+        "kept_mean": 34.500971604017835,
+        "mean": 38.07654418823851,
+        "removed": 444,
+        "removed_mean": -3.5755725842206756,
+        "t": 3.317045553525889
+       },
+       "all": {
+        "among": 1353,
+        "kept": 733,
+        "kept_mean": 29.633958844699954,
+        "mean": 34.33635126760166,
+        "removed": 620,
+        "removed_mean": -4.7023924229017044,
+        "t": 3.7935913443625
+       }
+      },
+      "raw": {
+       "H1": {
+        "among": 486,
+        "kept": 311,
+        "kept_mean": 23.759388633275226,
+        "mean": 31.180243503480842,
+        "removed": 175,
+        "removed_mean": -7.420854870205617,
+        "t": 2.0334593459013313
+       },
+       "H2": {
+        "among": 863,
+        "kept": 421,
+        "kept_mean": 34.500971604017835,
+        "mean": 38.461402547924145,
+        "removed": 442,
+        "removed_mean": -3.960430943906307,
+        "t": 3.3429062281331867
+       },
+       "all": {
+        "among": 1349,
+        "kept": 732,
+        "kept_mean": 29.93726627081982,
+        "mean": 34.87917887939773,
+        "removed": 617,
+        "removed_mean": -4.94191260857791,
+        "t": 3.8432461670711526
+       }
+      }
+     },
+     "summary": "The closes differ only on the session after an SPY ex-dividend day, where the raw close falls by the dividend: 7 of the 1,900 trades. IV >= HV vs IV < HV within PXC <= 1 at 5 bps: adjusted +23.1 vs -7.5 (312 / 176 trades, t 2.01) in 2016-17 and +34.5 vs -3.6 (421 / 444 trades, t 3.32) in 2018-19; raw +23.8 vs -7.4 (311 / 175 trades, t 2.03) and +34.5 vs -4.0 (421 / 442 trades, t 3.34). The raw figures equal the research's trade for trade."
+    },
+    "gates": "nothing: the secondary is reported and does not gate any verdict",
+    "how_to_record": "Set 'choice' (and 'decided_by', 'decided_on') here, and the matching line in the .md. Choosing 'adjusted' changes no hash. Choosing 'raw' needs the code change above first."
+   }
+  },
+  "module_sha256": "a1b546803aa3303ef11a7a2b5f401743321a85cad2c556e96f50632195a56c1c",
+  "runner_sha256": "f46fe30e572205103037f7e10544a4f96b94de09914a5142bf159f217ba741af",
+  "lab_code_sha256": "518b55575f3cd4d7ba453927eb63cdb4af21989acd1f653f39af552fca5db150",
+  "v1_check_entry": 21,
+  "v1_check_verdict": "FAIL",
+  "iv_hv_sha256": "37e9e03bec8806754df868b9c808adea159594e553d8ece69716f82aa05fdffa",
+  "daily_prices_sha256": "2f8bc6ff4e45eb7bb4525cf56b5f22d5cf68a452db207c35e6d2d5b6a8db147f",
+  "bars_sha256": "56f8a17f146cb4337f93eb1fa158f51b5ddbc9ef01b91e6ff3ae2bc45b23f7ba",
+  "inputs_sha256": "ddccfd3ad77f3f7fabbc9b880730b4379b94f8f6614bb74d4a544b297101eac8",
+  "trades": 5131,
+  "result": {
+   "kept": {
+    "trades": 3483,
+    "mean": 4.40616390684461,
+    "t": 0.7220777404325983,
+    "by_year": {
+     "2020": 4.662472938981622,
+     "2021": 21.222507659701037,
+     "2022": 0.23030981497794709,
+     "2023": -6.095859173155502
+    },
+    "positive_years": 3,
+    "pass": false
+   },
+   "kept_minus_removed": {
+    "kept": 3483,
+    "removed": 1648,
+    "kept_mean": 4.40616390684461,
+    "removed_mean": 1.6400975145130492,
+    "mean": 2.7660663923315614,
+    "t": 0.3202890092390524,
+    "by_year": {
+     "2020": -0.6644708860300979,
+     "2021": 19.807694802403937,
+     "2022": -0.19023667323497243,
+     "2023": -2.2294388326403936
+    },
+    "positive_years": 1,
+    "pass": false
+   },
+   "book_sharpe": {
+    "cost_bps": 5,
+    "overlay": 0.36061507920311286,
+    "EXT-FADE.v1": 0.3513433443818627,
+    "pass": true
+   },
+   "kept_trades": 3483,
+   "stocks": 54,
+   "verdict": "FAIL",
+   "secondary": {
+    "kept": 1576,
+    "removed": 1357,
+    "kept_mean": -6.186626115314742,
+    "removed_mean": -2.5973978057607714,
+    "mean": -3.5892283095539708,
+    "t": -0.3598125196845491,
+    "by_year": {
+     "2020": -19.866472143991015,
+     "2021": -2.474719921654016,
+     "2022": 17.91301936604549,
+     "2023": -1.7909082731504409
+    },
+    "positive_years": 1,
+    "pass": false,
+    "among": 2933,
+    "verdict": "FAIL",
+    "reading": "the options data adds nothing over prices here"
+   },
+   "standalone_pass": false
+  },
+  "verdict": "FAIL",
+  "reading": "does not go forward"
+ }
+]
