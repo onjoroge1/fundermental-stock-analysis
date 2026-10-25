@@ -1,0 +1,1994 @@
+{
+ "registration": "ext-fade-portfolio.v1",
+ "spec_id": "EXT-FADE-CB.v1",
+ "date": "2026-10-25",
+ "built_on": "2026-10-24",
+ "status": "REGISTERED_BEFORE_ANY_2020_DATA_WAS_READ",
+ "tracker_item": 77,
+ "use": "INFORMATION_ONLY",
+ "module": "stock_machine/backtest/ext_fade_portfolio.py",
+ "module_sha256": "4210cf59676880c0509798eb50a1d906de2c4388923484f86586712399df1960",
+ "runner": "scripts/run_ext_fade_portfolio.py",
+ "runner_sha256": "eafeedf63df31f9912daa14c2294bd4c7d3ad4db93a3e9ee6eb923b425045de9",
+ "calibration_script": "scripts/calibrate_ext_fade_portfolio.py",
+ "calibration_script_sha256": "54ee5d4cdc9aadd654b8c10a15542e7b4e85e921662b13bbc64e9d31b603aad6",
+ "tests": "tests/test_ext_fade_portfolio.py",
+ "log": "docs/evidence/ext-fade-portfolio-log.json",
+ "output": "data/ext_fade_portfolio/check-2020-01-2023-12-entry-<n>.{json,md}: aggregates only, never raw bars",
+ "spec_sha256": "510383e08ef863d08b1c3905df884f0a97aa5b7c025e9ca7592a7d4b399e8081",
+ "params_sha256": "3170c3a8bcaf00f48e26a77498c84c5fe475de41efe919ce25a8511b66440790",
+ "sector_map_sha256": "61623a16dc09804cb6989ec9bae0283f92d026e93fbac2b723ac8ef894e9e6c4",
+ "digests": "spec_sha256 is the digest of the whole spec (SPEC), its wording included: the runner refuses (SPECS_NOT_REGISTERED) unless it equals the code's, so the text is pinned. params_sha256 is the digest of the constants, the sector map and the pass bar only: the same for any rewording. sector_map_sha256 is contracts.digest(SECTOR_MAP). All three are registered and written into the log entry.",
+ "once_only": "The runner refuses (ALREADY_CHECKED) if its log, docs/evidence/ext-fade-portfolio-log.json, holds any check entry at all, whatever its id, wording or digest, or any entry that carries this spec's id, the book's id, the spec digest or the parameter digest. Only this check writes that log.",
+ "spec": {
+  "id": "EXT-FADE-CB.v1",
+  "what": "EXT-FADE.v1 with a constrained book (owner-approved candidate 2, tracker item 77). One frozen spec, not a family. It changes only (a) position size, through book limits applied by proportional scale-down, and (b) how the SPY hedge is held and charged. No trade is ever added or dropped. Information only: nothing trades.",
+  "history": "Designed 2026-10-24, and reviewed and corrected on 2026-10-24 by an independent skeptic. Neither the design nor the review read anything dated 2020-01-01 or later. Every cap, cost and evaluation constant was fixed before the single in-sample preview (2016-19), and none was changed after it or after the review. The review changed only build mechanics (data handling, reconciliations, RNG pinning, runner checks), added the end-of-day exclusions to the candidate set (no effect in 2016-19), separated the hold-out family, and corrected the disclosures. The build's review, also on 2026-10-24 and also reading nothing dated 2020-01-01 or later, made condition 2 apply the lab's checks that ir.eligibility makes after the two late ones, so that membership is point in time as stated (no effect in 2016-19); no constant changed.",
+  "scope": {
+   "on": {
+    "variant": "EXT-FADE.v1",
+    "spec": {
+     "setup": "EXTENSION_FADE",
+     "gap": 0.01,
+     "prior": 0.01,
+     "spy_gap_max": null,
+     "entry_bar": 1,
+     "cap": null,
+     "scale": "X1"
+    }
+   },
+   "trades": "EXT-FADE.v1's own check trades, unweighted: v1 = [t for t in run['trades'] if t['variant'] == 'EXT-FADE.v1'], with run = lab.replay(bars_for, prices, lab.CHECK, tickers, {'EXT-FADE.v1': lab.VARIANTS['EXT-FADE.v1']}, split='check'). Not the SW weights or the P2/IVR subsets.",
+   "unchanged": "signals, entry, exit, Rule 201, the ENTRY_BEYOND_TARGET skip and the per-trade residual are v1's, untouched",
+   "changes": "only (a) position size, through book limits applied by proportional scale-down, and (b) how the SPY hedge is held and charged; no trade is ever added or dropped",
+   "counts_only_if": "v1's check verdict is PASS"
+  },
+  "per_trade": {
+   "g": "gross_bps from the lab's record: the hedged residual, side x return - side x beta x SPY over the trade's own minutes, in bps",
+   "side": "-1 if gap > 0, else +1",
+   "beta": "f['beta'] from ir.daily_features in this module's own stock-day pass: the beta lab.score uses, trailing and known before the open",
+   "exit_event": "TARGET: bar entry_bar + minutes (the lab's minutes = exit_bar - entry_bar); CLOSE: the official close",
+   "reconciliation": "BOOK_TRADE_RECONCILIATION unless, for every v1 trade, lab.score(trade, day, spy_day, f, spy_f, 1.0) on this module's own candidate (the dict lab.extension_fade returned on its own day, f, SPY day and SPY features) gives the lab record's reason, minutes and entry_bar, and |residual x 1e4 - gross_bps| <= 1e-6; this pins the betas and exit bars the hedge uses"
+  },
+  "candidates": {
+   "stock_day_pass": "this module's own, mirroring ext_fade_overlays.stock_days exactly: the same warm-up month (ir.previous_month), ir.detection_months, ir.spy_features, ir.daily_features with ir.off_rows, ir.History updated after every session, ir.CORPORATE_ACTIONS and ir.eligibility; it receives the daily price rows uncut",
+   "C_t": "every stock-day of session t that meets condition 1 or 2, and condition 3",
+   "condition_1": "ir.eligibility(...) is None",
+   "condition_2": "ir.eligibility(...) is DAILY_ROW_ERROR or DAILY_CLOSE_MISMATCH, and the stock-day passes every check ir.eligibility makes after those two, in its order and with its constants: CORPORATE_ACTION, PRICE_FLOOR, MISSING_OPEN_BAR, PRICE_MISMATCH, NO_HISTORY, NO_SPY and SPY_DAILY_ERROR (later_exclusion is None). ir.eligibility stops at the first reason, so it never judges a late-flagged stock-day on these. Such a stock-day is a late-excluded candidate: the two late checks read the session's own daily close and last minute, or the next session's open",
+   "condition_3": "lab.extension_fade(day, f, day['o'][0] / f['prior_close'] - 1, lab.VARIANTS['EXT-FADE.v1'], {'spy': spy_day, 'spy_f': spy_f, 'timing': None}) returns a trade, or a skip other than MISSING_SPY_OPEN (RULE_201, NO_ENTRY_MINUTE, ENTRY_BEYOND_TARGET)",
+   "budget": "late-excluded candidates, skipped candidates and trades the lab later drops as UNSCORABLE all use their share of the cap budget and never trade; that budget is never reallocated",
+   "reads": "the 09:30 open (the gap); prior sessions' daily rows and minute bars; the universe, listing dates and corporate-action dates; and the session's official open (the PRICE_MISMATCH check). Through condition 2, a stock-day is a candidate exactly when it would be one with its own two late checks ignored, so those checks, which read its daily close and last minute or the next session's open, cannot change membership. Inherited and the same for both books: a stock-day with no daily row for the session itself has no features and is never a candidate, as in v1; and NO_SPY and SPY_DAILY_ERROR read SPY's own day, including its session row, but they exclude every stock-day of the session at once, so on such a session v1 has no trade and C_t sizes nothing.",
+   "reconciliations": {
+    "ELIGIBILITY_DISAGREES_WITH_THE_LAB": "the eligible counts per session under condition 1 equal run['eligible']",
+    "CANDIDATES_DISAGREE_WITH_THE_LAB": "the candidates that end as lab trades are exactly v1's check trades, the same (ticker, session) set and the same entry_bar; and the skips counted on eligible stock-days equal the lab's",
+    "reported": "the number of late-excluded candidates"
+   }
+  },
+  "sizing": {
+   "unit": "one base notional N = 1, v1's equal per-trade notional; every candidate has base size 1",
+   "cluster": "cluster(i) = (group(ticker_i), side_i), group from SECTOR_MAP",
+   "when": "once per session at 09:31, from C_t only",
+   "scale_down": [
+    "n_c = the number of candidates in cluster c",
+    "a_c = min(1, K / n_c)",
+    "g_s = the sum of a_c x n_c over the clusters c in group s; b_s = min(1, S / g_s)",
+    "g = the sum of b_s x g_s over the groups; d = min(1, G / g)",
+    "s_i = a_c(i) x b_s(i) x d; a traded candidate's position is x_i = s_i"
+   ],
+   "properties": "candidate gross at most K per cluster, S per group and G per session; within each layer every affected position shrinks by the same factor; s_i <= 1, so positions never grow and the trade set stays v1's",
+   "per_stock": "at most one position per name per session (v1's rule) and s_i <= 1; k x s_i <= k <= K_MAX",
+   "v1_book": "x_i = 1 for every v1 trade"
+  },
+  "hedge": {
+   "per_trade": "h_i = -side_i x beta_i x x_i, in SPY dollars per base notional at the trade's entry SPY price",
+   "aggregate": "one SPY position H, held in shares: each trade's hedge shares are added at its entry event and removed at its exit event, with no rebalancing in between, so H(t) is the sum of the open trades' h_i at every minute and no hedge outlives its trade",
+   "events": "E(b): the entries filled at bar b's open; X(b): the TARGET exits during bar b; CLOSE: one MOC order for every CLOSE exit. An entry and an exit in the same bar are separate events.",
+   "traded": "at each event e the book trades dH_e = the sum of h_i over the entries at e - the sum of h_i over the exits at e, valued at the trades' entry SPY prices",
+   "pnl": "each trade's own lab hedge leg, x_i x (-side_i x beta_i x (S_out / S_in - 1)), with the lab's SPY prices; it is already inside g_i, so netting changes only the SPY traded",
+   "convention": "within one exit bar a gapped exit's leg uses SPY's open and a non-gapped exit's leg SPY's mid, while the book trades one netted order: the lab's own convention",
+   "costs": "SPY: spy_cost_bps x the sum over the session's events of |dH_e|; stock: cost_bps a side on x_i at entry and at exit; both books pay both (v1's lab figures do not charge the SPY leg)"
+  },
+  "pnl": {
+   "sessions": "S = sorted(run['eligible']) of the check; a session with no trade has P_t = 0",
+   "P_t": "the sum over the trades i of session t of x_i x (g_i - 2c), minus c_SPY x the sum over the session's events e of |dH_e|, in bps of one base notional",
+   "G_t": "the sum of x_i over the trades of session t: the entry gross (the hedge is not counted)",
+   "reconciliations": {
+    "V1_BOOK_DISAGREES_WITH_THE_LAB": "the v1 book with c_SPY = 0 sums to the sum of the lab's net_bps[5] (within 1e-6 bps)",
+    "V1_CHECK_NOT_REPRODUCED": "ext_fade_overlays.v1_reproduced(v1, entry) is True"
+   }
+  },
+  "normalisation": {
+   "k": "k = the sum over t of G_t(v1) / the sum over t of G_t(CB) on the check sessions; P^N_t = k x P_t(CB); every risk comparison is P^N against P(v1); k uses exposure only, never P&L",
+   "feasibility": "k <= K_MAX",
+   "reported": [
+    "k_cal, frozen from 2016-19 exposure: the version tradable ex ante",
+    "time-weighted gross: notional x (minutes + 1)",
+    "equal volatility: k_vol = sd(v1) / sd(CB), with ES5/sd, MDD/sd and worst/sd",
+    "the unnormalised CB (k = 1)"
+   ]
+  },
+  "metrics": {
+   "Sharpe": "mean / sd(ddof = 1) x sqrt(252)",
+   "ES5": "-(the mean of the m smallest x_t), m = ceil(es_level x T)",
+   "W10": "the mean of the w10 smallest x_t; the single worst day is also reported",
+   "DD": "sqrt(the mean over t of min(x_t, 0)^2)",
+   "MDD": "the minimum over t of (C_t - the maximum over u <= t of C_u), with C_0 = 0 and C_t = x_1 + ... + x_t: additive, fixed notional, no compounding"
+  },
+  "intervals": {
+   "method": "a paired circular block bootstrap of sessions",
+   "rng": "numpy.random.default_rng(seed)",
+   "starts": "rng.integers(0, T, size=(reps, ceil(T / block))), drawn in ONE call",
+   "idx": "((starts[:, :, None] + numpy.arange(block)[None, None, :]) % T).reshape(reps, -1)[:, :T]: each replicate takes block consecutive sessions from each start, wrapping at the end, concatenated in draw order and truncated to T",
+   "paired": "both books and every gating statistic use this one idx matrix; in replicate b, k_b = the sum of G_v1[idx_b] / the sum of G_CB[idx_b]",
+   "statistics": "R_ES = ES5(P^N) / ES5(v1); dSR = SR(CB) - SR(v1); the ratios for W10, DD and MDD, reported with 90% intervals",
+   "bounds": "UB95 is the 95th percentile and LB95 the 5th (numpy.percentile, linear); a bound over a replicate whose statistic is undefined is undefined, and an undefined bound fails its gate",
+   "stress": "stress bootstraps (leave-one-year-out and others) use the same construction and seed with their own T"
+  },
+  "sector_map": {
+   "level": "13 GICS industry groups",
+   "assignment": "each ticker's GICS industry group under the structure in force from 2018-09-28 to 2023-03-17, as of 2019-12-31, the last day before the test; names listed later take their first assignment under that structure. The 2023-03-17 GICS change (TGT, BKNG, AMZN, COST/WMT, SOFI, UBER) is deliberately not applied: one frozen map.",
+   "not_used": "stock_machine/sectors.py (SIC ranges)",
+   "least_certain": "ABNB (placed with BKNG), HIMS (a singleton either way) and UBER (Industrials / Road & Rail)",
+   "groups": {
+    "SEMI": "Semiconductors & Semiconductor Equipment",
+    "SOFT": "Software & Services",
+    "HARD": "Technology Hardware & Equipment",
+    "MEDIA": "Media & Entertainment",
+    "TELCO": "Telecommunication Services",
+    "RETAIL": "Retailing",
+    "STAPLES": "Food & Staples Retailing",
+    "CONSVC": "Consumer Services",
+    "DURABLES": "Consumer Durables & Apparel",
+    "AUTOS": "Automobiles & Components",
+    "TRANSPORT": "Transportation",
+    "DIVFIN": "Diversified Financials",
+    "HCES": "Health Care Equipment & Services"
+   },
+   "map": {
+    "ADI": "SEMI",
+    "AMAT": "SEMI",
+    "AMD": "SEMI",
+    "AVGO": "SEMI",
+    "INTC": "SEMI",
+    "KLAC": "SEMI",
+    "LRCX": "SEMI",
+    "MU": "SEMI",
+    "NVDA": "SEMI",
+    "QCOM": "SEMI",
+    "TXN": "SEMI",
+    "ADBE": "SOFT",
+    "CRM": "SOFT",
+    "IBM": "SOFT",
+    "INTU": "SOFT",
+    "MSFT": "SOFT",
+    "NOW": "SOFT",
+    "ORCL": "SOFT",
+    "PLTR": "SOFT",
+    "AAPL": "HARD",
+    "CSCO": "HARD",
+    "DELL": "HARD",
+    "HPQ": "HARD",
+    "CMCSA": "MEDIA",
+    "DIS": "MEDIA",
+    "GOOGL": "MEDIA",
+    "META": "MEDIA",
+    "NFLX": "MEDIA",
+    "T": "TELCO",
+    "TMUS": "TELCO",
+    "VZ": "TELCO",
+    "ABNB": "RETAIL",
+    "AMZN": "RETAIL",
+    "BKNG": "RETAIL",
+    "HD": "RETAIL",
+    "LOW": "RETAIL",
+    "TGT": "RETAIL",
+    "COST": "STAPLES",
+    "WMT": "STAPLES",
+    "CMG": "CONSVC",
+    "MCD": "CONSVC",
+    "SBUX": "CONSVC",
+    "NKE": "DURABLES",
+    "F": "AUTOS",
+    "GM": "AUTOS",
+    "RIVN": "AUTOS",
+    "TSLA": "AUTOS",
+    "AAL": "TRANSPORT",
+    "DAL": "TRANSPORT",
+    "LUV": "TRANSPORT",
+    "UAL": "TRANSPORT",
+    "UBER": "TRANSPORT",
+    "SOFI": "DIVFIN",
+    "HIMS": "HCES"
+   },
+   "UNMAPPED_TICKER": "the runner refuses if any run ticker is missing from the map"
+  },
+  "constants": {
+   "base_notional": 1,
+   "K": 4,
+   "S": 5.333333333333333,
+   "G": 16,
+   "K_MAX": 2.5,
+   "nesting": [
+    "cluster",
+    "group",
+    "book"
+   ],
+   "cost_bps": 5,
+   "spy_cost_bps": 0.5,
+   "es_level": 0.05,
+   "w10": 10,
+   "block": 21,
+   "reps": 10000,
+   "seed": 20261024,
+   "ni_margin": 0.3,
+   "k_cal": 1.086957
+  },
+  "pass_bar": {
+   "gates": {
+    "months": [
+     "2020-01",
+     "2023-12"
+    ],
+    "cost_bps": 5,
+    "spy_cost_bps": 0.5,
+    "normalisation": "EQUAL_AVERAGE_ENTRY_GROSS",
+    "G1": {
+     "k_at_most": 2.5
+    },
+    "G2": {
+     "r_es_below": 1.0,
+     "ub95_below": 1.0,
+     "ub95_percentile": 95
+    },
+    "G3": {
+     "w10_above_v1": true,
+     "dd_below_v1": true,
+     "mdd_above_v1": true
+    },
+    "G4": {
+     "lb95_dsr_above": -0.3,
+     "lb95_percentile": 5
+    },
+    "pass": [
+     "G1",
+     "G2",
+     "G3",
+     "G4"
+    ],
+    "counts_only_if_v1_check": "PASS"
+   },
+   "wording": {
+    "at": "c = 5 bps a side on stock and c_SPY = 0.5 bps a side, at equal average gross (P^N against v1), on 2020-01..2023-12",
+    "G1": "feasibility: k <= 2.5",
+    "G2": "tail (primary): R_ES < 1, AND its UB95 < 1",
+    "G3": "consistency (point estimates, all three): W10(P^N) is less severe than W10(v1); DD(P^N) < DD(v1); and MDD(P^N) is shallower than MDD(v1)",
+    "G4": "Sharpe non-inferiority: LB95 of dSR > -0.30",
+    "verdict": "PASS if and only if G1, G2, G3 and G4 all hold (intersection-union: the joint false-pass rate is at most 5%). The result counts only if v1's check verdict is PASS; there is no standalone path: if v1 fails, the CB result is recorded and does not go forward."
+   }
+  },
+  "stress": {
+   "stock_costs_bps": [
+    10,
+    15
+   ],
+   "spy_costs_bps": [
+    0,
+    1
+   ],
+   "normalisations": [
+    "K_CAL",
+    "EQUAL_VOL",
+    "TIME_WEIGHTED",
+    "UNNORMALISED"
+   ],
+   "post_skip_candidates": true,
+   "late_excluded": true,
+   "leave_one_year_out": true,
+   "by_year": true,
+   "intraday_trough": true,
+   "gross": [
+    "peak",
+    "p99_of_active_sessions"
+   ],
+   "binding": true,
+   "concentration": {
+    "best_days": 10,
+    "top_stocks": 3
+   },
+   "correlation": true
+  },
+  "use": {
+   "pass": "PASS, with v1 PASS: the CB enters the 2024+ hold-out as its own pre-registered secondary hypothesis to v1, in its own family. It does not join, and does not change, the three overlays' registered Holm family. Its hold-out test is this frozen spec and pass bar, unchanged, at one-sided 5%, registered before any 2024 bar is read.",
+   "fail": "FAIL: final for these data, and v1 stays on its plain equal-notional book. Any change to a constant, the map, the nesting or the normalisation is a new variant, testable only on new data or new universes."
+  }
+ },
+ "params": {
+  "constants": {
+   "base_notional": 1,
+   "K": 4,
+   "S": 5.333333333333333,
+   "G": 16,
+   "K_MAX": 2.5,
+   "nesting": [
+    "cluster",
+    "group",
+    "book"
+   ],
+   "cost_bps": 5,
+   "spy_cost_bps": 0.5,
+   "es_level": 0.05,
+   "w10": 10,
+   "block": 21,
+   "reps": 10000,
+   "seed": 20261024,
+   "ni_margin": 0.3,
+   "k_cal": 1.086957
+  },
+  "sector_map": {
+   "ADI": "SEMI",
+   "AMAT": "SEMI",
+   "AMD": "SEMI",
+   "AVGO": "SEMI",
+   "INTC": "SEMI",
+   "KLAC": "SEMI",
+   "LRCX": "SEMI",
+   "MU": "SEMI",
+   "NVDA": "SEMI",
+   "QCOM": "SEMI",
+   "TXN": "SEMI",
+   "ADBE": "SOFT",
+   "CRM": "SOFT",
+   "IBM": "SOFT",
+   "INTU": "SOFT",
+   "MSFT": "SOFT",
+   "NOW": "SOFT",
+   "ORCL": "SOFT",
+   "PLTR": "SOFT",
+   "AAPL": "HARD",
+   "CSCO": "HARD",
+   "DELL": "HARD",
+   "HPQ": "HARD",
+   "CMCSA": "MEDIA",
+   "DIS": "MEDIA",
+   "GOOGL": "MEDIA",
+   "META": "MEDIA",
+   "NFLX": "MEDIA",
+   "T": "TELCO",
+   "TMUS": "TELCO",
+   "VZ": "TELCO",
+   "ABNB": "RETAIL",
+   "AMZN": "RETAIL",
+   "BKNG": "RETAIL",
+   "HD": "RETAIL",
+   "LOW": "RETAIL",
+   "TGT": "RETAIL",
+   "COST": "STAPLES",
+   "WMT": "STAPLES",
+   "CMG": "CONSVC",
+   "MCD": "CONSVC",
+   "SBUX": "CONSVC",
+   "NKE": "DURABLES",
+   "F": "AUTOS",
+   "GM": "AUTOS",
+   "RIVN": "AUTOS",
+   "TSLA": "AUTOS",
+   "AAL": "TRANSPORT",
+   "DAL": "TRANSPORT",
+   "LUV": "TRANSPORT",
+   "UAL": "TRANSPORT",
+   "UBER": "TRANSPORT",
+   "SOFI": "DIVFIN",
+   "HIMS": "HCES"
+  },
+  "pass_bar": {
+   "months": [
+    "2020-01",
+    "2023-12"
+   ],
+   "cost_bps": 5,
+   "spy_cost_bps": 0.5,
+   "normalisation": "EQUAL_AVERAGE_ENTRY_GROSS",
+   "G1": {
+    "k_at_most": 2.5
+   },
+   "G2": {
+    "r_es_below": 1.0,
+    "ub95_below": 1.0,
+    "ub95_percentile": 95
+   },
+   "G3": {
+    "w10_above_v1": true,
+    "dd_below_v1": true,
+    "mdd_above_v1": true
+   },
+   "G4": {
+    "lb95_dsr_above": -0.3,
+    "lb95_percentile": 5
+   },
+   "pass": [
+    "G1",
+    "G2",
+    "G3",
+    "G4"
+   ],
+   "counts_only_if_v1_check": "PASS"
+  }
+ },
+ "constants": {
+  "base_notional": 1,
+  "K": 4,
+  "S": 5.333333333333333,
+  "G": 16,
+  "K_MAX": 2.5,
+  "nesting": [
+   "cluster",
+   "group",
+   "book"
+  ],
+  "cost_bps": 5,
+  "spy_cost_bps": 0.5,
+  "es_level": 0.05,
+  "w10": 10,
+  "block": 21,
+  "reps": 10000,
+  "seed": 20261024,
+  "ni_margin": 0.3,
+  "k_cal": 1.086957
+ },
+ "sector_map": {
+  "ADI": "SEMI",
+  "AMAT": "SEMI",
+  "AMD": "SEMI",
+  "AVGO": "SEMI",
+  "INTC": "SEMI",
+  "KLAC": "SEMI",
+  "LRCX": "SEMI",
+  "MU": "SEMI",
+  "NVDA": "SEMI",
+  "QCOM": "SEMI",
+  "TXN": "SEMI",
+  "ADBE": "SOFT",
+  "CRM": "SOFT",
+  "IBM": "SOFT",
+  "INTU": "SOFT",
+  "MSFT": "SOFT",
+  "NOW": "SOFT",
+  "ORCL": "SOFT",
+  "PLTR": "SOFT",
+  "AAPL": "HARD",
+  "CSCO": "HARD",
+  "DELL": "HARD",
+  "HPQ": "HARD",
+  "CMCSA": "MEDIA",
+  "DIS": "MEDIA",
+  "GOOGL": "MEDIA",
+  "META": "MEDIA",
+  "NFLX": "MEDIA",
+  "T": "TELCO",
+  "TMUS": "TELCO",
+  "VZ": "TELCO",
+  "ABNB": "RETAIL",
+  "AMZN": "RETAIL",
+  "BKNG": "RETAIL",
+  "HD": "RETAIL",
+  "LOW": "RETAIL",
+  "TGT": "RETAIL",
+  "COST": "STAPLES",
+  "WMT": "STAPLES",
+  "CMG": "CONSVC",
+  "MCD": "CONSVC",
+  "SBUX": "CONSVC",
+  "NKE": "DURABLES",
+  "F": "AUTOS",
+  "GM": "AUTOS",
+  "RIVN": "AUTOS",
+  "TSLA": "AUTOS",
+  "AAL": "TRANSPORT",
+  "DAL": "TRANSPORT",
+  "LUV": "TRANSPORT",
+  "UAL": "TRANSPORT",
+  "UBER": "TRANSPORT",
+  "SOFI": "DIVFIN",
+  "HIMS": "HCES"
+ },
+ "group_names": {
+  "SEMI": "Semiconductors & Semiconductor Equipment",
+  "SOFT": "Software & Services",
+  "HARD": "Technology Hardware & Equipment",
+  "MEDIA": "Media & Entertainment",
+  "TELCO": "Telecommunication Services",
+  "RETAIL": "Retailing",
+  "STAPLES": "Food & Staples Retailing",
+  "CONSVC": "Consumer Services",
+  "DURABLES": "Consumer Durables & Apparel",
+  "AUTOS": "Automobiles & Components",
+  "TRANSPORT": "Transportation",
+  "DIVFIN": "Diversified Financials",
+  "HCES": "Health Care Equipment & Services"
+ },
+ "pass_bar": {
+  "months": [
+   "2020-01",
+   "2023-12"
+  ],
+  "cost_bps": 5,
+  "spy_cost_bps": 0.5,
+  "normalisation": "EQUAL_AVERAGE_ENTRY_GROSS",
+  "G1": {
+   "k_at_most": 2.5
+  },
+  "G2": {
+   "r_es_below": 1.0,
+   "ub95_below": 1.0,
+   "ub95_percentile": 95
+  },
+  "G3": {
+   "w10_above_v1": true,
+   "dd_below_v1": true,
+   "mdd_above_v1": true
+  },
+  "G4": {
+   "lb95_dsr_above": -0.3,
+   "lb95_percentile": 5
+  },
+  "pass": [
+   "G1",
+   "G2",
+   "G3",
+   "G4"
+  ],
+  "counts_only_if_v1_check": "PASS"
+ },
+ "stress": {
+  "stock_costs_bps": [
+   10,
+   15
+  ],
+  "spy_costs_bps": [
+   0,
+   1
+  ],
+  "normalisations": [
+   "K_CAL",
+   "EQUAL_VOL",
+   "TIME_WEIGHTED",
+   "UNNORMALISED"
+  ],
+  "post_skip_candidates": true,
+  "late_excluded": true,
+  "leave_one_year_out": true,
+  "by_year": true,
+  "intraday_trough": true,
+  "gross": [
+   "peak",
+   "p99_of_active_sessions"
+  ],
+  "binding": true,
+  "concentration": {
+   "best_days": 10,
+   "top_stocks": 3
+  },
+  "correlation": true
+ },
+ "base": {
+  "variant": "EXT-FADE.v1",
+  "spec": {
+   "setup": "EXTENSION_FADE",
+   "gap": 0.01,
+   "prior": 0.01,
+   "spy_gap_max": null,
+   "entry_bar": 1,
+   "cap": null,
+   "scale": "X1"
+  },
+  "spec_sha256": "368e410c1a1702dd88051e6c1bf6f82cdf55e0236fb38867b199842d2ad62e71",
+  "definition_sha256": "c8c1ba1b49eacd2704301d079e3f821d003438dda5369b1e346159e5501b7f7a",
+  "confirm_entry": 17,
+  "confirm_verdict": "PASS",
+  "confirm_lab_code_sha256": "518b55575f3cd4d7ba453927eb63cdb4af21989acd1f653f39af552fca5db150"
+ },
+ "lab_code_sha256": "518b55575f3cd4d7ba453927eb63cdb4af21989acd1f653f39af552fca5db150",
+ "daily_prices_sha256": "2f8bc6ff4e45eb7bb4525cf56b5f22d5cf68a452db207c35e6d2d5b6a8db147f",
+ "protected_files": {
+  "stock_machine/backtest/intraday_lab.py": "edbe325902862a570c0c232ade0bd75309940703764502518464184618db2613",
+  "stock_machine/backtest/intraday_replay.py": "a7e8f134ed191b9764c62e027a9be0c8af2157a853fa8be6fa2670253abb7315",
+  "scripts/run_intraday_lab.py": "605d45c86671692b190a296c32ceaf4ce6c04650a12375b12330c4349c74e9a4",
+  "stock_machine/backtest/implied_vol_replay.py": "abb3dd3e37a311e29d9588519ea6738ae7017d757a8435db3dc5208e221dec23",
+  "stock_machine/backtest/ext_fade_overlays.py": "a1b546803aa3303ef11a7a2b5f401743321a85cad2c556e96f50632195a56c1c",
+  "scripts/run_ext_fade_overlays.py": "f46fe30e572205103037f7e10544a4f96b94de09914a5142bf159f217ba741af"
+ },
+ "overlays_registration": {
+  "path": "docs/evidence/ext-fade-overlays-registration-2026-10-24.json",
+  "sha256": "6a6574ba97b4c770ae6d697cbf77bc1ef229382dfe1981eeb228e1c01bc8f68d",
+  "module_sha256": "a1b546803aa3303ef11a7a2b5f401743321a85cad2c556e96f50632195a56c1c",
+  "runner_sha256": "f46fe30e572205103037f7e10544a4f96b94de09914a5142bf159f217ba741af",
+  "holm_family": "the three overlays only; this spec does not join or change it"
+ },
+ "variants": {
+  "this_freeze": 1,
+  "previews": 1,
+  "round_2": 1413,
+  "lab_log": 16,
+  "total": 1430,
+  "review_alternatives_not_adopted": 34,
+  "review_evaluation_variants": 10,
+  "total_with_the_review": 1474,
+  "note": "This freeze is one spec with one in-sample preview, on top of round 2's 1,413 evaluations and the lab log's 16 tries. The independent review also evaluated 34 alternative cap, map or candidate configurations and 10 evaluation variants on 2016-19, plus simulated worlds; none passed and none was adopted. They are disclosed, and counted in total_with_the_review."
+ },
+ "run_order": [
+  {
+   "step": 1,
+   "what": "EXT-FADE.v1's one-time check, unchanged",
+   "runner": "scripts/run_intraday_lab.py",
+   "command": "python scripts/run_intraday_lab.py check --variants EXT-FADE.v1",
+   "logs_to": "docs/evidence/intraday-lab-log.json"
+  },
+  {
+   "step": 2,
+   "what": "the three overlays' one-time check",
+   "runner": "scripts/run_ext_fade_overlays.py",
+   "command": "python scripts/run_ext_fade_overlays.py check",
+   "logs_to": "docs/evidence/ext-fade-overlays-log.json"
+  },
+  {
+   "step": 3,
+   "what": "this check, once",
+   "runner": "scripts/run_ext_fade_portfolio.py",
+   "command": "python scripts/run_ext_fade_portfolio.py check",
+   "logs_to": "docs/evidence/ext-fade-portfolio-log.json"
+  }
+ ],
+ "before_the_run": "Merge this registration to main in its own PR, not stacked on another, with the owner's explicit approval, on a fresh main, before any 2020 bar is opened. Then finish the 2020-01..2023-12 intraday fetch and run the three steps in order. Until step 3, the lab, the replay, the lab's runner, implied_vol_replay.py, the overlays' module and runner, and this module and runner must not change.",
+ "refusals": {
+  "NOT_REGISTERED": "no registration file",
+  "MODULE_CHANGED_SINCE_IMPORT / MODULE_NOT_REGISTERED": "the module on disk is not the one imported, or not the registered one",
+  "RUNNER_CHANGED_SINCE_IMPORT / RUNNER_NOT_REGISTERED": "the runner changed after it started, or is not the registered one",
+  "SPECS_NOT_REGISTERED": "the spec, parameter or sector-map digest is not the registered one",
+  "LAB_CODE_CHANGED_SINCE_IMPORT / LAB_CODE_NOT_REGISTERED": "the lab's code changed since import, or is not 518b5557...",
+  "OVERLAYS_CODE_NOT_REGISTERED": "ext_fade_overlays.py (on disk or as imported) is not the registered one: its functions enforce the run order and v1's reproduction",
+  "NO_V1_CHECK_IN_THE_LAB_LOG / V1_CHECKED_MORE_THAN_ONCE": "ext_fade_overlays.v1_check_entry finds no single v1 check",
+  "LAB_CODE_IS_NOT_V1_CHECK_CODE": "v1's check entry was made with other lab code",
+  "V1_CHECK_MONTHS_DIFFER": "v1's check entry is not on 2020-01..2023-12",
+  "OVERLAYS_NOT_YET_CHECKED": "ext_fade_overlays.checked_before(its log) is False: the run order",
+  "ALREADY_CHECKED": "this log holds a check, or an entry with this spec's id or digests",
+  "UNMAPPED_TICKER": "a run ticker (or a candidate's) is missing from the sector map",
+  "INPUTS_ARE_NOT_V1_CHECK_INPUTS": "lab.inputs_sha(tickers) differs from v1's check entry",
+  "CHECK_FETCH_INCOMPLETE": "ir.missing_months is not empty",
+  "DAILY_PRICES_NOT_REGISTERED": "the daily prices' sha256 is not ir.DAILY_PRICES_SHA256",
+  "REPLAY_CODE_CHANGED": "ir.behavior_digest() is not ir.BEHAVIOR_SHA256",
+  "BARS_ARE_NOT_V1_CHECK_BARS": "the check months' bars are not the bars of v1's check",
+  "V1_CHECK_NOT_REPRODUCED": "ext_fade_overlays.v1_reproduced(v1, entry) is False",
+  "ELIGIBILITY_DISAGREES_WITH_THE_LAB": "the module's eligible counts per session differ from run['eligible']",
+  "CANDIDATES_DISAGREE_WITH_THE_LAB": "the candidates that end as trades are not exactly v1's trades with the same entry bar, or the skips on eligible stock-days differ from the lab's",
+  "BOOK_TRADE_RECONCILIATION": "a v1 trade re-scored on the module's own candidate differs in reason, minutes, entry bar, gap, side or residual (1e-6 bps)",
+  "V1_BOOK_DISAGREES_WITH_THE_LAB": "the v1 book at c_SPY = 0 does not sum to the lab's net_bps[5] (1e-6 bps)"
+ },
+ "check_reads": "The check opens no intraday bar month after 2023-12: its bar loader refuses later months. The daily price rows go to lab.replay, and to the module's stock-day pass that must judge eligibility as the lab does, uncut, exactly as lab.run passed them for EXT-FADE.v1's logged check and as ext_fade_overlays passes them. The lab's printing-error test (ir.bad_rows) reads the next session's open, so the eligibility of the last 2023 session reads the 2024-01-02 open. Nothing else in the module reads a daily row; no daily value after 2023-12-31 is used except by that lab test. No IV or HV data is read. The runner calls only lab.replay(split='check'), unlogged, and appends only to its own log.",
+ "data_read": "No intraday bar, daily price, IV or other value dated 2020-01-01 or later has been read for this work. The calibration's bar loader refuses every month after 2019-12, so no 2020 bar file was opened. The daily price files hold one JSON document per ticker; they are parsed whole, as the research loaders parse them, and cut at 2019-12-31 before any value is used (the lab's replay and the module's stock-day pass both get the cut rows). The calibration does not hand the lab's replay the 8-K event file (EXT-FADE.v1 does not read it), so no event dates were loaded either. Their sha256 is taken over the files' bytes. The tests use synthetic data, except one that reruns this calibration on the pinned data and is skipped when that data is absent.",
+ "rationale": {
+  "base_notional": "1 unit per trade, as in v1. Stock-dependent caps were rejected: they would re-weight v1's cross-section, which is SW's ground.",
+  "K": "4. Assumed stress residual correlation rho_c = 0.5 for same-side names in one group on a crowded day, plus an 80%-of-ceiling rule: n_eff = m / (1 + (m - 1) rho) reaches 80% of 1/rho at m* = 4(1 - rho)/rho = 4. Both rho_c and the 80% rule are judgement; with a 90% rule the same derivation gives K = 9.",
+  "G": "16. Two judgements give the same number; they are not independent evidence: the same 80% rule with rho_b = 0.2 across groups, and 4x day-trading buying power at 25% of capital per base position (a single-name 10% adverse move costs 2.5% of capital). Disclosure: round 2's cap grid (3-12.5) and its finding that tight caps hurt in-sample were visible.",
+  "S": "G/3: at the full budget the book must span at least three groups. S is a share of the limit, not of realised gross, and with K = 4 it binds only on two-sided groups.",
+  "K_MAX": "2.5 = $250k / $100k, the capacity band",
+  "nesting": "cluster, then group, then book: from the narrowest correlated set to the broadest",
+  "costs": "c = 5 bps: v1's check-bar cost. c_SPY = 0.5 bps: spread, commission and impact, rounded up.",
+  "es_level": "5%: about 50 tail sessions. W10 is about the 1% tail.",
+  "bootstrap": "block 21 (one trading month), B = 10,000, seed = the freeze date",
+  "bounds": "one-sided 95% bounds, joined by intersection-union",
+  "ni_margin": "0.30 Sharpe: about 15% of v1's in-sample Sharpe, and 2-3x round 2's paired standard error. A fixed absolute margin.",
+  "k_cal": "1.888668 / 1.737575, the 2016-19 mean entry gross of v1 over the CB's",
+  "sensitivity": "the review found the in-sample verdict insensitive to all of these (calibration.review)"
+ },
+ "validity": {
+  "size": "in worlds resampled from 2016-19 with the population R_ES set to exactly 1 (residuals on capped sessions x -0.21), G2 passed 4.4% of 1,000 four-year draws, against a nominal 5%",
+  "in_sample_world": "in the 2016-19 world itself (R_ES 1.066), G2 never passed, and UB95 covered the true ratio 90.4% of the time",
+  "power": "in a world with R_ES 0.928, G2 passed 75%",
+  "low_power": "the bootstrap sd of R_ES is about 0.025, so a true improvement under about 4-5% usually goes undetected"
+ },
+ "calibration": {
+  "months": [
+   "2016-01",
+   "2019-12"
+  ],
+  "last_day_read": "2019-12-31",
+  "seconds": 158,
+  "module_sha256": "4210cf59676880c0509798eb50a1d906de2c4388923484f86586712399df1960",
+  "lab_code_sha256": "518b55575f3cd4d7ba453927eb63cdb4af21989acd1f653f39af552fca5db150",
+  "daily_prices_sha256": "2f8bc6ff4e45eb7bb4525cf56b5f22d5cf68a452db207c35e6d2d5b6a8db147f",
+  "spec_sha256": "510383e08ef863d08b1c3905df884f0a97aa5b7c025e9ca7592a7d4b399e8081",
+  "params_sha256": "3170c3a8bcaf00f48e26a77498c84c5fe475de41efe919ce25a8511b66440790",
+  "sector_map_sha256": "61623a16dc09804cb6989ec9bae0283f92d026e93fbac2b723ac8ef894e9e6c4",
+  "v1_skips": {
+   "EXT-FADE.v1:ENTRY_BEYOND_TARGET": 5
+  },
+  "reproduction": {
+   "book_binds_sessions": {
+    "expected": 12,
+    "got": 12,
+    "match": true,
+    "rounded": 12
+   },
+   "candidates": {
+    "expected": 1905,
+    "got": 1905,
+    "match": true,
+    "rounded": 1905
+   },
+   "candidates_that_trade": {
+    "expected": 1900,
+    "got": 1900,
+    "match": true,
+    "rounded": 1900
+   },
+   "cb_es5": {
+    "expected": 612.3747,
+    "got": 612.3746653671228,
+    "match": true,
+    "rounded": 612.3747
+   },
+   "cb_mdd": {
+    "expected": -3963.358,
+    "got": -3963.3580079469502,
+    "match": true,
+    "rounded": -3963.358
+   },
+   "cb_sharpe": {
+    "expected": 2.0319,
+    "got": 2.031920884255499,
+    "match": true,
+    "rounded": 2.0319
+   },
+   "cluster_binds_sessions": {
+    "expected": 36,
+    "got": 36,
+    "match": true,
+    "rounded": 36
+   },
+   "entry_beyond_target_skips": {
+    "expected": 5,
+    "got": 5,
+    "match": true,
+    "rounded": 5
+   },
+   "group_binds_sessions": {
+    "expected": 0,
+    "got": 0,
+    "match": true,
+    "rounded": 0
+   },
+   "k": {
+    "expected": 1.086957,
+    "got": 1.0869565217391304,
+    "match": true,
+    "rounded": 1.086957
+   },
+   "late_excluded": {
+    "expected": 0,
+    "got": 0,
+    "match": true,
+    "rounded": 0
+   },
+   "lb95_dsr": {
+    "expected": -0.1203,
+    "got": -0.12033271198537104,
+    "match": true,
+    "rounded": -0.1203
+   },
+   "mean_s": {
+    "expected": 0.92,
+    "got": 0.92,
+    "match": true,
+    "rounded": 0.92
+   },
+   "min_s": {
+    "expected": 0.309,
+    "got": 0.30917874396135264,
+    "match": true,
+    "rounded": 0.309
+   },
+   "netted_spy_cost_per_unit_cb": {
+    "expected": 1.367,
+    "got": 1.3673603475151432,
+    "match": true,
+    "rounded": 1.367
+   },
+   "netted_spy_cost_per_unit_v1": {
+    "expected": 1.371,
+    "got": 1.3705975931683267,
+    "match": true,
+    "rounded": 1.371
+   },
+   "rescored_within_1e-6_bps": {
+    "expected": 1900,
+    "got": 1900,
+    "match": true,
+    "rounded": 1900
+   },
+   "sessions": {
+    "expected": 1006,
+    "got": 1006,
+    "match": true,
+    "rounded": 1006
+   },
+   "share_s_below_1": {
+    "expected": 0.234,
+    "got": 0.2336842105263158,
+    "match": true,
+    "rounded": 0.234
+   },
+   "ub95_r_es": {
+    "expected": 1.1058,
+    "got": 1.105790662220216,
+    "match": true,
+    "rounded": 1.1058
+   },
+   "unnetted_spy_cost_per_unit_v1": {
+    "expected": 1.437,
+    "got": 1.4369302525817136,
+    "match": true,
+    "rounded": 1.437
+   },
+   "v1_es5": {
+    "expected": 574.6364,
+    "got": 574.636425944989,
+    "match": true,
+    "rounded": 574.6364
+   },
+   "v1_mdd": {
+    "expected": -3756.4702,
+    "got": -3756.470181650875,
+    "match": true,
+    "rounded": -3756.4702
+   },
+   "v1_sharpe": {
+    "expected": 2.0019,
+    "got": 2.001858970197481,
+    "match": true,
+    "rounded": 2.0019
+   },
+   "v1_total_at_5_c_spy_0": {
+    "expected": 47438.8985,
+    "got": 47438.898465827086,
+    "match": true,
+    "rounded": 47438.8985
+   },
+   "v1_trades": {
+    "expected": 1900,
+    "got": 1900,
+    "match": true,
+    "rounded": 1900
+   }
+  },
+  "dry_run": {
+   "G1": true,
+   "G2": false,
+   "G3": false,
+   "G4": true,
+   "verdict": "FAIL"
+  },
+  "proves": "nothing: every constant was fixed before these months were previewed",
+  "sessions": 1006,
+  "active_sessions": 615,
+  "trades": 1900,
+  "k": 1.0869565217391304,
+  "mean_gross": {
+   "cb": 1.7375745526838966,
+   "v1": 1.8886679920477136
+  },
+  "v1": {
+   "T": 1006,
+   "dd": 156.91433549503918,
+   "es5": 574.636425944989,
+   "mdd": -3756.470181650875,
+   "mean": 44.5673588854943,
+   "sd": 353.4139516042449,
+   "sharpe": 2.001858970197481,
+   "total": 44834.76303880731,
+   "w10": -1031.1274119935479,
+   "worst": -1342.971145762443
+  },
+  "cb_at_equal_gross": {
+   "T": 1006,
+   "dd": 166.30041731097776,
+   "es5": 612.3746653671228,
+   "mdd": -3963.3580079469502,
+   "mean": 39.78309821228328,
+   "sd": 310.8079209253051,
+   "sharpe": 2.031920884255499,
+   "total": 40021.79680155707,
+   "w10": -1078.140291222769,
+   "worst": -1441.1724360731098
+  },
+  "ratios": {
+   "dd": 1.0598165985684291,
+   "dsr": 0.030061914058018058,
+   "mdd": 1.055075061504988,
+   "r_es": 1.0656732461052627,
+   "w10": 1.045593666391167,
+   "worst": 1.0731224126598156
+  },
+  "bootstrap": {
+   "T": 1006,
+   "block": 21,
+   "ci90": {
+    "dd": [
+     1.0169260005002854,
+     1.1030105632675455
+    ],
+    "dsr": [
+     -0.12033271198537104,
+     0.14988385637125348
+    ],
+    "k": [
+     1.0541857628798201,
+     1.1201415280260936
+    ],
+    "mdd": [
+     0.9539976467075956,
+     1.1828530976490972
+    ],
+    "r_es": [
+     1.0273959636385965,
+     1.105790662220216
+    ],
+    "w10": [
+     0.9711332971131061,
+     1.1097767284720597
+    ]
+   },
+   "lb95_dsr": -0.12033271198537104,
+   "median_r_es": 1.0655637615419915,
+   "reps": 10000,
+   "sd": {
+    "dsr": 0.08316915826739182,
+    "r_es": 0.024096690068562656
+   },
+   "seed": 20261024,
+   "ub95_r_es": 1.105790662220216,
+   "undefined": {
+    "dd": 0,
+    "dsr": 0,
+    "k": 0,
+    "mdd": 0,
+    "r_es": 0,
+    "w10": 0
+   }
+  },
+  "gates": {
+   "G1": {
+    "k": 1.0869565217391304,
+    "pass": true
+   },
+   "G2": {
+    "pass": false,
+    "r_es": 1.0656732461052627,
+    "ub95": 1.105790662220216
+   },
+   "G3": {
+    "dd": false,
+    "mdd": false,
+    "pass": false,
+    "w10": false
+   },
+   "G4": {
+    "dsr": 0.030061914058018058,
+    "lb95": -0.12033271198537104,
+    "pass": true
+   },
+   "verdict": "FAIL"
+  },
+  "candidates": {
+   "count": 1905,
+   "end_as_trades": 1900,
+   "kinds": {
+    "ENTRY_BEYOND_TARGET": 5,
+    "TRADE": 1900
+   },
+   "late_excluded": 0,
+   "late_excluded_by_reason": {
+    "DAILY_CLOSE_MISMATCH": 0,
+    "DAILY_ROW_ERROR": 0
+   },
+   "late_excluded_sessions": [],
+   "sessions": 618,
+   "unscorable": 0
+  },
+  "hedge": {
+   "events": 1793,
+   "one_sided_sessions_share": 0.8742105263157894,
+   "same_bar_entry_and_exit": 16,
+   "spy_cost_per_unit": {
+    "cb": 1.3673603475151432,
+    "v1": 1.3705975931683267
+   },
+   "unnetted_per_unit": {
+    "cb": 1.439461064268824,
+    "v1": 1.4369302525817136
+   }
+  },
+  "binding": {
+   "candidate_sessions": 618,
+   "positions": {
+    "mean_s": 0.92,
+    "min_s": 0.30917874396135264,
+    "share_below_1": 0.2336842105263158
+   },
+   "sessions_any_layer": 36,
+   "sessions_binding": {
+    "book": 12,
+    "cluster": 36,
+    "group": 0
+   },
+   "share_of_candidate_gross_removed": {
+    "book": 0.028346456692913385,
+    "cluster": 0.051443569553805774,
+    "group": 0.0
+   }
+  },
+  "normalisations": {
+   "EQUAL_AVERAGE_ENTRY_GROSS": {
+    "k": 1.0869565217391304,
+    "mean": {
+     "cb": 39.78309821228328,
+     "v1": 44.5673588854943
+    },
+    "ratios": {
+     "dd": 1.0598165985684291,
+     "dsr": 0.030061914058018058,
+     "mdd": 1.055075061504988,
+     "r_es": 1.0656732461052627,
+     "w10": 1.045593666391167,
+     "worst": 1.0731224126598156
+    }
+   },
+   "EQUAL_VOL": {
+    "k": 1.235958203465964,
+    "mean": {
+     "cb": 45.23662686718256,
+     "v1": 44.5673588854943
+    },
+    "ratios": {
+     "dd": 1.2050978976364408,
+     "dsr": 0.030061914058018058,
+     "mdd": 1.1997063833362904,
+     "r_es": 1.2117573834789628,
+     "w10": 1.18892526391076,
+     "worst": 1.2202276933100797
+    }
+   },
+   "K_CAL": {
+    "k": 1.086957,
+    "mean": {
+     "cb": 39.783115716846496,
+     "v1": 44.5673588854943
+    },
+    "ratios": {
+     "dd": 1.0598170648877325,
+     "dsr": 0.030061914058018502,
+     "mdd": 1.0550755257380144,
+     "r_es": 1.065673715001491,
+     "w10": 1.04559412645238,
+     "worst": 1.0731228848336771
+    }
+   },
+   "TIME_WEIGHTED": {
+    "k": 1.08602369297093,
+    "mean": {
+     "cb": 39.74895625926277,
+     "v1": 44.5673588854943
+    },
+    "ratios": {
+     "dd": 1.058907061349241,
+     "dsr": 0.030061914058018502,
+     "mdd": 1.0541695934846051,
+     "r_es": 1.0647586826967117,
+     "w10": 1.0446963353274576,
+     "worst": 1.0722014563581523
+    }
+   },
+   "UNNORMALISED": {
+    "k": 1.0,
+    "mean": {
+     "cb": 36.600450355300616,
+     "v1": 44.5673588854943
+    },
+    "ratios": {
+     "dd": 0.9750312706829548,
+     "dsr": 0.030061914058018502,
+     "mdd": 0.9706690565845879,
+     "r_es": 0.9804193864168418,
+     "w10": 0.9619461730798737,
+     "worst": 0.9872726196470305
+    }
+   },
+   "scale_free": {
+    "cb": {
+     "es5": 1.9702672426881034,
+     "mdd": -12.75179215557843,
+     "worst": -4.6368587769018275
+    },
+    "v1": {
+     "es5": 1.6259585206994611,
+     "mdd": -10.62909419562868,
+     "worst": -3.7999947078102627
+    }
+   }
+  },
+  "stress": {
+   "by_year": {
+    "2016": {
+     "capped_sessions": 3,
+     "cb": {
+      "T": 252,
+      "dd": 150.0058028878579,
+      "es5": 551.7066040718958,
+      "mdd": -1565.634290416618,
+      "mean": 27.113876455131933,
+      "sd": 228.4669450214082,
+      "sharpe": 1.883946253296817,
+      "total": 6832.69686669325,
+      "w10": -634.675388113191,
+      "worst": -1033.24750551787
+     },
+     "ratios": {
+      "dd": 0.9965932417664851,
+      "dsr": 0.1919188506872722,
+      "mdd": 0.8542462303059966,
+      "r_es": 1.0259471837549785,
+      "w10": 1.0185122003292126,
+      "worst": 0.7693743151356136
+     },
+     "sessions": 252,
+     "v1": {
+      "T": 252,
+      "dd": 150.51858331084912,
+      "es5": 537.7534173373753,
+      "mdd": -1832.766987869291,
+      "mean": 23.325991670681482,
+      "sd": 218.84316867235273,
+      "sharpe": 1.6920274026095448,
+      "total": 5878.149901011732,
+      "w10": -623.1397011327361,
+      "worst": -1342.971145762443
+     }
+    },
+    "2017": {
+     "capped_sessions": 3,
+     "cb": {
+      "T": 251,
+      "dd": 125.80020010778787,
+      "es5": 449.15573226449703,
+      "mdd": -1580.8353722724646,
+      "mean": 29.57462474670743,
+      "sd": 216.50905884880038,
+      "sharpe": 2.168420183817487,
+      "total": 7423.2308114235675,
+      "w10": -494.34843047130164,
+      "worst": -945.4928181964669
+     },
+     "ratios": {
+      "dd": 1.0869565217391304,
+      "dsr": -0.044129105870531316,
+      "mdd": 1.0869565217391304,
+      "r_es": 1.0869565217391304,
+      "w10": 1.0869565217391304,
+      "worst": 1.0869565217391304
+     },
+     "sessions": 251,
+     "v1": {
+      "T": 251,
+      "dd": 115.73618409916484,
+      "es5": 413.22327368333725,
+      "mdd": -1454.3685424906676,
+      "mean": 29.335528741532322,
+      "sd": 210.47534802614823,
+      "sharpe": 2.212549289688018,
+      "total": 7363.217714124609,
+      "w10": -454.8005560335975,
+      "worst": -869.8533927407497
+     }
+    },
+    "2018": {
+     "capped_sessions": 14,
+     "cb": {
+      "T": 251,
+      "dd": 212.15313988716525,
+      "es5": 793.5563846996375,
+      "mdd": -3963.358007946951,
+      "mean": 84.77836224527405,
+      "sd": 454.36468584010663,
+      "sharpe": 2.9619704618409872,
+      "total": 21279.36892356378,
+      "w10": -872.2822318053838,
+      "worst": -1441.1724360731098
+     },
+     "ratios": {
+      "dd": 1.0789682324162935,
+      "dsr": 0.08712228744772199,
+      "mdd": 1.0550750615049864,
+      "r_es": 1.0869565217391302,
+      "w10": 1.0869565217391302,
+      "worst": 1.0869565217391304
+     },
+     "sessions": 251,
+     "v1": {
+      "T": 251,
+      "dd": 196.6259371808003,
+      "es5": 730.0718739236667,
+      "mdd": -3756.4701816508814,
+      "mean": 102.14124809553235,
+      "sd": 564.0096269492125,
+      "sharpe": 2.8748481743932652,
+      "total": 25637.453271978608,
+      "w10": -802.4996532609533,
+      "worst": -1325.878641187261
+     }
+    },
+    "2019": {
+     "capped_sessions": 16,
+     "cb": {
+      "T": 252,
+      "dd": 165.25388285051903,
+      "es5": 575.3626472239041,
+      "mdd": -2192.8265596308747,
+      "mean": 17.803572221731663,
+      "sd": 281.9660147165986,
+      "sharpe": 1.0023298288899807,
+      "total": 4486.500199876378,
+      "w10": -628.5342774364476,
+      "worst": -1352.9823186291972
+     },
+     "ratios": {
+      "dd": 1.0714716160327402,
+      "dsr": -0.2710832264828549,
+      "mdd": 1.1860735935677036,
+      "r_es": 1.0770531349181014,
+      "w10": 1.0798140599206225,
+      "worst": 1.0869565217391304
+     },
+     "sessions": 252,
+     "v1": {
+      "T": 252,
+      "dd": 154.23076111189258,
+      "es5": 534.2008008431769,
+      "mdd": -1848.8115505841952,
+      "mean": 23.634691078144073,
+      "sd": 294.63267072425924,
+      "sharpe": 1.2734130553728356,
+      "total": 5955.942151692307,
+      "w10": -582.0763970073249,
+      "worst": -1244.7437331388614
+     }
+    }
+   },
+   "concentration": {
+    "cb": {
+     "best_10_days_share": 0.46348732966175066,
+     "top_3_stocks": [
+      "NOW",
+      "AMD",
+      "AMAT"
+     ],
+     "top_3_stocks_share": 0.34232285551661673
+    },
+    "correlation": 0.9633440246290687,
+    "v1": {
+     "best_10_days_share": 0.5117921522247841,
+     "top_3_stocks": [
+      "AMD",
+      "NOW",
+      "AMAT"
+     ],
+     "top_3_stocks_share": 0.3476882812715536
+    }
+   },
+   "costs": {
+    "spy_0_bps": {
+     "cb": {
+      "dd": 164.63769573148787,
+      "es5": 607.5860023992878,
+      "mdd": -3891.906118263516,
+      "mean": 42.36558793423037,
+      "sharpe": 2.1536121228321363,
+      "w10": -1069.300880280764,
+      "worst": -1435.3115770532077
+     },
+     "gates": {
+      "G1": {
+       "k": 1.0869565217391304,
+       "pass": true
+      },
+      "G2": {
+       "pass": false,
+       "r_es": 1.066802977985953,
+       "ub95": 1.106838291460712
+      },
+      "G3": {
+       "dd": false,
+       "mdd": false,
+       "pass": false,
+       "w10": false
+      },
+      "G4": {
+       "dsr": 0.04883250990749888,
+       "lb95": -0.11323494902496223,
+       "pass": true
+      },
+      "verdict": "FAIL"
+     },
+     "k": 1.0869565217391304,
+     "lb95_dsr": -0.11323494902496223,
+     "ratios": {
+      "dd": 1.060585494897753,
+      "dsr": 0.04883250990749888,
+      "mdd": 1.0552560484902873,
+      "r_es": 1.066802977985953,
+      "w10": 1.046095759526644,
+      "worst": 1.0869565217391304
+     },
+     "sessions": 1006,
+     "ub95_r_es": 1.106838291460712,
+     "v1": {
+      "dd": 155.2328374501859,
+      "es5": 569.5390947880239,
+      "mdd": -3688.115433056755,
+      "mean": 47.155962689688955,
+      "sharpe": 2.1047796129246374,
+      "w10": -1022.1825970928514,
+      "worst": -1320.486650888951
+     }
+    },
+    "spy_1_bps": {
+     "cb": {
+      "dd": 167.9890363168746,
+      "es5": 617.1633283349579,
+      "mdd": -4034.8098976303845,
+      "mean": 37.200608490336194,
+      "sharpe": 1.9087732603027927,
+      "w10": -1086.9797021647742,
+      "worst": -1447.033295093012
+     },
+     "gates": {
+      "G1": {
+       "k": 1.0869565217391304,
+       "pass": true
+      },
+      "G2": {
+       "pass": false,
+       "r_es": 1.0645633806458183,
+       "ub95": 1.1049302552749352
+      },
+      "G3": {
+       "dd": false,
+       "mdd": false,
+       "pass": false,
+       "w10": false
+      },
+      "G4": {
+       "dsr": 0.011428823210201777,
+       "lb95": -0.12971956673528778,
+       "pass": true
+      },
+      "verdict": "FAIL"
+     },
+     "k": 1.0869565217391304,
+     "lb95_dsr": -0.12971956673528778,
+     "ratios": {
+      "dd": 1.05904722092454,
+      "dsr": 0.011428823210201777,
+      "mdd": 1.054900543479758,
+      "r_es": 1.0645633806458183,
+      "w10": 1.0451002094446844,
+      "worst": 1.05663649828647
+     },
+     "sessions": 1006,
+     "ub95_r_es": 1.1049302552749352,
+     "v1": {
+      "dd": 158.62280075691191,
+      "es5": 579.7337571019541,
+      "mdd": -3824.824930245006,
+      "mean": 41.97875508129965,
+      "sharpe": 1.897344437092591,
+      "w10": -1040.0722268942445,
+      "worst": -1369.471239579214
+     }
+    },
+    "stock_10_bps": {
+     "cb": {
+      "dd": 179.74793615167428,
+      "es5": 654.0977362807384,
+      "mdd": -4462.769414181692,
+      "mean": 20.89641829180615,
+      "sharpe": 1.0970943938577111,
+      "w10": -1144.444639048856,
+      "worst": -1495.5202621600663
+     },
+     "gates": {
+      "G1": {
+       "k": 1.0869565217391304,
+       "pass": true
+      },
+      "G2": {
+       "pass": false,
+       "r_es": 1.0573989244242443,
+       "ub95": 1.0973604829831882
+      },
+      "G3": {
+       "dd": false,
+       "mdd": false,
+       "pass": false,
+       "w10": false
+      },
+      "G4": {
+       "dsr": -0.10284859770366817,
+       "lb95": -0.2240906762954158,
+       "pass": true
+      },
+      "verdict": "FAIL"
+     },
+     "k": 1.0869565217391304,
+     "lb95_dsr": -0.2240906762954158,
+     "ratios": {
+      "dd": 1.0530396289206845,
+      "dsr": -0.10284859770366817,
+      "mdd": 1.0535515954536543,
+      "r_es": 1.0573989244242443,
+      "w10": 1.0412301854733237,
+      "worst": 0.950761408554106
+     },
+     "sessions": 1006,
+     "ub95_r_es": 1.0973604829831882,
+     "v1": {
+      "dd": 170.6943701025833,
+      "es5": 618.5912631194475,
+      "mdd": -4235.928675386842,
+      "mean": 25.68067896501716,
+      "sharpe": 1.1999429915613793,
+      "w10": -1099.1274119935479,
+      "worst": -1572.971145762443
+     }
+    },
+    "stock_15_bps": {
+     "cb": {
+      "dd": 194.73469332730468,
+      "es5": 703.3994831978405,
+      "mdd": -7538.170292613403,
+      "mean": 2.0097383713290107,
+      "sharpe": 0.10751782300087369,
+      "w10": -1210.748986874943,
+      "worst": -1549.8680882470228
+     },
+     "gates": {
+      "G1": {
+       "k": 1.0869565217391304,
+       "pass": true
+      },
+      "G2": {
+       "pass": false,
+       "r_es": 1.0476814896603737,
+       "ub95": 1.0880471754784735
+      },
+      "G3": {
+       "dd": false,
+       "mdd": false,
+       "pass": false,
+       "w10": false
+      },
+      "G4": {
+       "dsr": -0.21999404353816798,
+       "lb95": -0.3831714581518115,
+       "pass": false
+      },
+      "verdict": "FAIL"
+     },
+     "k": 1.0869565217391304,
+     "lb95_dsr": -0.3831714581518115,
+     "ratios": {
+      "dd": 1.045224595527822,
+      "dsr": -0.21999404353816798,
+      "mdd": 1.2290520658294652,
+      "r_es": 1.0476814896603737,
+      "w10": 1.0373751609576936,
+      "worst": 0.8596189084277399
+     },
+     "sessions": 1006,
+     "ub95_r_es": 1.0880471754784735,
+     "v1": {
+      "dd": 186.3089465752255,
+      "es5": 671.386762236165,
+      "mdd": -6133.320550196567,
+      "mean": 6.793999044540025,
+      "sharpe": 0.3275118665390417,
+      "w10": -1167.1274119935479,
+      "worst": -1802.971145762443
+     }
+    }
+   },
+   "gross": {
+    "p99_of_active_sessions": {
+     "cb": 17.391304347826086,
+     "v1": 23.0
+    },
+    "peak": {
+     "cb": 17.391304347826086,
+     "v1": 36.0
+    }
+   },
+   "intraday_trough": {
+    "es5": {
+     "cb": 859.7278323506958,
+     "v1": 839.4106390862497
+    },
+    "worst": {
+     "cb": -1973.3853190381244,
+     "v1": -2417.4899207383137
+    }
+   },
+   "leave_one_year_out": {
+    "2016": {
+     "cb": {
+      "dd": 173.55145106086965,
+      "es5": 634.2311854611457,
+      "mdd": -4013.0758717152785,
+      "mean": 44.56954452665769,
+      "sharpe": 2.092982269686263,
+      "w10": -1025.95139351014,
+      "worst": -1459.2510488806543
+     },
+     "gates": {
+      "G1": {
+       "k": 1.1005917159763314,
+       "pass": true
+      },
+      "G2": {
+       "pass": false,
+       "r_es": 1.0936350946713347,
+       "ub95": 1.1338044673918992
+      },
+      "G3": {
+       "dd": false,
+       "mdd": false,
+       "pass": false,
+       "w10": false
+      },
+      "G4": {
+       "dsr": -0.020947797248977995,
+       "lb95": -0.1909810619633116,
+       "pass": true
+      },
+      "verdict": "FAIL"
+     },
+     "k": 1.1005917159763314,
+     "lb95_dsr": -0.1909810619633116,
+     "ratios": {
+      "dd": 1.0915559349372752,
+      "dsr": -0.020947797248977995,
+      "mdd": 1.068310322631559,
+      "r_es": 1.0936350946713347,
+      "w10": 1.1005917159763312,
+      "worst": 1.1005917159763314
+     },
+     "sessions": 754,
+     "ub95_r_es": 1.1338044673918992,
+     "v1": {
+      "dd": 158.99455585007885,
+      "es5": 579.9294376628874,
+      "mdd": -3756.470181650877,
+      "mean": 51.666595673468876,
+      "sharpe": 2.113930066935241,
+      "w10": -932.181642490396,
+      "worst": -1325.878641187261
+     }
+    },
+    "2017": {
+     "cb": {
+      "dd": 179.48479979063808,
+      "es5": 670.1577609821115,
+      "mdd": -4002.4385613276354,
+      "mean": 43.60265299724483,
+      "sharpe": 2.0374403243330925,
+      "w10": -1073.6960274675448,
+      "worst": -1455.3830666055517
+     },
+     "gates": {
+      "G1": {
+       "k": 1.0976744186046512,
+       "pass": true
+      },
+      "G2": {
+       "pass": false,
+       "r_es": 1.0757404155915382,
+       "ub95": 1.1198294121467653
+      },
+      "G3": {
+       "dd": false,
+       "mdd": false,
+       "pass": false,
+       "w10": false
+      },
+      "G4": {
+       "dsr": 0.014522952445468196,
+       "lb95": -0.15477349492408174,
+       "pass": true
+      },
+      "verdict": "FAIL"
+     },
+     "k": 1.0976744186046512,
+     "lb95_dsr": -0.15477349492408174,
+     "ratios": {
+      "dd": 1.065898466548458,
+      "dsr": 0.014522952445468196,
+      "mdd": 1.0654785923440127,
+      "r_es": 1.0757404155915382,
+      "w10": 1.055339843741123,
+      "worst": 1.0837038987753451
+     },
+     "sessions": 755,
+     "ub95_r_es": 1.1198294121467653,
+     "v1": {
+      "dd": 168.38827095026906,
+      "es5": 622.9734899507321,
+      "mdd": -3756.4701816508787,
+      "mean": 49.63118586050683,
+      "sharpe": 2.0229173718876243,
+      "w10": -1017.393623329287,
+      "worst": -1342.971145762443
+     }
+    },
+    "2018": {
+     "cb": {
+      "dd": 145.31400508286004,
+      "es5": 526.9161096804557,
+      "mdd": -2365.1796892203984,
+      "mean": 24.383467740802686,
+      "sharpe": 1.6167651465914017,
+      "w10": -864.7441461385937,
+      "worst": -1328.9501608793917
+     },
+     "gates": {
+      "G1": {
+       "k": 1.0676496097137902,
+       "pass": true
+      },
+      "G2": {
+       "pass": false,
+       "r_es": 1.0380116371100532,
+       "ub95": 1.0764321347469872
+      },
+      "G3": {
+       "dd": false,
+       "mdd": false,
+       "pass": false,
+       "w10": false
+      },
+      "G4": {
+       "dsr": -0.037486618277786876,
+       "lb95": -0.14789758386338078,
+       "pass": true
+      },
+      "verdict": "FAIL"
+     },
+     "k": 1.0676496097137902,
+     "lb95_dsr": -0.14789758386338078,
+     "ratios": {
+      "dd": 1.0286928413282277,
+      "dsr": -0.037486618277786876,
+      "mdd": 1.0776569370978561,
+      "r_es": 1.0380116371100532,
+      "w10": 1.0183169252903446,
+      "worst": 0.9895597273796294
+     },
+     "sessions": 755,
+     "ub95_r_es": 1.0764321347469872,
+     "v1": {
+      "dd": 141.26083048778048,
+      "es5": 507.62061892432376,
+      "mdd": -2194.742693894643,
+      "mean": 25.426900353415434,
+      "sharpe": 1.6542517648691886,
+      "w10": -849.1896036118973,
+      "worst": -1342.971145762443
+     }
+    },
+    "2019": {
+     "cb": {
+      "dd": 165.11998345782928,
+      "es5": 618.5923312881326,
+      "mdd": -3927.000461228996,
+      "mean": 46.69670611298665,
+      "sharpe": 2.3401068511427123,
+      "w10": -1010.3880896710383,
+      "worst": -1427.9519563515967
+     },
+     "gates": {
+      "G1": {
+       "k": 1.0769854132901135,
+       "pass": true
+      },
+      "G2": {
+       "pass": false,
+       "r_es": 1.054197764164805,
+       "ub95": 1.1067787574362966
+      },
+      "G3": {
+       "dd": false,
+       "mdd": false,
+       "pass": false,
+       "w10": false
+      },
+      "G4": {
+       "dsr": 0.13321410899116026,
+       "lb95": -0.0739381595360446,
+       "pass": true
+      },
+      "verdict": "FAIL"
+     },
+     "k": 1.0769854132901135,
+     "lb95_dsr": -0.0739381595360446,
+     "ratios": {
+      "dd": 1.0463807111737569,
+      "dsr": 0.13321410899116026,
+      "mdd": 1.0453964150736788,
+      "r_es": 1.054197764164805,
+      "w10": 1.033749218156792,
+      "worst": 1.0632782103005702
+     },
+     "sessions": 754,
+     "ub95_r_es": 1.1067787574362966,
+     "v1": {
+      "dd": 157.8010581565568,
+      "es5": 586.7896445200834,
+      "mdd": -3756.470181650875,
+      "mean": 51.56342292720817,
+      "sharpe": 2.206892742151552,
+      "w10": -977.4015514832433,
+      "worst": -1342.971145762443
+     }
+    }
+   },
+   "post_skip_candidates": {
+    "cb": {
+     "dd": 166.30041731097776,
+     "es5": 612.3746653671228,
+     "mdd": -3963.3580079469502,
+     "mean": 39.78309821228328,
+     "sharpe": 2.031920884255499,
+     "w10": -1078.140291222769,
+     "worst": -1441.1724360731098
+    },
+    "gates": {
+     "G1": {
+      "k": 1.0869565217391304,
+      "pass": true
+     },
+     "G2": {
+      "pass": false,
+      "r_es": 1.0656732461052627,
+      "ub95": 1.105790662220216
+     },
+     "G3": {
+      "dd": false,
+      "mdd": false,
+      "pass": false,
+      "w10": false
+     },
+     "G4": {
+      "dsr": 0.030061914058018058,
+      "lb95": -0.12033271198537104,
+      "pass": true
+     },
+     "verdict": "FAIL"
+    },
+    "k": 1.0869565217391304,
+    "lb95_dsr": -0.12033271198537104,
+    "positions_that_differ": 0,
+    "ratios": {
+     "dd": 1.0598165985684291,
+     "dsr": 0.030061914058018058,
+     "mdd": 1.055075061504988,
+     "r_es": 1.0656732461052627,
+     "w10": 1.045593666391167,
+     "worst": 1.0731224126598156
+    },
+    "sessions": 1006,
+    "ub95_r_es": 1.105790662220216,
+    "v1": {
+     "dd": 156.91433549503918,
+     "es5": 574.636425944989,
+     "mdd": -3756.470181650875,
+     "mean": 44.5673588854943,
+     "sharpe": 2.001858970197481,
+     "w10": -1031.1274119935479,
+     "worst": -1342.971145762443
+    }
+   }
+  },
+  "halves": {
+   "H1": {
+    "cb": {
+     "T": 503,
+     "dd": 131.56668941645114,
+     "es5": 476.0999572473112,
+     "mdd": -1502.1646917743965,
+     "mean": 26.9313673083643,
+     "sd": 211.29596458373413,
+     "sharpe": 2.02333349352623,
+     "total": 13546.477756107248,
+     "w10": -714.2124970481706,
+     "worst": -981.8276766047742
+    },
+    "gates": {
+     "G1": {
+      "k": 1.0328638497652582,
+      "pass": true
+     },
+     "G2": {
+      "pass": false,
+      "r_es": 1.0001196618972255,
+      "ub95": 1.0412656928888016
+     },
+     "G3": {
+      "dd": true,
+      "mdd": true,
+      "pass": true,
+      "w10": true
+     },
+     "G4": {
+      "dsr": 0.07525505762771001,
+      "lb95": -0.04099649265687539,
+      "pass": true
+     },
+     "verdict": "FAIL"
+    },
+    "k": 1.0328638497652582,
+    "lb95_dsr": -0.04099649265687539,
+    "ratios": {
+     "dd": 0.9797001463505408,
+     "dsr": 0.07525505762771001,
+     "mdd": 0.8196157513295016,
+     "r_es": 1.0001196618972255,
+     "w10": 0.9774013744069442,
+     "worst": 0.7310862036781607
+    },
+    "sessions": 503,
+    "trades": 660,
+    "ub95_r_es": 1.0412656928888016,
+    "v1": {
+     "T": 503,
+     "dd": 134.29281388448015,
+     "es5": 476.0429930396032,
+     "mdd": -1832.766987869291,
+     "mean": 26.324786511205456,
+     "sd": 214.51550556297659,
+     "sharpe": 1.9480784358985201,
+     "total": 13241.367615136345,
+     "w10": -730.7258980288746,
+     "worst": -1342.971145762443
+    }
+   },
+   "H2": {
+    "cb": {
+     "T": 503,
+     "dd": 195.55993573022286,
+     "es5": 709.051936264727,
+     "mdd": -4077.0052438826724,
+     "mean": 52.69322477402591,
+     "sd": 389.93199827910206,
+     "sharpe": 2.145192020332411,
+     "total": 26504.692061335027,
+     "w10": -1007.0475403813934,
+     "worst": -1482.4973084510405
+    },
+    "gates": {
+     "G1": {
+      "k": 1.1181244364292156,
+      "pass": true
+     },
+     "G2": {
+      "pass": false,
+      "r_es": 1.1153080877954584,
+      "ub95": 1.1605044583533628
+     },
+     "G3": {
+      "dd": false,
+      "mdd": false,
+      "pass": false,
+      "w10": false
+     },
+     "G4": {
+      "dsr": -0.06580140665784784,
+      "lb95": -0.2658828868293361,
+      "pass": true
+     },
+     "verdict": "FAIL"
+    },
+    "k": 1.1181244364292156,
+    "lb95_dsr": -0.2658828868293361,
+    "ratios": {
+     "dd": 1.1069688103302993,
+     "dsr": -0.06580140665784784,
+     "mdd": 1.0853287918529206,
+     "r_es": 1.1153080877954584,
+     "w10": 1.1181244364292153,
+     "worst": 1.1181244364292156
+    },
+    "sessions": 503,
+    "trades": 1240,
+    "ub95_r_es": 1.1605044583533628,
+    "v1": {
+     "T": 503,
+     "dd": 176.66255264398222,
+     "es5": 635.7453550491632,
+     "mdd": -3756.4701816508814,
+     "mean": 62.809931259783156,
+     "sd": 450.96323476093335,
+     "sharpe": 2.210993426990259,
+     "total": 31593.395423670914,
+     "w10": -900.6578405507786,
+     "worst": -1325.878641187261
+    }
+   }
+  },
+  "tail_anatomy": "the caps bind on 36 of 615 active sessions; those sessions hold 49% of v1's P&L but only 9% of its ES5 loss: 4 of the 51 worst days (designer's preview)",
+  "review": {
+   "grid": "K {3,4,5} x S {4, 16/3, 20/3} x G {12,16,20}: R_ES 1.035-1.096, UB95 1.059-1.156, dSR -0.019 to +0.072; 0 of 27 points pass; G2 and G3 fail at every point and G4 passes at every point; S has no effect anywhere in that range",
+   "single_layers": "cluster-only R_ES 1.044, book-only 1.044, group-only 1.018: looser caps move R_ES toward 1 from above and never below it",
+   "maps": "2016-structure groups 1.068; GICS sectors 1.110; repo sectors.py 1.071; one group per side 1.266",
+   "evaluation_constants": "ES level 3.75% / 6.25%, block 16 / 26, NI 0.225 / 0.375, other seeds: no gate changes",
+   "no_constant_changed": true
+  }
+ },
+ "risks": [
+  "Expect a FAIL. The mechanism is structural: equal-average-gross normalisation levers every uncapped day by k, and the caps bind on crowded days, which carried v1's profit, not its tail.",
+  "The realistic chance of a pass that counts is in the low single digits. In crash-episode worlds (a random 10/20/30/40/50% of the capped sessions turned into losses, 40 draws each) v1 passed its own bar in 39/39/33/24/14 draws, the CB in 0/0/1/4/14, and both in 0/0/0/0/1. Under uniform stress the bar first passes where v1's Sharpe is 0.12 and v1 fails its own check. The test is valid (size 4.4% at R_ES = 1) and close to unreachable together with a v1 pass.",
+  "Do not swap the endpoint now. The caps' visible benefits (peak gross 36 to 17.4, worst intraday trough -2,417 to -1,973, Sharpe unchanged) are about margin and capacity; re-registering around them now would choose the endpoint after seeing the preview.",
+  "The group layer has no effect on one-sided days. Disclosed, not tuned.",
+  "rho_c, rho_b, the 80% rule and the 25% position size are judgement; the sensitivity shows they do not decide the in-sample answer.",
+  "The sector map is unverified (ABNB, HIMS, UBER) and the 2023 GICS change is not applied. It is frozen, so this affects interpretation only.",
+  "Low power: the bootstrap sd of R_ES is about 0.025, so a true improvement under about 4-5% usually goes undetected.",
+  "At 10 bps the CB's Sharpe trails v1's by 0.10 in-sample. The SPY hedge netting saves only about 5%.",
+  "k is ex post (exposure only). k_cal is reported.",
+  "The result depends on v1, and 2019 was v1's weak year. The test spends no new data.",
+  "Run order: the CB is blocked if the overlays' runner can never succeed. No fallback is registered.",
+  "The SPY hedge leaves semis and software factor risk on the many uncapped days. A sector-ETF hedge is not testable on the current data (no ETF minute bars) and is not part of this spec."
+ ],
+ "recommendation": [
+  "Build and register now only if the owner wants item 77 closed with a clean, pre-registered answer. It is cheap, spends no new data, and the time before any 2020 bar is opened is the only time it can be clean.",
+  "Running waits for v1's check and the overlays' check, which need the finished 2020-23 fetch.",
+  "If the owner's real goal is lower peak leverage or margin, adopt the caps as an operating policy without claiming a risk improvement. That needs no test."
+ ],
+ "use_of_the_verdict": {
+  "pass": "PASS, with v1 PASS: the CB enters the 2024+ hold-out as its own pre-registered secondary hypothesis to v1, in its own family. It does not join, and does not change, the three overlays' registered Holm family. Its hold-out test is this frozen spec and pass bar, unchanged, at one-sided 5%, registered before any 2024 bar is read.",
+  "fail": "FAIL: final for these data, and v1 stays on its plain equal-notional book. Any change to a constant, the map, the nesting or the normalisation is a new variant, testable only on new data or new universes."
+ },
+ "build_notes": [
+  {
+   "what": "file names",
+   "note": "The design named the files ext_fade_book.py / run_ext_fade_book.py / ext-fade-book-log.json; the build names them ext_fade_portfolio.py, run_ext_fade_portfolio.py, calibrate_ext_fade_portfolio.py, ext-fade-portfolio-log.json and data/ext_fade_portfolio/, as the build request asked. Nothing else differs."
+  },
+  {
+   "what": "OVERLAYS_CODE_NOT_REGISTERED",
+   "note": "An added refusal: the runner relies on ext_fade_overlays.v1_check_entry, v1_reproduced and checked_before for the run order and v1's reproduction, so that module (on disk and as imported) must be the registered one."
+  },
+  {
+   "what": "stronger reconciliations",
+   "note": "CANDIDATES_DISAGREE_WITH_THE_LAB also requires the skips counted on eligible stock-days (MISSING_SPY_OPEN, RULE_201, NO_ENTRY_MINUTE, ENTRY_BEYOND_TARGET, UNSCORABLE) to equal the lab's; BOOK_TRADE_RECONCILIATION also requires the gap and the side to equal the lab's."
+  },
+  {
+   "what": "condition 2, corrected so that the candidates are point in time as the spec says",
+   "note": "As first written, a late-excluded candidate needed only f, day['o'][0], the SPY day and SPY features. Because ir.eligibility returns at its first reason, a stock-day that a check known before the open would drop (CORPORATE_ACTION, PRICE_FLOOR, PRICE_MISMATCH, NO_HISTORY, NO_SPY, SPY_DAILY_ERROR) became a candidate whenever it also carried a late flag, which can come from the session's own close or the next session's open. That contradicted SPEC['candidates']['reads']. The build's review found it on the synthetic fixture. Condition 2 now also requires later_exclusion(...) is None: ir.eligibility's checks after the two late ones, in its order and with its constants (LATER), tested against ir.eligibility itself. A stock-day is a candidate exactly when it would be one with its two late checks ignored. Effect: none in 2016-19 (no late-excluded candidates; the 3 late-flagged stock-days pass the later checks and do not trigger the setup), so the calibration is unchanged figure for figure. In 2020-23 it can matter on sub-$10 stretches (F, AAL, SOFI, HIMS), new listings (PLTR, ABNB, RIVN, SOFI, HIMS) and the IBM and T corporate-action days, named from general market knowledge and the replay's own corporate-action list, not from any 2020+ data. The spec wording changed with it (condition_2, reads, history), so spec_sha256 changed; params_sha256 did not. This edits the frozen text of condition 2 and needs the owner's sign-off at the merge. The fallback, if the owner prefers condition 2 as first written, is to restore it and correct the claim instead."
+  },
+  {
+   "what": "the intraday trough",
+   "note": "Points: the close of each minute 09:30..15:59 (the last traded close carried through a missing minute or after a half session ends), then the official close. A trade counts from its entry bar and is frozen at its residual from its exit bar on; a session's trough is never above 0. The designer's preview charged 2c from bar 1 for a trade not yet entered and held float32 paths; on 2016-19 this build gives ES5 839.4 / 859.7 and worst -2,417.5 / -1,973.4 (v1 / CB), against the preview's 839 / 859 and -2,417 / -1,973. Reported, not gating."
+  },
+  {
+   "what": "undefined statistics",
+   "note": "A bound over replicates any of which is undefined (v1's ES5 not above 0, a zero sd) is undefined and fails its gate; W10 needs at least 10 sessions; R_ES needs v1's ES5 above 0. None arises on 2016-19."
+  },
+  {
+   "what": "p99 gross",
+   "note": "taken over the sessions with a trade (v1 23.0, CB 17.4 normalised, on 2016-19)"
+  }
+ ]
+}
