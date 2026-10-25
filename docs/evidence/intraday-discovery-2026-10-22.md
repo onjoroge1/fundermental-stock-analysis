@@ -91,7 +91,9 @@ least 3 of the 4 years (`intraday-lab.md`).
 
 **The confirm (2026-10-24)** passed only the control, `EXT-FADE.v1`: +26.3 bps net at 5 a side over 1,353 trades,
 t 3.80, positive in all three periods. `EXT-FADE.v2` (+5.2), `EARN-FH.v1` (+6.9) and `EARN-FH15.v1` (+4.6) failed.
-The refinements shrank most, as warned below (`intraday-lab.md`).
+The refinements shrank most, as warned below (`intraday-lab.md`). **The check (2026-10-25)** then failed `EXT-FADE.v1` on 2020-2023: +3.5 bps net at 5 a side, t 0.70, with its
+gross edge down from about +36 to +13.5 bps. All three overlays and the constrained book failed too
+(`intraday-lab.md`).
 
 ## Warnings
 
