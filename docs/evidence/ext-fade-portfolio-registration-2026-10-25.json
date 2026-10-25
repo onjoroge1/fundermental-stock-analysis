@@ -7,7 +7,7 @@
  "tracker_item": 77,
  "use": "INFORMATION_ONLY",
  "module": "stock_machine/backtest/ext_fade_portfolio.py",
- "module_sha256": "16920339e24ebeb32f267d775d1ee217ea7716e17c37ebadb50f2acd58755c63",
+ "module_sha256": "4210cf59676880c0509798eb50a1d906de2c4388923484f86586712399df1960",
  "runner": "scripts/run_ext_fade_portfolio.py",
  "runner_sha256": "eafeedf63df31f9912daa14c2294bd4c7d3ad4db93a3e9ee6eb923b425045de9",
  "calibration_script": "scripts/calibrate_ext_fade_portfolio.py",
@@ -15,7 +15,7 @@
  "tests": "tests/test_ext_fade_portfolio.py",
  "log": "docs/evidence/ext-fade-portfolio-log.json",
  "output": "data/ext_fade_portfolio/check-2020-01-2023-12-entry-<n>.{json,md}: aggregates only, never raw bars",
- "spec_sha256": "543feb1b664cfe0c3719dba454d4bce9aaa5d85f1d3e7895e2c9f8eb2b3093a9",
+ "spec_sha256": "510383e08ef863d08b1c3905df884f0a97aa5b7c025e9ca7592a7d4b399e8081",
  "params_sha256": "3170c3a8bcaf00f48e26a77498c84c5fe475de41efe919ce25a8511b66440790",
  "sector_map_sha256": "61623a16dc09804cb6989ec9bae0283f92d026e93fbac2b723ac8ef894e9e6c4",
  "digests": "spec_sha256 is the digest of the whole spec (SPEC), its wording included: the runner refuses (SPECS_NOT_REGISTERED) unless it equals the code's, so the text is pinned. params_sha256 is the digest of the constants, the sector map and the pass bar only: the same for any rewording. sector_map_sha256 is contracts.digest(SECTOR_MAP). All three are registered and written into the log entry.",
@@ -23,7 +23,7 @@
  "spec": {
   "id": "EXT-FADE-CB.v1",
   "what": "EXT-FADE.v1 with a constrained book (owner-approved candidate 2, tracker item 77). One frozen spec, not a family. It changes only (a) position size, through book limits applied by proportional scale-down, and (b) how the SPY hedge is held and charged. No trade is ever added or dropped. Information only: nothing trades.",
-  "history": "Designed 2026-10-24, and reviewed and corrected on 2026-10-24 by an independent skeptic. Neither the design nor the review read anything dated 2020-01-01 or later. Every cap, cost and evaluation constant was fixed before the single in-sample preview (2016-19), and none was changed after it or after the review. The review changed only build mechanics (data handling, reconciliations, RNG pinning, runner checks), added the end-of-day exclusions to the candidate set (no effect in 2016-19), separated the hold-out family, and corrected the disclosures.",
+  "history": "Designed 2026-10-24, and reviewed and corrected on 2026-10-24 by an independent skeptic. Neither the design nor the review read anything dated 2020-01-01 or later. Every cap, cost and evaluation constant was fixed before the single in-sample preview (2016-19), and none was changed after it or after the review. The review changed only build mechanics (data handling, reconciliations, RNG pinning, runner checks), added the end-of-day exclusions to the candidate set (no effect in 2016-19), separated the hold-out family, and corrected the disclosures. The build's review, also on 2026-10-24 and also reading nothing dated 2020-01-01 or later, made condition 2 apply the lab's checks that ir.eligibility makes after the two late ones, so that membership is point in time as stated (no effect in 2016-19); no constant changed.",
   "scope": {
    "on": {
     "variant": "EXT-FADE.v1",
@@ -53,10 +53,10 @@
    "stock_day_pass": "this module's own, mirroring ext_fade_overlays.stock_days exactly: the same warm-up month (ir.previous_month), ir.detection_months, ir.spy_features, ir.daily_features with ir.off_rows, ir.History updated after every session, ir.CORPORATE_ACTIONS and ir.eligibility; it receives the daily price rows uncut",
    "C_t": "every stock-day of session t that meets condition 1 or 2, and condition 3",
    "condition_1": "ir.eligibility(...) is None",
-   "condition_2": "ir.eligibility(...) is DAILY_ROW_ERROR or DAILY_CLOSE_MISMATCH, and f, day['o'][0], the session's SPY day and its SPY features all exist (a late-excluded candidate: those checks read the session's own daily close and last minute, or the next session's open)",
+   "condition_2": "ir.eligibility(...) is DAILY_ROW_ERROR or DAILY_CLOSE_MISMATCH, and the stock-day passes every check ir.eligibility makes after those two, in its order and with its constants: CORPORATE_ACTION, PRICE_FLOOR, MISSING_OPEN_BAR, PRICE_MISMATCH, NO_HISTORY, NO_SPY and SPY_DAILY_ERROR (later_exclusion is None). ir.eligibility stops at the first reason, so it never judges a late-flagged stock-day on these. Such a stock-day is a late-excluded candidate: the two late checks read the session's own daily close and last minute, or the next session's open",
    "condition_3": "lab.extension_fade(day, f, day['o'][0] / f['prior_close'] - 1, lab.VARIANTS['EXT-FADE.v1'], {'spy': spy_day, 'spy_f': spy_f, 'timing': None}) returns a trade, or a skip other than MISSING_SPY_OPEN (RULE_201, NO_ENTRY_MINUTE, ENTRY_BEYOND_TARGET)",
    "budget": "late-excluded candidates, skipped candidates and trades the lab later drops as UNSCORABLE all use their share of the cap budget and never trade; that budget is never reallocated",
-   "reads": "the 09:30 open (the gap); prior sessions' daily rows and minute bars; the universe, listing dates and corporate-action dates; and the session's official open (the PRICE_MISMATCH check). Through condition 2, membership does not depend on any check that reads data after 09:30. A stock-day with no daily row for the session itself has no features and is never a candidate, as in v1.",
+   "reads": "the 09:30 open (the gap); prior sessions' daily rows and minute bars; the universe, listing dates and corporate-action dates; and the session's official open (the PRICE_MISMATCH check). Through condition 2, a stock-day is a candidate exactly when it would be one with its own two late checks ignored, so those checks, which read its daily close and last minute or the next session's open, cannot change membership. Inherited and the same for both books: a stock-day with no daily row for the session itself has no features and is never a candidate, as in v1; and NO_SPY and SPY_DAILY_ERROR read SPY's own day, including its session row, but they exclude every stock-day of the session at once, so on such a session v1 has no trade and C_t sizes nothing.",
    "reconciliations": {
     "ELIGIBILITY_DISAGREES_WITH_THE_LAB": "the eligible counts per session under condition 1 equal run['eligible']",
     "CANDIDATES_DISAGREE_WITH_THE_LAB": "the candidates that end as lab trades are exactly v1's check trades, the same (ticker, session) set and the same entry_bar; and the skips counted on eligible stock-days equal the lab's",
@@ -691,11 +691,11 @@
    "2019-12"
   ],
   "last_day_read": "2019-12-31",
-  "seconds": 162,
-  "module_sha256": "16920339e24ebeb32f267d775d1ee217ea7716e17c37ebadb50f2acd58755c63",
+  "seconds": 158,
+  "module_sha256": "4210cf59676880c0509798eb50a1d906de2c4388923484f86586712399df1960",
   "lab_code_sha256": "518b55575f3cd4d7ba453927eb63cdb4af21989acd1f653f39af552fca5db150",
   "daily_prices_sha256": "2f8bc6ff4e45eb7bb4525cf56b5f22d5cf68a452db207c35e6d2d5b6a8db147f",
-  "spec_sha256": "543feb1b664cfe0c3719dba454d4bce9aaa5d85f1d3e7895e2c9f8eb2b3093a9",
+  "spec_sha256": "510383e08ef863d08b1c3905df884f0a97aa5b7c025e9ca7592a7d4b399e8081",
   "params_sha256": "3170c3a8bcaf00f48e26a77498c84c5fe475de41efe919ce25a8511b66440790",
   "sector_map_sha256": "61623a16dc09804cb6989ec9bae0283f92d026e93fbac2b723ac8ef894e9e6c4",
   "v1_skips": {
@@ -1975,8 +1975,8 @@
    "note": "CANDIDATES_DISAGREE_WITH_THE_LAB also requires the skips counted on eligible stock-days (MISSING_SPY_OPEN, RULE_201, NO_ENTRY_MINUTE, ENTRY_BEYOND_TARGET, UNSCORABLE) to equal the lab's; BOOK_TRADE_RECONCILIATION also requires the gap and the side to equal the lab's."
   },
   {
-   "what": "condition 2, as written",
-   "note": "A late-excluded candidate needs only f, day['o'][0], the SPY day and SPY features; eligibility's later checks (corporate action, price floor, missing open bar, price mismatch, history, SPY daily error) are not applied to it, because ir.eligibility returns at the first reason. 0 such candidates in 2016-19."
+   "what": "condition 2, corrected so that the candidates are point in time as the spec says",
+   "note": "As first written, a late-excluded candidate needed only f, day['o'][0], the SPY day and SPY features. Because ir.eligibility returns at its first reason, a stock-day that a check known before the open would drop (CORPORATE_ACTION, PRICE_FLOOR, PRICE_MISMATCH, NO_HISTORY, NO_SPY, SPY_DAILY_ERROR) became a candidate whenever it also carried a late flag, which can come from the session's own close or the next session's open. That contradicted SPEC['candidates']['reads']. The build's review found it on the synthetic fixture. Condition 2 now also requires later_exclusion(...) is None: ir.eligibility's checks after the two late ones, in its order and with its constants (LATER), tested against ir.eligibility itself. A stock-day is a candidate exactly when it would be one with its two late checks ignored. Effect: none in 2016-19 (no late-excluded candidates; the 3 late-flagged stock-days pass the later checks and do not trigger the setup), so the calibration is unchanged figure for figure. In 2020-23 it can matter on sub-$10 stretches (F, AAL, SOFI, HIMS), new listings (PLTR, ABNB, RIVN, SOFI, HIMS) and the IBM and T corporate-action days, named from general market knowledge and the replay's own corporate-action list, not from any 2020+ data. The spec wording changed with it (condition_2, reads, history), so spec_sha256 changed; params_sha256 did not. This edits the frozen text of condition 2 and needs the owner's sign-off at the merge. The fallback, if the owner prefers condition 2 as first written, is to restore it and correct the claim instead."
   },
   {
    "what": "the intraday trough",

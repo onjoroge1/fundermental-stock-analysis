@@ -7,6 +7,7 @@ import copy
 import functools
 import hashlib
 import importlib.util
+import inspect
 import itertools
 import json
 import math
@@ -270,11 +271,12 @@ MONTHS = ("2019-02", "2019-03")
 NAMES = ["NVDA", "AMD", "MSFT"]
 
 
-def candidate_world():
+def candidate_world(daily_errors=True):
     """Three names and SPY with 2% gaps that extend a 1.1% day on alternate sessions, then: NVDA's own daily row
     printed at half its close on 2019-02-04 (DAILY_ROW_ERROR, also for the two sessions after) and 8% off its last
-    minute on 2019-02-12 (DAILY_CLOSE_MISMATCH); AMD's 2019-02-05 short under Rule 201; MSFT's 2019-02-19 fill already
-    past its target and no MSFT trade from 09:31 to 09:36 on 2019-03-01; no SPY open on 2019-02-26."""
+    minute on 2019-02-12 (DAILY_CLOSE_MISMATCH), unless daily_errors is False; AMD's 2019-02-05 short under Rule 201;
+    MSFT's 2019-02-19 fill already past its target and no MSFT trade from 09:31 to 09:36 on 2019-03-01; no SPY open
+    on 2019-02-26."""
     sessions = ir.fixture_sessions("2018-09-03", "2019-04-30")
     bars, prices = {}, {}
     for k, t in enumerate(NAMES + ["SPY"]):
@@ -290,12 +292,13 @@ def candidate_world():
             prev, close = day["c"][-1] / close - 1, day["c"][-1]
         prices[t] = rows
     at = {s: i for i, s in enumerate(sessions)}
-    r = prices["NVDA"][at["2019-02-04"]]
-    prices["NVDA"][at["2019-02-04"]] = {**r, "close": round(r["close"] / 2, 2),
-                                        "adj_close": round(r["adj_close"] / 2, 2)}
-    r = prices["NVDA"][at["2019-02-12"]]
-    prices["NVDA"][at["2019-02-12"]] = {**r, "close": round(r["close"] * 0.92, 2),
-                                        "adj_close": round(r["adj_close"] * 0.92, 2)}
+    if daily_errors:
+        r = prices["NVDA"][at["2019-02-04"]]
+        prices["NVDA"][at["2019-02-04"]] = {**r, "close": round(r["close"] / 2, 2),
+                                            "adj_close": round(r["adj_close"] / 2, 2)}
+        r = prices["NVDA"][at["2019-02-12"]]
+        prices["NVDA"][at["2019-02-12"]] = {**r, "close": round(r["close"] * 0.92, 2),
+                                            "adj_close": round(r["adj_close"] * 0.92, 2)}
     i = at["2019-02-04"]
     prices["AMD"][i] = {**prices["AMD"][i], "low": round(prices["AMD"][i - 1]["close"] * 0.85, 2)}
     d = bars["MSFT"]["2019-02-19"]
@@ -342,6 +345,76 @@ def test_the_candidates_are_judged_at_0931_and_late_exclusions_stay_in(world):
     assert ends == {(t["ticker"], t["session"]) for t in world["v1"]} and len(ends) == len(days["candidates"]) - 7
     with pytest.raises(ValueError, match="HOLDOUT"):
         cb.stock_days(world["bars_for"], world["prices"], ("2023-12", "2024-01"), NAMES)
+
+
+def _eligibility_inputs(rng):
+    """A stock-day for ir.eligibility whose two late checks are clear (no bad or off row, the daily close equal to
+    the last minute, no prior session in the history), with a random state of every later check."""
+    session, daily_open = "2021-03-10", 50.0
+    f = {"stale": False, "bad_row": False, "off_row": False, "prior_date": "2021-03-09", "daily_close": 51.0,
+         "daily_open": daily_open, "prior_close_raw": rng.choice([ir.PRICE_FLOOR - 0.01, ir.PRICE_FLOOR, 50.0])}
+    o0 = rng.choice([None, daily_open, daily_open * (1 + ir.OPEN_MATCH / 2), daily_open * (1 + 2 * ir.OPEN_MATCH)])
+    day = {"o": [] if rng.random() < 0.1 else [o0, 50.2], "c": [50.5, 51.0]}
+    hist = ir.History()
+    for _ in range(rng.choice([0, ir.NORM_MIN - 1, ir.NORM_MIN])):
+        hist.ranges.append([None])
+    spy_day = rng.choice([None, {"o": [400.0]}])
+    spy_f = rng.choice([None, {"bad_row": False, "off_row": False}, {"bad_row": True, "off_row": False},
+                        {"bad_row": False, "off_row": True}])
+    return session, day, f, hist, spy_day, spy_f, rng.choice([(), (session,), ("2021-03-11",)])
+
+
+def test_the_later_checks_mirror_the_labs_eligibility():
+    """later_exclusion is ir.eligibility's own sequence after its two late checks: the same reason on every state,
+    the same order, and the lab never reaches these checks on a late-flagged stock-day."""
+    rng = random.Random(5)
+    seen = set()
+    for _ in range(3000):
+        session, day, f, hist, spy_day, spy_f, actions = _eligibility_inputs(rng)
+        mine = cb.later_exclusion(session, day, f, hist, spy_day, spy_f, actions)
+        assert mine == ir.eligibility("AMD", session, day, f, hist, spy_day, spy_f, actions), (f, day, actions)
+        seen.add(mine)
+        assert ir.eligibility("AMD", session, day, {**f, "bad_row": True}, hist, spy_day, spy_f, actions) == \
+            "DAILY_ROW_ERROR"                                              # whatever the later checks say
+        if mine != "CORPORATE_ACTION":                                     # the one later check the lab makes first
+            assert ir.eligibility("AMD", session, day, {**f, "off_row": True}, hist, spy_day, spy_f, actions) == \
+                "DAILY_CLOSE_MISMATCH"
+    assert seen == set(cb.LATER) | {None}
+    order = re.findall(r'return "([A-Z_]+)"', inspect.getsource(ir.eligibility))
+    after = order[order.index(cb.LATE[0]) + 1:]
+    assert cb.LATE[1] in after and [r for r in after if r not in cb.LATE] == list(cb.LATER)
+    assert re.findall(r'return "([A-Z_]+)"', inspect.getsource(cb.later_exclusion)) == list(cb.LATER)
+
+
+def _membership(days):
+    return {(c["ticker"], c["session"]): c["late"] for c in days["candidates"]}
+
+
+def test_a_late_flag_never_changes_whether_a_stock_day_is_a_candidate(monkeypatch):
+    """Condition 2: a stock-day is a candidate exactly when it would be one without its own late checks. With and
+    without NVDA's two bad daily rows, the candidates are the same on every session whose features do not read those
+    rows; on the bad rows' own sessions only the flag differs. A check known before the open (a corporate action, an
+    official open the 09:30 bar contradicts) drops a late-flagged stock-day as it drops an eligible one."""
+    bad = cb.stock_days(*candidate_world()[:2], MONTHS, NAMES)
+    clean = cb.stock_days(*candidate_world(daily_errors=False)[:2], MONTHS, NAMES)
+    reads_a_bad_row = {"2019-02-05", "2019-02-06", "2019-02-13", "2019-02-14"}   # their prior close or prior move
+
+    def kept(days):
+        return {k: v for k, v in _membership(days).items() if not (k[0] == "NVDA" and k[1] in reads_a_bad_row)}
+    assert set(kept(bad)) == set(kept(clean)) and not any(kept(clean).values())
+    assert {k: v for k, v in kept(bad).items() if v} == {("NVDA", "2019-02-04"): "DAILY_ROW_ERROR",
+                                                         ("NVDA", "2019-02-12"): "DAILY_CLOSE_MISMATCH"}
+    every = _membership(bad)
+    clean_trade = min(s for (t, s), late in kept(bad).items() if t == "NVDA" and late is None and s > "2019-02-04")
+    with monkeypatch.context() as m:                                       # corporate actions: on the bad-row session
+        m.setitem(ir.CORPORATE_ACTIONS, "NVDA", ("2019-02-04", clean_trade))           # and on a clean v1 trade
+        acted = _membership(cb.stock_days(*candidate_world()[:2], MONTHS, NAMES))
+    assert acted == {k: v for k, v in every.items() if k not in {("NVDA", "2019-02-04"), ("NVDA", clean_trade)}}
+    bars_for, prices, _ = candidate_world()
+    i = next(j for j, r in enumerate(prices["NVDA"]) if r["date"] == "2019-02-04")
+    prices["NVDA"][i] = {**prices["NVDA"][i], "open": round(prices["NVDA"][i]["open"] * 1.01, 2)}   # PRICE_MISMATCH
+    assert _membership(cb.stock_days(bars_for, prices, MONTHS, NAMES)) == \
+        {k: v for k, v in every.items() if k != ("NVDA", "2019-02-04")}
 
 
 def test_late_skipped_and_unscorable_candidates_use_their_share_of_the_budget(world):

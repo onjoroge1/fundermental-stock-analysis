@@ -71,6 +71,8 @@ OVERLAYS_RUNNER = "scripts/run_ext_fade_overlays.py"
 OVERLAYS_REGISTRATION = "docs/evidence/ext-fade-overlays-registration-2026-10-24.json"
 PROTECTED = ov.PROTECTED + (OVERLAYS_MODULE, OVERLAYS_RUNNER)
 LATE = ("DAILY_ROW_ERROR", "DAILY_CLOSE_MISMATCH")     # exclusions that read data from after 09:30
+LATER = ("CORPORATE_ACTION", "PRICE_FLOOR", "MISSING_OPEN_BAR", "PRICE_MISMATCH", "NO_HISTORY", "NO_SPY",
+         "SPY_DAILY_ERROR")                             # ir.eligibility's checks after the late ones, in its order
 TRADE = "TRADE"
 POINTS = 391                            # the intraday trough's points: the close of each minute 09:30..15:59, then
                                         # the official close
@@ -160,7 +162,10 @@ SPEC = {
                 "constant was fixed before the single in-sample preview (2016-19), and none was changed after it or "
                 "after the review. The review changed only build mechanics (data handling, reconciliations, RNG "
                 "pinning, runner checks), added the end-of-day exclusions to the candidate set (no effect in "
-                "2016-19), separated the hold-out family, and corrected the disclosures."),
+                "2016-19), separated the hold-out family, and corrected the disclosures. The build's review, also on "
+                "2026-10-24 and also reading nothing dated 2020-01-01 or later, made condition 2 apply the lab's "
+                "checks that ir.eligibility makes after the two late ones, so that membership is point in time as "
+                "stated (no effect in 2016-19); no constant changed."),
     "scope": {
         "on": {"variant": BASE, "spec": BASE_SPEC},
         "trades": ("EXT-FADE.v1's own check trades, unweighted: v1 = [t for t in run['trades'] if t['variant'] == "
@@ -193,9 +198,13 @@ SPEC = {
                            "ir.eligibility; it receives the daily price rows uncut"),
         "C_t": ("every stock-day of session t that meets condition 1 or 2, and condition 3"),
         "condition_1": "ir.eligibility(...) is None",
-        "condition_2": ("ir.eligibility(...) is DAILY_ROW_ERROR or DAILY_CLOSE_MISMATCH, and f, day['o'][0], the "
-                        "session's SPY day and its SPY features all exist (a late-excluded candidate: those checks "
-                        "read the session's own daily close and last minute, or the next session's open)"),
+        "condition_2": ("ir.eligibility(...) is DAILY_ROW_ERROR or DAILY_CLOSE_MISMATCH, and the stock-day passes "
+                        "every check ir.eligibility makes after those two, in its order and with its constants: "
+                        "CORPORATE_ACTION, PRICE_FLOOR, MISSING_OPEN_BAR, PRICE_MISMATCH, NO_HISTORY, NO_SPY and "
+                        "SPY_DAILY_ERROR (later_exclusion is None). ir.eligibility stops at the first reason, so it "
+                        "never judges a late-flagged stock-day on these. Such a stock-day is a late-excluded "
+                        "candidate: the two late checks read the session's own daily close and last minute, or the "
+                        "next session's open"),
         "condition_3": ("lab.extension_fade(day, f, day['o'][0] / f['prior_close'] - 1, lab.VARIANTS['EXT-FADE.v1'], "
                         "{'spy': spy_day, 'spy_f': spy_f, 'timing': None}) returns a trade, or a skip other than "
                         "MISSING_SPY_OPEN (RULE_201, NO_ENTRY_MINUTE, ENTRY_BEYOND_TARGET)"),
@@ -203,8 +212,12 @@ SPEC = {
                    "their share of the cap budget and never trade; that budget is never reallocated"),
         "reads": ("the 09:30 open (the gap); prior sessions' daily rows and minute bars; the universe, listing dates "
                   "and corporate-action dates; and the session's official open (the PRICE_MISMATCH check). Through "
-                  "condition 2, membership does not depend on any check that reads data after 09:30. A stock-day "
-                  "with no daily row for the session itself has no features and is never a candidate, as in v1."),
+                  "condition 2, a stock-day is a candidate exactly when it would be one with its own two late checks "
+                  "ignored, so those checks, which read its daily close and last minute or the next session's open, "
+                  "cannot change membership. Inherited and the same for both books: a stock-day with no daily row "
+                  "for the session itself has no features and is never a candidate, as in v1; and NO_SPY and "
+                  "SPY_DAILY_ERROR read SPY's own day, including its session row, but they exclude every stock-day "
+                  "of the session at once, so on such a session v1 has no trade and C_t sizes nothing."),
         "reconciliations": {
             "ELIGIBILITY_DISAGREES_WITH_THE_LAB": ("the eligible counts per session under condition 1 equal "
                                                    "run['eligible']"),
@@ -366,12 +379,35 @@ def side_of(gap: float) -> int:
     return -1 if gap > 0 else 1
 
 
+def later_exclusion(session, day, f, hist, spy_day, spy_f, actions=()) -> str | None:
+    """The checks ir.eligibility makes after its two late ones (LATER), in its order and with its own constants: the
+    reason a late-flagged stock-day would still be excluded, or None. ir.eligibility returns at its first reason, so
+    it never judges a DAILY_ROW_ERROR or DAILY_CLOSE_MISMATCH stock-day on these (PRE_LISTING, the features and
+    STALE_PRIOR_CLOSE come before the late checks, so such a stock-day has passed them)."""
+    if session in actions:
+        return "CORPORATE_ACTION"
+    if f["prior_close_raw"] < ir.PRICE_FLOOR:
+        return "PRICE_FLOOR"
+    if not day["o"] or day["o"][0] is None:
+        return "MISSING_OPEN_BAR"
+    if abs(day["o"][0] / f["daily_open"] - 1) > ir.OPEN_MATCH:
+        return "PRICE_MISMATCH"
+    if len(hist.ranges) < ir.NORM_MIN:
+        return "NO_HISTORY"
+    if spy_day is None or spy_f is None:
+        return "NO_SPY"
+    if spy_f.get("bad_row") or spy_f.get("off_row"):
+        return "SPY_DAILY_ERROR"
+    return None
+
+
 def stock_days(bars_for, prices: dict, months: tuple[str, str], tickers: list[str]) -> dict:
     """The run's stock-days judged exactly as lab.replay judges them (ext_fade_overlays.stock_days' conventions), with
-    the 09:31 candidates C_t: every stock-day that is eligible (condition 1) or late-excluded (condition 2) on which
-    v1's own setup returns a trade or an entry-time skip other than MISSING_SPY_OPEN (condition 3). Each candidate
-    keeps its minute bars, daily features, SPY day and SPY features, and, when eligible, whether the lab can score
-    it. `skips` counts v1's skips on eligible stock-days the way the lab counts them."""
+    the 09:31 candidates C_t: every stock-day that is eligible (condition 1), or late-excluded and clear of every
+    later check (condition 2: later_exclusion is None), on which v1's own setup returns a trade or an entry-time skip
+    other than MISSING_SPY_OPEN (condition 3). Each candidate keeps its minute bars, daily features, SPY day and SPY
+    features, and, when eligible, whether the lab can score it. `skips` counts v1's skips on eligible stock-days the
+    way the lab counts them."""
     if months[0] > months[1]:
         raise ValueError("EXT_FADE_PORTFOLIO_MONTHS_INVERTED")
     if months[1] >= HOLDOUT_FROM:
@@ -396,12 +432,11 @@ def stock_days(bars_for, prices: dict, months: tuple[str, str], tickers: list[st
                 day = days[session]
                 if months[0] <= session[:7] <= months[1]:
                     f, spy_day, spy_f = feats.get(session), spy_days.get(session), spy_feat.get(session)
-                    why = ir.eligibility(ticker, session, day, f, hist, spy_day, spy_f,
-                                         ir.CORPORATE_ACTIONS.get(ticker, ()), daily)
+                    actions = ir.CORPORATE_ACTIONS.get(ticker, ())
+                    why = ir.eligibility(ticker, session, day, f, hist, spy_day, spy_f, actions, daily)
                     if why is None:
                         eligible[session] += 1
-                    late = why in LATE and f is not None and bool(day["o"]) and day["o"][0] is not None \
-                        and spy_day is not None and spy_f is not None
+                    late = why in LATE and later_exclusion(session, day, f, hist, spy_day, spy_f, actions) is None
                     if why is None or late:
                         c = _candidate(ticker, session, day, f, spy_day, spy_f, hist if why is None else None, skips)
                         if c is not None:

@@ -48,14 +48,26 @@ A candidate is a stock-day where v1's own setup returns a trade, or a skip that 
 entry minute, or the fill already past the target). Its gap is taken at 09:30. It must also be one of these:
 - **eligible**, as the lab judges it; or
 - **late-excluded**: dropped by the lab only for a daily-row printing error or a daily close that disagrees with the
-  minute bars, when its features, its 09:30 bar and SPY's day all exist. Those two checks read the session's own close
-  or the next session's open, which nobody knows at 09:31. So they must not shape the 09:31 book.
+  minute bars. Those two checks read the session's own close or the next session's open, which nobody knows at 09:31.
+  So they must not shape the 09:31 book.
+
+  The stock-day must still pass every check the lab would have made after those two: the corporate-action dates,
+  the $10 price floor, the 09:30 bar, the official open against that bar, the trailing history and SPY's day. The lab
+  stops at the first reason it finds, so it never makes these checks on a late-flagged stock-day; the module makes
+  them itself (`later_exclusion`, tested against the lab's own `eligibility`). A stock-day is therefore a candidate
+  exactly when it would be one with its two late checks ignored, and those checks cannot change who is a candidate.
+
+Two dependences are inherited from v1 and are the same for both books. A stock-day with no daily row for the session
+itself has no features and is never a candidate. The SPY checks read SPY's own day, including its session row, but
+they exclude every stock-day of the session at once, so on such a session v1 has no trade and the caps size nothing.
 
 A skip for a missing SPY open is not a candidate. Late-excluded candidates, skipped candidates and trades the lab
 later drops as unscorable all use their share of the cap budget and never trade. That budget is never handed to the
 others.
 
-Calibration, 2016-19: 1,905 candidates (1,900 trades and 5 ENTRY_BEYOND_TARGET skips), none late-excluded.
+Calibration, 2016-19: 1,905 candidates (1,900 trades and 5 ENTRY_BEYOND_TARGET skips), none late-excluded. The only
+late-flagged stock-days are three CMCSA sessions that read its 2017-02-17 printing error (2017-02-17, -21 and -22).
+They pass the later checks but do not trigger v1's setup.
 
 ### The sector map: 13 GICS industry groups
 
@@ -214,10 +226,10 @@ fallback is registered.
 
 | What | sha256 |
 |---|---|
-| `stock_machine/backtest/ext_fade_portfolio.py` | `16920339e24ebeb32f267d775d1ee217ea7716e17c37ebadb50f2acd58755c63` |
+| `stock_machine/backtest/ext_fade_portfolio.py` | `4210cf59676880c0509798eb50a1d906de2c4388923484f86586712399df1960` |
 | `scripts/run_ext_fade_portfolio.py` | `eafeedf63df31f9912daa14c2294bd4c7d3ad4db93a3e9ee6eb923b425045de9` |
 | `scripts/calibrate_ext_fade_portfolio.py` | `54ee5d4cdc9aadd654b8c10a15542e7b4e85e921662b13bbc64e9d31b603aad6` |
-| EXT-FADE-CB.v1 spec (wording included) | `543feb1b664cfe0c3719dba454d4bce9aaa5d85f1d3e7895e2c9f8eb2b3093a9` |
+| EXT-FADE-CB.v1 spec (wording included) | `510383e08ef863d08b1c3905df884f0a97aa5b7c025e9ca7592a7d4b399e8081` |
 | EXT-FADE-CB.v1 parameters (constants, map, pass bar) | `3170c3a8bcaf00f48e26a77498c84c5fe475de41efe919ce25a8511b66440790` |
 | Sector map (`contracts.digest(SECTOR_MAP)`) | `61623a16dc09804cb6989ec9bae0283f92d026e93fbac2b723ac8ef894e9e6c4` |
 | Lab code (`lab.CODE_SHA`, v1's explore and confirm) | `518b55575f3cd4d7ba453927eb63cdb4af21989acd1f653f39af552fca5db150` |
@@ -240,7 +252,7 @@ The four lab files' hashes (the same as the overlays registration's) are in the 
 `scripts/calibrate_ext_fade_portfolio.py` replays v1 on 2016-01..2019-12 with the lab's own replay
 (`split='confirm'`, nothing logged). It runs the module's own pass over the stock-days, reconciles it with the lab,
 sizes and hedges the book, and compares the result with the frozen calibration record. It was run on the final
-module (`16920339e24e…`). **Every required figure matches**, and so does the dry run:
+module (`4210cf596768…`). **Every required figure matches**, and so does the dry run:
 
 | Figure | Record | Module |
 |---|---|---|
@@ -362,9 +374,24 @@ These are judgement, stated before the preview; none was searched on 2016-19.
 - **Stronger reconciliations.**
   - The candidate check also requires the skips counted on eligible stock-days to equal the lab's.
   - The trade check also requires each trade's gap and side to equal the lab's.
-- **Late-excluded candidates are taken as written.** A late-excluded candidate needs only its features, its 09:30 bar
-  and SPY's day. The lab's later checks (corporate action, price floor, price mismatch, history, SPY errors) are not
-  applied to it, because the lab stops at the first reason. There were none in 2016-19.
+- **Condition 2 is corrected, so the candidates are point in time as the spec says.** As first written, a
+  late-excluded candidate needed only its features, its 09:30 bar and SPY's day. Because the lab stops at the first
+  reason, a stock-day that a check known before the open would drop (a corporate action, the price floor, the
+  official open, too little history, SPY's day) became a candidate whenever it also carried a late flag. That flag can
+  come from the session's own close or the next session's open, which contradicted the spec's own claim. The build's
+  review found it on the synthetic world. The fix makes condition 2 also require every check the lab makes after the
+  two late ones.
+  - **Effect:** none in 2016-19. There were no late-excluded candidates, and the 3 late-flagged stock-days (CMCSA) pass
+    the later checks and do not trigger the setup. The calibration is unchanged, figure for figure. In 2020-23 it can
+    matter wherever a check known before the open applies: sub-$10 stretches (F, AAL, SOFI, HIMS), new listings
+    without history (PLTR, ABNB, RIVN, SOFI, HIMS) and the IBM and T corporate-action days. These are named from
+    general market knowledge and the replay's own corporate-action list; no 2020+ data was read to find them.
+  - **Wording:** the spec text changed with it (condition 2, what the candidates read, and the history), so the spec
+    digest changed. The constants, the map and the pass bar did not, so the parameter digest is the same.
+  - **Owner's sign-off:** this edits the frozen text of condition 2, so it needs the owner's sign-off, which the
+    registration's merge asks for anyway. If the owner prefers condition 2 as first written, the fallback is to
+    restore it and correct the claim instead, stating that a late flag can then admit a stock-day that a check known
+    before the open would drop.
 - **The intraday trough.** Each trade counts from its entry bar, is frozen at its exit, and the session's trough is
   never above 0. The designer's preview charged costs from 09:31 for a trade not yet entered and held float32 paths.
   This build gives trough ES5 839.4 / 859.7 and worst −2,417.5 / −1,973.4 (v1 / CB), against the preview's 839 / 859
