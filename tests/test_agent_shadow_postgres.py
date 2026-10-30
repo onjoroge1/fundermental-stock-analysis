@@ -132,8 +132,13 @@ def test_missing_path_is_retryable_and_does_not_starve_newer_snapshots(pg, monke
 
 
 def test_training_cutoff_excludes_future_recording_and_target_sessions(pg):
-    now = datetime.now(timezone.utc)
-    past = {"due_session": "2026-09-01", "target": shadow.TARGET}
+    with pg() as conn:
+        # recorded_at defaults to the server's clock_timestamp(); a host clock
+        # can run ahead of it and stamp just-saved rows before a host-taken now.
+        now = conn.execute("SELECT clock_timestamp()").fetchone()[0]
+    # Inside the window however long after the fixture date the suite runs.
+    due = session_offset(latest_completed_session(now), -10)
+    past = {"due_session": due, "target": shadow.TARGET}
     with pg() as conn:
         # Extra outcome fields are not read for training.
         research_store.save(conn, shadow.OUTCOME, "past", {**past, "forecast_scores": {"m": {}}}, "VZ")
@@ -147,7 +152,7 @@ def test_training_cutoff_excludes_future_recording_and_target_sessions(pg):
             {"due_session": "2099-01-01", "target": shadow.TARGET}, "VZ",
         )
         # v1 outcomes were scored on raw direction and never train v2 weights.
-        research_store.save(conn, shadow.OUTCOME, "v1-raw-target", {"due_session": "2026-09-01"}, "VZ")
+        research_store.save(conn, shadow.OUTCOME, "v1-raw-target", {"due_session": due}, "VZ")
     with pg() as conn:
         assert shadow.training_history(conn, now) == []
         assert shadow.training_history(conn, now + timedelta(seconds=30)) == [past]
