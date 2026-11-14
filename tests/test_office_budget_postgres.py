@@ -304,8 +304,8 @@ def message(usage=True):
     return SimpleNamespace(
         model="claude-opus-5-5", stop_reason="end_turn",
         content=[SimpleNamespace(type="thinking", thinking=""), SimpleNamespace(type="text", text="A memo.")],
-        usage=SimpleNamespace(input_tokens=1000, cache_creation_input_tokens=0, cache_read_input_tokens=500,
-                              output_tokens=2000) if usage else None)
+        usage=SimpleNamespace(input_tokens=300, cache_creation_input_tokens=0, cache_read_input_tokens=200,
+                              output_tokens=800) if usage else None)
 
 
 def test_the_anthropic_adapter_sends_one_request_and_prices_it_from_usage(pg):
@@ -313,12 +313,12 @@ def test_the_anthropic_adapter_sends_one_request_and_prices_it_from_usage(pg):
     provider = providers.AnthropicProvider(sdk=sdk)
     held = lease()
     response = providers.call(held, 1, provider, REQUEST)
-    assert response.text == "A memo." and response.cost_usd == Decimal("0.046000")   # 1500 in at $4, 2000 out at $20
+    assert response.text == "A memo." and response.cost_usd == Decimal("0.018000")   # 500 in at $4, 800 out at $20
     assert sdk.constructed == [{"max_retries": 0, "timeout": config.PROVIDER_TIMEOUT_SECONDS}]   # no key passed
     assert sdk.requests == [{"model": "claude-opus-5-5", "max_tokens": 1000, "system": "You are an analyst.",
                              "messages": [{"role": "user", "content": "Summarise the filing."}]}]
     row = ledger(pg)[0]
-    assert row[1] == "RECONCILED" and row[3] == Decimal("0.046000") and row[2] >= row[3]
+    assert row[1] == "RECONCILED" and row[3] == Decimal("0.018000") and row[2] >= row[3]
     assert row[2] == provider.max_cost_usd(REQUEST)
 
 
