@@ -158,6 +158,16 @@ async def dashboard(request: Request):
     return await safe(work)
 
 
+@router.get("/api/operator/office")
+async def office(request: Request):
+    """Read-only Trading Office status for the signed-in owner. Changes nothing."""
+    async def work():
+        await owner(request)
+        from ..office import status
+        return response(await run_in_threadpool(status.summary))
+    return await safe(work)
+
+
 @router.post("/api/operator/controls")
 async def controls(request: Request):
     async def work():
