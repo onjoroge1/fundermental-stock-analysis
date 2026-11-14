@@ -6,10 +6,11 @@ Only the exact word ``true`` enables a switch; an unset, empty or misspelt value
 from __future__ import annotations
 
 import os
+from decimal import Decimal, InvalidOperation
 
-OFFICE_SCHEMA_VERSION = "0029_office_tasks"
+OFFICE_SCHEMA_VERSION = "0030_office_budget"
 
-# Pilot ceilings from the build brief. They bound the queue here; spending caps arrive with the provider adapter.
+# Pilot ceilings from the build brief for the queue. Spending ceilings are further down.
 MAX_CONCURRENT_TASKS = 2
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_LEASE_SECONDS = 600
@@ -50,3 +51,32 @@ def require_enabled() -> None:
 def retry_delay_seconds(attempts: int) -> int:
     """Wait before attempt ``attempts + 1``: 60 s, 120 s, 240 s … capped at one hour."""
     return min(RETRY_BASE_SECONDS * 2 ** max(attempts - 1, 0), RETRY_CAP_SECONDS)
+
+
+# Spending ceilings from the build brief. The environment may lower them; raising them takes a code change.
+HARD_DAILY_USD_CAP = Decimal("5")
+HARD_MONTHLY_USD_CAP = Decimal("100")
+MAX_SINGLE_CALL_USD = Decimal("2")
+PROVIDER_TIMEOUT_SECONDS = 240.0
+MAX_OUTPUT_TOKENS = 16_000
+
+
+def _cap(name: str, hard: Decimal) -> Decimal:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return hard
+    try:
+        value = Decimal(raw)
+    except InvalidOperation:
+        return Decimal("0")          # an unreadable cap stops spending rather than falling back to the maximum
+    if not value.is_finite() or value < 0:
+        return Decimal("0")
+    return min(value, hard)
+
+
+def daily_usd_cap() -> Decimal:
+    return _cap("OFFICE_DAILY_USD_CAP", HARD_DAILY_USD_CAP)
+
+
+def monthly_usd_cap() -> Decimal:
+    return _cap("OFFICE_MONTHLY_USD_CAP", HARD_MONTHLY_USD_CAP)
