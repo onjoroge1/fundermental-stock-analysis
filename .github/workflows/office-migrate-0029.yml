@@ -1,0 +1,59 @@
+name: Office Migration 0029
+
+# Manual only. Merging to main never runs this: the owner starts it, on main, after the merged code is
+# deployed, and must type the confirmation phrase. It adds four new office_ tables and alters nothing else.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type MIGRATE-0029 to apply the office task tables to production
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-shadow-schema-and-technical
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: github.ref == 'refs/heads/main' && inputs.confirm == 'MIGRATE-0029'
+    environment: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e .
+      - name: Apply and verify office task tables
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python - <<'PY'
+          from alembic import command
+          from alembic.config import Config
+          from stock_machine import db
+          with db.connect() as conn:
+              before = {r[0] for r in conn.execute('SELECT version_num FROM alembic_version')}
+          if before not in ({'0028_fair_value_forward'}, {'0029_office_tasks'}):
+              raise SystemExit('UNEXPECTED_DATABASE_REVISION')
+          command.upgrade(Config('alembic.ini'), '0029_office_tasks')
+          tables = ('office_agent_definitions', 'office_tasks', 'office_task_dependencies', 'office_runs')
+          with db.connect() as conn:
+              db.init_schema(conn)
+              after = {r[0] for r in conn.execute('SELECT version_num FROM alembic_version')}
+              found = {r[0] for r in conn.execute(
+                  "SELECT table_name FROM information_schema.tables "
+                  "WHERE table_schema = current_schema() AND table_name LIKE 'office\\_%'")}
+              rows = conn.execute('SELECT count(*) FROM office_tasks').fetchone()[0]
+          if after != {'0029_office_tasks'}:
+              raise SystemExit('REVISION_NOT_APPLIED')
+          missing = [t for t in tables if t not in found]
+          if missing:
+              raise SystemExit('OFFICE_TABLES_MISSING:' + ','.join(missing))
+          print(f'OFFICE_TASK_SCHEMA_VERIFIED; office_tasks rows={rows}; office remains disabled')
+          PY
