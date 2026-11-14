@@ -2,7 +2,7 @@
 review -> saved findings -> briefing.
 
 No provider is contacted: every model reply is a recorded response replayed by the fake provider. The schema
-is created for the test by migrations 0029 to 0031, plus small copies of the four source tables the read
+is created for the test by migrations 0029 to 0032, plus small copies of the four source tables the read
 tools use, and dropped afterwards.
 """
 import importlib.util
@@ -54,7 +54,8 @@ def pg(monkeypatch):
 
     try:
         with connect() as conn:
-            for name in ("0029_office_tasks.py", "0030_office_budget.py", "0031_office_research.py"):
+            for name in ("0029_office_tasks.py", "0030_office_budget.py", "0031_office_research.py",
+                         "0032_office_strategies.py"):
                 spec = importlib.util.spec_from_file_location("office_" + name[:4], VERSIONS / name)
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)

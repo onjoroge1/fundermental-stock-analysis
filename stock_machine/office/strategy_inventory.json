@@ -1,0 +1,759 @@
+{
+ "inventory_version": "2026-11-13",
+ "taken_from": "docs/TRADING_OFFICE_STRATEGY_INVENTORY.md (app repository at 4f011b5; research records as of 2026-11-13). Figures are copied from those records; nothing was re-run.",
+ "strategies": [
+  {
+   "strategy_id": "X2-FLOW",
+   "version": "v1",
+   "source_repository": "research",
+   "original_status": "Forward shadow observation since 2026-11-09; frozen",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": true,
+   "execution_kind": "EXTERNAL_LOCAL",
+   "risk_group": "X2-FADE",
+   "rule_summary": "Fade an opening gap of at least 2 ATR that extends the previous day's move, entering at 09:31; exit at the prior close if touched, otherwise at the close; hedged with beta x SPY; only with no earnings release behind the gap, SPY gapped at least 0.3% the same way, shorts only when SPY is below its 50-day average. Intraday; flat by the close.",
+   "hashes": {
+    "X2-FLOW_SPEC_v1.md": "9ebd450adf26ab9996189c00295a9395fa99cc9c5e1c688e26f9ef53b4a8474c",
+    "X2_SHADOW_SPEC_v1.2.md": "b231c6b251395e171be9ece966f9350f77960748170501d04bae87940e66a935",
+    "x2_shadow.py": "c8790af8d8ee058cd949e35db9dd636ba00e3e603ef07d26e20dd7aeb759e97b",
+    "protocol_v12.py": "2aa614ff23707272b121c2c7a7a85b6478d61d6ee4746aa2b46702ebad62385c",
+    "evalstats.py": "94f2229533d3dc6073e4c7c84e49e7b8b175c042e1aa9cf20f114f7a6c966d09"
+   },
+   "development": {
+    "net_positive": true,
+    "reproducible": true,
+    "weak": [
+     "Development only in both periods: the filters were chosen after the 2016-2026 trades had been read; no untouched period exists.",
+     "82% of the 2024-26 profit came from three crash days."
+    ],
+    "cost_model": "5 bps a side on the stock and 0.5 x beta bps a side on the SPY hedge, at modelled prices",
+    "samples": [
+     {
+      "period": "2016-23",
+      "trades": 510,
+      "active_dates": 144,
+      "mean_net_bps": 55.2,
+      "t": 3.94,
+      "longs": 454,
+      "shorts": 56,
+      "largest_date_share": 0.08
+     },
+     {
+      "period": "2024-26",
+      "trades": 205,
+      "active_dates": 57,
+      "mean_net_bps": 78.0,
+      "t": 2.67,
+      "longs": 188,
+      "shorts": 17,
+      "largest_date_share": 0.31
+     }
+    ]
+   },
+   "shorts": true,
+   "defects": [
+    {
+     "category": "EXECUTION_ASSUMPTION",
+     "text": "Short borrow is assumed available at no cost and has not been verified.",
+     "resolved": false
+    },
+    {
+     "category": "COST",
+     "text": "Real fill costs are unmeasured (PAPER-COST-1 has 0 fills).",
+     "resolved": false
+    },
+    {
+     "category": "UNIVERSE",
+     "text": "The universe of 54 stocks is hand-picked.",
+     "resolved": false
+    },
+    {
+     "category": "SEARCH",
+     "text": "The search that led here counted 167,203 looks.",
+     "resolved": false
+    }
+   ],
+   "forward_protocol": {
+    "registered_on": "2026-11-07",
+    "spec": "X2_SHADOW_SPEC_v1.2.md",
+    "horizon": "First session with at least 200 FLOW trades on at least 30 dates, or 2029-11-09",
+    "benchmarks": [
+     "zero after costs, hedged with beta x SPY"
+    ],
+    "maturity": "One joint FLOW and STRESS test; STRESS needs at least 60 trades on 30 dates or is NOT EVALUABLE",
+    "stop_criteria": "Mean at least 15 bps, family-wise one-sided p below 2.3% (Holm), book drawdown no worse than -10%; a supported verdict only sends it to an owner-run IBKR paper account"
+   },
+   "runner_status": "BLOCKED_LICENSED_DATA",
+   "display_notes": [
+    "About 88% of STRESS trades in 2024-26 are also FLOW trades: the two are close to one bet.",
+    "Fills are modelled from bars; none is a broker fill."
+   ]
+  },
+  {
+   "strategy_id": "X2-STRESS",
+   "version": "v1",
+   "source_repository": "research",
+   "original_status": "Forward shadow observation since 2026-11-09; frozen",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": true,
+   "execution_kind": "EXTERNAL_LOCAL",
+   "risk_group": "X2-FADE",
+   "rule_summary": "The same opening-gap fade as FLOW, only on stress days (market not in a bull regime, or SPY 20-day volatility above 22.1%, or SPY down 1.65% or more the day before), and not on earnings days.",
+   "hashes": {
+    "X2_SHADOW_SPEC_v1.1.md": "ebdd1a9a04988d196285d92b8bf8f08eb987722a81847c76c91a360ba22df20d",
+    "X2_SHADOW_SPEC_v1.2.md": "b231c6b251395e171be9ece966f9350f77960748170501d04bae87940e66a935"
+   },
+   "development": {
+    "net_positive": true,
+    "reproducible": true,
+    "weak": [
+     "Development only.",
+     "89% of the 2024-26 profit came from three crash days.",
+     "Trades come in bursts: 0 in 2021, 131 in 2020.",
+     "Its 2024-26 record has 27 dates, fewer than the 30 its own protocol requires."
+    ],
+    "cost_model": "5 bps a side on the stock and 0.5 x beta bps a side on the SPY hedge, at modelled prices",
+    "samples": [
+     {
+      "period": "2016-23",
+      "trades": 400,
+      "active_dates": 129,
+      "mean_net_bps": 53.3,
+      "t": 3.19,
+      "longs": 300,
+      "shorts": 100,
+      "largest_date_share": 0.1
+     },
+     {
+      "period": "2024-26",
+      "trades": 136,
+      "active_dates": 27,
+      "mean_net_bps": 108.3,
+      "t": 3.13,
+      "longs": 122,
+      "shorts": 14,
+      "largest_date_share": 0.44
+     }
+    ]
+   },
+   "shorts": true,
+   "defects": [
+    {
+     "category": "EXECUTION_ASSUMPTION",
+     "text": "Short borrow is assumed available at no cost and has not been verified.",
+     "resolved": false
+    },
+    {
+     "category": "COST",
+     "text": "Real fill costs are unmeasured (PAPER-COST-1 has 0 fills).",
+     "resolved": false
+    },
+    {
+     "category": "UNIVERSE",
+     "text": "The universe of 54 stocks is hand-picked.",
+     "resolved": false
+    },
+    {
+     "category": "SEARCH",
+     "text": "The search that led here counted 167,203 looks.",
+     "resolved": false
+    }
+   ],
+   "forward_protocol": {
+    "registered_on": "2026-11-07",
+    "spec": "X2_SHADOW_SPEC_v1.2.md",
+    "horizon": "First session with at least 200 FLOW trades on at least 30 dates, or 2029-11-09",
+    "benchmarks": [
+     "zero after costs, hedged with beta x SPY"
+    ],
+    "maturity": "One joint FLOW and STRESS test; STRESS needs at least 60 trades on 30 dates or is NOT EVALUABLE",
+    "stop_criteria": "Mean at least 15 bps, family-wise one-sided p below 2.3% (Holm), book drawdown no worse than -10%; a supported verdict only sends it to an owner-run IBKR paper account"
+   },
+   "runner_status": "BLOCKED_LICENSED_DATA",
+   "display_notes": [
+    "88% of its 2024-26 trades are also FLOW trades: it must share one risk allocation with FLOW.",
+    "Fills are modelled from bars; none is a broker fill."
+   ]
+  },
+  {
+   "strategy_id": "QM-1",
+   "version": "default:OBS-QM-3",
+   "source_repository": "research",
+   "original_status": "Passed its seven pre-registered discovery criteria (2026-10-31); prospective record OBS-QM-3 running since 2026-11-02",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": true,
+   "execution_kind": "EXTERNAL_LOCAL",
+   "risk_group": "QM-1",
+   "rule_summary": "On the first session of each month, rank the eligible stocks on the average of 12-1 month momentum rank and a quality rank; hold the top fifth at equal weight, bought at the open; no stop; hold to the next rebalance. Long only.",
+   "hashes": {
+    "discovery/exp_qm1/SPEC.md": "81ca979327e0f8bb2afded31aba25ea8675dac9f4eeb423948f5363b77837406",
+    "OBS-QM-3 spec": "aedae61929edc61914cd5d444b48e79907d034af270fdf40729f505a3ef53bc2"
+   },
+   "development": {
+    "net_positive": true,
+    "reproducible": true,
+    "weak": [
+     "Development only (2016-2023, 96 monthly rebalances).",
+     "The edge over holding the same 54 stocks equally is inconclusive: +0.22% a month, interval [-0.58%, +1.00%].",
+     "NVDA was held in 75 of 96 months and made 19.6% of contributions."
+    ],
+    "cost_model": "The research engine's M0-TRAIL cost model",
+    "samples": [
+     {
+      "period": "2016-23",
+      "rebalances": 96,
+      "compounded_return_pct": 363.5,
+      "max_drawdown_pct": -38.8,
+      "mean_monthly_return_pct": 1.83,
+      "equal_weight_same_universe_pct": 300.9,
+      "spy_pct": 168.5
+     }
+    ]
+   },
+   "shorts": false,
+   "defects": [
+    {
+     "category": "UNIVERSE",
+     "text": "The absolute result mainly reflects the hindsight choice of the 54 stocks; a survivorship-free replication is blocked on data not yet bought.",
+     "resolved": false
+    }
+   ],
+   "forward_protocol": {
+    "registered_on": "2026-11-01",
+    "spec": "OBS-QM-3",
+    "horizon": "First evaluation from 2030-01-02, second from 2032-01-02",
+    "benchmarks": [
+     "equal-weight portfolio of the same 54 stocks",
+     "SPY"
+    ],
+    "maturity": "Monthly rebalances from 2026-12-01",
+    "stop_criteria": "As registered in OBS-QM-3; unchanged here"
+   },
+   "runner_status": "BLOCKED_LICENSED_DATA",
+   "display_notes": [
+    "Fills are modelled from bars; none is a broker fill."
+   ]
+  },
+  {
+   "strategy_id": "fair-value-convergence.v1:sector_timed_120",
+   "version": "forward.v1",
+   "source_repository": "app",
+   "original_status": "Forward tracking, registered; registered replay verdict NOT_SUPPORTED (positive, not significant); information only",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": true,
+   "execution_kind": "NATIVE",
+   "risk_group": "FAIR-VALUE-SECTOR",
+   "rule_summary": "At each month-end, for solid companies whose price is at least 20% from a fair value built from earnings x the sector median P/E, take the side toward fair value when price action agrees; hold 120 sessions. Long and short.",
+   "hashes": {
+    "fair_value_forward.PROTOCOL_SHA256": "6d09af6c5ead176880e354f481ed73db9d17fecf55f5be3974131e3f8569781a"
+   },
+   "development": {
+    "net_positive": true,
+    "reproducible": true,
+    "weak": [
+     "One replay over 2016-01 to 2026-03, which is development.",
+     "Book mean per month +0.0075 with family-wise 95% interval [-0.0131, +0.0281]: the interval includes zero.",
+     "Registered verdict NOT_SUPPORTED.",
+     "Units are reward v5 (stock-specific return after costs divided by expected volatility), not dollars or percent."
+    ],
+    "cost_model": "Reward v5 costs as registered in the replay protocol",
+    "samples": [
+     {
+      "period": "2016-01 to 2026-03",
+      "active_decisions": 448,
+      "longs": 299,
+      "shorts": 149,
+      "active_months": 120,
+      "book_mean_per_month": 0.0075,
+      "mean_per_active_trade": 0.109,
+      "hit_rate": 0.549
+     }
+    ]
+   },
+   "shorts": true,
+   "defects": [
+    {
+     "category": "UNIVERSE",
+     "text": "Survivorship-biased universe.",
+     "resolved": false
+    },
+    {
+     "category": "SEARCH",
+     "text": "One of five hypotheses, four of which were negative.",
+     "resolved": false
+    }
+   ],
+   "forward_protocol": {
+    "registered_on": "2026-10-30",
+    "spec": "fair-value-convergence.v1:sector_timed_120:forward.v1",
+    "horizon": "The first 24 months with an active position",
+    "benchmarks": [
+     "zero in reward v5 units"
+    ],
+    "maturity": "One decision per month-end, each held 120 sessions",
+    "stop_criteria": "Evaluated once; a pass only authorises a review"
+   },
+   "runner_status": "RUNS_IN_APP_AS_INFORMATION_ONLY",
+   "display_notes": [
+    "A third of its trades are shorts and the app has no borrow policy.",
+    "Recommended: do not admit by default."
+   ]
+  },
+  {
+   "strategy_id": "EXT-FADE-X2",
+   "version": "all-days",
+   "source_repository": "research",
+   "original_status": "Parked",
+   "evidence_tier": "HOLDOUT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "EXT-FADE-X2",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "Its one sealed 2024-26 test gave +23.0 bps, t 1.33, short of its bar (608 trades). It lives on only through FLOW and STRESS.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "EXT-FADE",
+   "version": "v1",
+   "source_repository": "app",
+   "original_status": "Closed, FAIL",
+   "evidence_tier": "HOLDOUT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "EXT-FADE",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "Failed the one-time 2020-23 check: -6.5 bps at 10 bps a side over 5,131 trades. Includes its three overlays and the constrained book.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "GU-L",
+   "version": "gap-up-long",
+   "source_repository": "research",
+   "original_status": "Closed 2026-11-01",
+   "evidence_tier": "HOLDOUT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "GU-L",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "The profit was market beta; hedged, every candidate averages -9.0 bps (6,848 trades).",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "GD-S",
+   "version": "gap-down-short",
+   "source_repository": "research",
+   "original_status": "Closed",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "GD-S",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "Negative in nearly every regime.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "GU-L-AI-GATE",
+   "version": "pilot1",
+   "source_repository": "research",
+   "original_status": "Closed 2026-11-09",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "GU-L-AI-GATE",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "Pilot showed no selection skill; no prospective session was run.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "FCF-SEL-1",
+   "version": "v1",
+   "source_repository": "research",
+   "original_status": "Archived 2026-10-31",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "FCF-SEL-1",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "No drift after the fill; costs about 90% of the loss.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "GAPML-1",
+   "version": "v1",
+   "source_repository": "research",
+   "original_status": "Closed, FAIL",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "GAPML-1",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "Selected trades -2.2 bps, t -0.35 (1,636 trades).",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "GAPML-2",
+   "version": "v1",
+   "source_repository": "research",
+   "original_status": "Closed, FAIL at the development gate",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "GAPML-2",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "t 0.38 against 2.0 needed.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "X2-MODEL-SELECTION",
+   "version": "feasibility",
+   "source_repository": "research",
+   "original_status": "Closed before any build",
+   "evidence_tier": "NONE",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "X2-MODEL-SELECTION",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "Feasibility memo: too few trades to detect a realistic effect.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "CANDLE-DOJI",
+   "version": "fade-and-rsi",
+   "source_repository": "research",
+   "original_status": "Closed",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "CANDLE-DOJI",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "0 of 84 and 0 of 168 rules passed; -11.5 and -11.9 bps.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "X2-OPEX",
+   "version": "quarterly-expiry-fridays",
+   "source_repository": "research",
+   "original_status": "Closed",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "X2-OPEX",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "13 and 7 trades; missed its registered bar (p 0.010 against 0.006).",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "OPTSELL-0",
+   "version": "benchmarks",
+   "source_repository": "research",
+   "original_status": "Closed",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "OPTSELL-0",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "0 of 6 beat their market exposure before costs; the app has no option-chain execution.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "UVM-1",
+   "version": "v1",
+   "source_repository": "research",
+   "original_status": "Closed, FAIL",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "UVM-1",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "Failed its discovery test.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "PEC-1",
+   "version": "v1",
+   "source_repository": "research",
+   "original_status": "Closed, FAIL",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "PEC-1",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "Failed its discovery test.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "event-strategy-replay.v1:S1",
+   "version": "volume-breakout",
+   "source_repository": "app",
+   "original_status": "Forward shadow, pending to 2028-10",
+   "evidence_tier": "HOLDOUT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "event-strategy-replay.v1:S1",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "Development mean negative (-0.0090 per month, 1,045 trades); hold-out NOT_SUPPORTED.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "event-strategy-replay.v1:S2",
+   "version": "trend-pullback",
+   "source_repository": "app",
+   "original_status": "Forward shadow, pending to 2028-10",
+   "evidence_tier": "HOLDOUT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "event-strategy-replay.v1:S2",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "Development mean +0.0056 with interval [-0.0118, +0.0229] (1,713 trades), then hold-out mean -0.0064, NOT_SUPPORTED.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "event-strategy-replay.v1:S3",
+   "version": "post-earnings",
+   "source_repository": "app",
+   "original_status": "Forward shadow, pending to 2028-10",
+   "evidence_tier": "HOLDOUT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "event-strategy-replay.v1:S3",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "Development mean negative (374 trades); hold-out NOT_SUPPORTED.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "event-strategy-replay.v1:S4",
+   "version": "value-momentum",
+   "source_repository": "app",
+   "original_status": "Forward shadow, pending to 2028-10; exploratory",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "event-strategy-replay.v1:S4",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "Development mean negative (168 trades).",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "fair-value:H6-H7-H9-H11",
+   "version": "own-history-pe-and-value-gap",
+   "source_repository": "app",
+   "original_status": "NOT_SUPPORTED",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "fair-value:H6-H7-H9-H11",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "Negative means.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "heuristic-direction",
+   "version": "replay",
+   "source_repository": "app",
+   "original_status": "Replay negative",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "heuristic-direction",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "-0.0017 per month, interval [-0.0365, +0.0330].",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "agent-bandit-paper-ledger",
+   "version": "v1",
+   "source_repository": "app",
+   "original_status": "Already in PAPER, evaluation pending",
+   "evidence_tier": "NONE",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "agent-bandit-paper-ledger",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "Not a fixed-rule strategy; it already has its own registered evaluation and is not routed through this lane.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "strategy-lab-v2",
+   "version": "policies",
+   "source_repository": "app",
+   "original_status": "No eligible policy (run 42399143885)",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "strategy-lab-v2",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "Nothing cleared its gate.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "technical-setups",
+   "version": "eight-daily",
+   "source_repository": "app",
+   "original_status": "Shadow, collecting",
+   "evidence_tier": "NONE",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "technical-setups",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "No registered positive result exists yet.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "PAPER-COST-1-and-UNSEEN-1",
+   "version": "measurements",
+   "source_repository": "research",
+   "original_status": "Measuring; planned",
+   "evidence_tier": "NONE",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "PAPER-COST-1-and-UNSEEN-1",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "Measurements, not strategies.",
+   "display_notes": []
+  }
+ ]
+}

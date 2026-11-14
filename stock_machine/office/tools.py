@@ -269,3 +269,100 @@ def write_briefing(role: str, conn, *, kind: str, briefing_date, content: dict) 
         content = conn.execute("SELECT content FROM office_briefings WHERE kind = %s AND briefing_date = %s",
                                (kind, briefing_date)).fetchone()[0]
     return {"kind": kind, "briefing_date": str(briefing_date), "content": content, "created": row is not None}
+
+
+# ------------------------------------------------------------------- strategy inventory and admission
+
+def strategy_evidence(role: str, conn, strategy_id: str, version: str) -> dict | None:
+    roles.authorize(role, "read_strategy_evidence")
+    row = conn.execute(
+        """SELECT strategy_id, version, source_repository, evidence_tier, original_status, admissible,
+                  execution_kind, risk_group, record, record_sha256
+           FROM office_strategy_versions WHERE strategy_id = %s AND version = %s""",
+        (strategy_id, version)).fetchone()
+    keys = ("strategy_id", "version", "source_repository", "evidence_tier", "original_status", "admissible",
+            "execution_kind", "risk_group", "record", "record_sha256")
+    return None if row is None else dict(zip(keys, row))
+
+
+def excluded_rule_hashes(role: str, conn) -> set[str]:
+    """Every frozen-file hash carried by a strategy version whose own record makes it inadmissible."""
+    roles.authorize(role, "read_strategy_evidence")
+    rows = conn.execute("SELECT record->'hashes' FROM office_strategy_versions WHERE NOT admissible").fetchall()
+    return {h for (hashes,) in rows for h in (hashes or {}).values()}
+
+
+def strategy_signoff(role: str, conn, run_id: str, strategy_id: str, version: str, *, task_type: str,
+                     verdict: str) -> bool:
+    """True only if ``run_id`` is a completed reviewer run that signed off exactly this strategy version."""
+    roles.authorize(role, "read_review")
+    row = conn.execute(
+        """SELECT t.result FROM office_runs r JOIN office_tasks t ON t.task_id = r.task_id
+           WHERE r.run_id = %s AND r.outcome = 'COMPLETED' AND t.state = 'COMPLETED' AND t.task_type = %s""",
+        (run_id, task_type)).fetchone()
+    return row is not None and (row[0] or {}) == {"strategy_id": strategy_id, "version": version, "verdict": verdict}
+
+
+def paper_book(role: str, conn, book_id: str) -> dict | None:
+    roles.authorize(role, "read_paper_book")
+    row = conn.execute(
+        "SELECT book_id, max_active_deployments, limits, cost_model, policy_version FROM office_books "
+        "WHERE book_id = %s", (book_id,)).fetchone()
+    return None if row is None else dict(zip(
+        ("book_id", "max_active_deployments", "limits", "cost_model", "policy_version"), row))
+
+
+def active_deployments(role: str, conn, book_id: str) -> list[dict]:
+    roles.authorize(role, "read_paper_book")
+    rows = conn.execute(
+        """SELECT strategy_id, version, risk_group, state FROM office_deployments
+           WHERE book_id = %s AND state IN ('EXPERIMENTAL_PAPER','PAUSED','QUALIFIED_PAPER')
+           ORDER BY strategy_id, version""", (book_id,)).fetchall()
+    return [dict(zip(("strategy_id", "version", "risk_group", "state"), r)) for r in rows]
+
+
+def deployment(role: str, conn, strategy_id: str, version: str, book_id: str) -> dict | None:
+    roles.authorize(role, "read_paper_book")
+    row = conn.execute(
+        """SELECT deployment_id, state, admission_decision_id FROM office_deployments
+           WHERE strategy_id = %s AND version = %s AND book_id = %s""", (strategy_id, version, book_id)).fetchone()
+    return None if row is None else {"deployment_id": str(row[0]), "state": row[1], "decision_id": str(row[2])}
+
+
+def write_admission_decision(role: str, conn, *, strategy_id: str, version: str, book_id: str | None,
+                             policy_version: str, outcome: str, checks: list, input_sha256: str,
+                             reviewer_run_id: str | None) -> dict:
+    """Record one admission decision. The same decision on the same inputs is recorded once."""
+    roles.authorize(role, "write_admission_decision")
+    row = conn.execute(
+        """INSERT INTO office_admission_decisions(decision_id, strategy_id, version, book_id, policy_version,
+               outcome, checks, input_sha256, reviewer_run_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+           ON CONFLICT (strategy_id, version, COALESCE(book_id, ''), input_sha256) DO NOTHING
+           RETURNING decision_id""",
+        (str(uuid4()), strategy_id, version, book_id, policy_version, outcome, Jsonb(checks), input_sha256,
+         reviewer_run_id)).fetchone()
+    if row is None:
+        row = conn.execute(
+            """SELECT decision_id FROM office_admission_decisions WHERE strategy_id = %s AND version = %s
+               AND COALESCE(book_id, '') = COALESCE(%s, '') AND input_sha256 = %s""",
+            (strategy_id, version, book_id, input_sha256)).fetchone()
+        return {"decision_id": str(row[0]), "created": False}
+    return {"decision_id": str(row[0]), "created": True}
+
+
+def write_deployment_state(role: str, conn, *, strategy: dict, book_id: str, state: str, decision_id: str) -> dict:
+    """Create a strategy version's deployment in a book. The only state this tool can create is experimental
+    paper; the database refuses it without an ADMITTED decision for exactly this version and book."""
+    roles.authorize(role, "write_deployment_state")
+    if state != "EXPERIMENTAL_PAPER":
+        raise roles.ToolNotAllowed("DEPLOYMENT_STATE_NOT_ALLOWED")
+    row = conn.execute(
+        """INSERT INTO office_deployments(deployment_id, strategy_id, version, book_id, risk_group, state,
+               execution_kind, forward_protocol, admission_decision_id)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+           ON CONFLICT (strategy_id, version, book_id) DO NOTHING RETURNING deployment_id""",
+        (str(uuid4()), strategy["strategy_id"], strategy["version"], book_id, strategy["risk_group"], state,
+         strategy["execution_kind"], Jsonb(strategy["record"].get("forward_protocol") or {}), decision_id)).fetchone()
+    if row is None:
+        return {**deployment(role, conn, strategy["strategy_id"], strategy["version"], book_id), "created": False}
+    return {"deployment_id": str(row[0]), "state": state, "created": True}
