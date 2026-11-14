@@ -174,6 +174,10 @@ Nothing below has been done. Each needs a yes or a choice.
 
 **B. Strategy admission.** Recommended: mirror FLOW, STRESS and QM-1 from the Mac; do not admit
 `sector_timed_120`; start the native experimental book empty.
+- **Owner's answer, 2026-11-13 (B1, first half):** "Sure we can mirror the flow stress and qm-1 from the
+  research we have done". So PR 4c (the importer) is in scope. Still open: what the upload may contain
+  (B1, second half), B2, B3, and whether the native book starts empty. The frozen rules and research
+  records stay unchanged and are read only; licensed data stays on the Mac.
 - B1. Mirror the three local records into the office? If yes, may the upload include per-trade net bps and
   book equity (derived figures), or counts and totals only? No bars or quotes are sent in either case.
 - B2. Admit `sector_timed_120` to the native book? It would need a declared short-borrow simulation
