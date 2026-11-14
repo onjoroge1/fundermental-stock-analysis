@@ -49,4 +49,4 @@ build-backend = "setuptools.build_meta"
 include = ["stock_machine*"]
 
 [tool.setuptools.package-data]
-stock_machine = ["schemas/*.json", "normalization/*.json"]
+stock_machine = ["schemas/*.json", "normalization/*.json", "office/*.json"]

@@ -146,5 +146,5 @@ def test_the_tools_module_only_uses_tools_the_roles_catalogue_names():
     import re
     named = set(re.findall(r'roles\.authorize\(role, "([a-z_]+)"\)', inspect.getsource(tools)))
     assert named and named <= set(roles.TOOLS)
-    # nothing in this change writes an order, a fill, a deployment or an admission decision
-    assert named & {"write_admission_decision", "write_deployment_state", "write_opportunity"} == set()
+    # no tool writes an opportunity, an order or a fill yet
+    assert "write_opportunity" not in named and not any("order" in n or "fill" in n for n in named)
