@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 from decimal import Decimal, InvalidOperation
 
-OFFICE_SCHEMA_VERSION = "0030_office_budget"
+OFFICE_SCHEMA_VERSION = "0031_office_research"
 
 # Pilot ceilings from the build brief for the queue. Spending ceilings are further down.
 MAX_CONCURRENT_TASKS = 2
@@ -41,6 +41,11 @@ def paper_enabled() -> bool:
 
 def provider() -> str:
     return os.environ.get("OFFICE_MODEL_PROVIDER", "").strip() or DEFAULT_PROVIDER
+
+
+def model() -> str:
+    """The model office roles ask for. There is no default: the owner chooses it, or nothing is called."""
+    return os.environ.get("OFFICE_MODEL", "").strip()
 
 
 def require_enabled() -> None:

@@ -15,11 +15,12 @@ from psycopg.types.json import Jsonb
 
 from .config import DATABASE_URL
 
-REQUIRED_SCHEMA_VERSION = "0030_office_budget"
-# 0029 and 0030 only add office_* tables and alters nothing that existed at 0028, so this code runs on either.
-# Accepting both lets a merge deploy first and the production migration follow as a separate, owner-started
-# step, without ingestion failing in between. Office code needs 0029 and checks for it itself.
-COMPATIBLE_SCHEMA_VERSIONS = frozenset({"0028_fair_value_forward", "0029_office_tasks", REQUIRED_SCHEMA_VERSION})
+REQUIRED_SCHEMA_VERSION = "0031_office_research"
+# 0029 to 0031 only add office_* tables and alter nothing that existed at 0028, so this code runs on any of
+# them. Accepting all of them lets a merge deploy first and the production migration follow as a separate, owner-started
+# step, without ingestion failing in between. Office code needs its own tables and fails plainly without them.
+COMPATIBLE_SCHEMA_VERSIONS = frozenset({"0028_fair_value_forward", "0029_office_tasks", "0030_office_budget",
+                                       REQUIRED_SCHEMA_VERSION})
 
 
 def connect() -> psycopg.Connection:

@@ -94,14 +94,14 @@ def _connection_with_versions(versions):
 
 
 def test_existing_code_accepts_the_database_before_and_after_the_office_migration():
-    assert db.REQUIRED_SCHEMA_VERSION == config.OFFICE_SCHEMA_VERSION == "0030_office_budget"
+    assert db.REQUIRED_SCHEMA_VERSION == config.OFFICE_SCHEMA_VERSION == "0031_office_research"
     assert db.COMPATIBLE_SCHEMA_VERSIONS == {"0028_fair_value_forward", "0029_office_tasks",
-                                             "0030_office_budget"}
+                                             "0030_office_budget", "0031_office_research"}
     for version in sorted(db.COMPATIBLE_SCHEMA_VERSIONS):
         conn = _connection_with_versions([version])
         db.init_schema(conn)
         conn.commit.assert_called_once()
-    for versions in ([], ["0027_agent_outcome_checks"], ["0031_not_yet"],
+    for versions in ([], ["0027_agent_outcome_checks"], ["0032_not_yet"],
                      ["0028_fair_value_forward", "0029_office_tasks"]):
         with pytest.raises(RuntimeError, match="Database migration required"):
             db.init_schema(_connection_with_versions(versions))
@@ -125,7 +125,7 @@ def test_the_migration_only_adds_office_objects():
             assert "office_" in line, line
 
 
-@pytest.mark.parametrize("number", ["0029", "0030"])
+@pytest.mark.parametrize("number", ["0029", "0030", "0031"])
 def test_the_production_migration_can_only_be_started_by_hand(number):
     text = (ROOT / f".github/workflows/office-migrate-{number}.yml").read_text()
     trigger = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
@@ -145,6 +145,21 @@ def test_the_budget_migration_only_adds_one_office_table():
     assert [line for line in body.splitlines() if line.startswith(("UPDATE ", "INSERT "))] == [
         "UPDATE alembic_version SET version_num='0030_office_budget' "
         "WHERE alembic_version.version_num = '0029_office_tasks';"]
+
+
+def test_the_research_migration_only_adds_four_office_tables():
+    from tests.test_db_integrity import migration_sql
+    body = migration_sql("0030_office_budget:0031_office_research").split("-- Running upgrade", 1)[1]
+    created = [line.split()[2] for line in body.splitlines() if line.startswith("CREATE TABLE")]
+    assert created == ["office_events", "office_memos", "office_reviews", "office_briefings"]
+    upper = body.upper()
+    assert "ALTER TABLE" not in upper and "DROP " not in upper and "DELETE FROM" not in upper
+    assert [line for line in body.splitlines() if line.startswith(("UPDATE ", "INSERT "))] == [
+        "UPDATE alembic_version SET version_num='0031_office_research' "
+        "WHERE alembic_version.version_num = '0030_office_budget';"]
+    for line in body.splitlines():
+        if line.startswith(("CREATE INDEX", "CREATE TRIGGER", "CREATE FUNCTION")):
+            assert "office_" in line, line
 
 
 def test_this_change_leaves_frozen_evaluation_code_and_its_registered_hashes_alone():
