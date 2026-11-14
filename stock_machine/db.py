@@ -15,7 +15,11 @@ from psycopg.types.json import Jsonb
 
 from .config import DATABASE_URL
 
-REQUIRED_SCHEMA_VERSION = "0028_fair_value_forward"
+REQUIRED_SCHEMA_VERSION = "0029_office_tasks"
+# 0029 only adds office_* tables and alters nothing that existed at 0028, so this code runs on either.
+# Accepting both lets a merge deploy first and the production migration follow as a separate, owner-started
+# step, without ingestion failing in between. Office code needs 0029 and checks for it itself.
+COMPATIBLE_SCHEMA_VERSIONS = frozenset({"0028_fair_value_forward", REQUIRED_SCHEMA_VERSION})
 
 
 def connect() -> psycopg.Connection:
@@ -33,7 +37,7 @@ def init_schema(conn: psycopg.Connection) -> None:
     except psycopg.errors.UndefinedTable as exc:
         conn.rollback()
         raise RuntimeError("Database is not migration-managed; apply Alembic migrations before ingestion. Existing databases require a verified baseline, not a blind stamp.") from exc
-    if versions != {REQUIRED_SCHEMA_VERSION}:
+    if len(versions) != 1 or not versions <= COMPATIBLE_SCHEMA_VERSIONS:
         raise RuntimeError("Database migration required: run alembic upgrade head before ingestion")
     conn.commit()
 
