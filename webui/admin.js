@@ -107,9 +107,20 @@ async function refreshOffice(){
       officeLine('Tasks',Object.keys(t).length?Object.keys(t).sort().map(k=>k+' '+t[k]).join(' · '):'None'),
       officeLine('Last 7 days',w.events+' events · '+w.memos+' memos · reviews: '+(r.PASS||0)+' passed, '+(r.REVISION_REQUESTED||0)+' sent back, '+(r.BLOCKED||0)+' blocked'),
       officeLine('Latest briefing',b?b.kind+' '+b.date:'None yet'));
+    for(const m of o.mirrored_records||[])box.append(officeLine('Mirrored from your machine',m.strategy_id+' '+m.version+' · through '+m.through_session+' · '+m.sessions+' sessions · '+m.trades+' trades on '+m.trade_dates+' dates · simulation, not broker fills'));
     for(const x of o.needs_attention||[])box.append(make('p',x.task_type+' · '+x.state+(x.error_code?' · '+x.error_code:'')+' · attempts '+x.attempts+' · '+tradeTime(x.updated_at),'hint'));
   }catch(e){$('office-state').textContent='Office status unavailable';box.replaceChildren(make('p',e.message,'hint'));}
 }
+$('office-record-upload').addEventListener('click',async()=>{
+  const out=$('office-record-result');out.replaceChildren();
+  for(const file of $('office-record-files').files){
+    let line;
+    try{const r=await api('/office/external-records','POST',JSON.parse(await file.text()));line=file.name+': '+(r.status==='CREATED'?'stored':'already stored')+' ('+r.strategy_id+', through '+r.through_session+')';}
+    catch(e){line=file.name+': refused ('+e.message+')';}
+    out.append(make('p',line,'hint'));
+  }
+  refreshOffice();
+});
 $('refresh').addEventListener('click',refresh);
 $('toggle-capture').addEventListener('click',async()=>{if(!settings)return;const paused=!settings.capture_paused;const reason=window.prompt((paused?'Pause':'Resume')+' research: enter a short reason for the audit log.');if(reason===null)return;try{await api('/controls','POST',{capture_paused:paused,expected_version:settings.version,reason});message(paused?'New research captures are paused. In-flight work may finish.':'Research resumed.');await refresh();}catch(e){message(e.message,true);}});
 async function setMode(mode){if(tradingMode.mode===mode)return;const reason=window.prompt('Switch agent trading mode to '+mode+'? Enter a short audit reason.');if(reason===null)return;try{await api('/trading-mode','POST',{mode,expected_version:tradingMode.version||0,reason});message(mode==='PAPER'?'Paper simulation enabled. Broker submission remains disabled.':'Research-only mode enabled. Existing paper positions remain recorded and are not silently closed.');await refresh();}catch(e){message(e.message,true);}}

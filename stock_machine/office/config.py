@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 from decimal import Decimal, InvalidOperation
 
-OFFICE_SCHEMA_VERSION = "0033_office_paper"
+OFFICE_SCHEMA_VERSION = "0034_office_external"
 
 # Pilot ceilings from the build brief for the queue. Spending ceilings are further down.
 MAX_CONCURRENT_TASKS = 2
