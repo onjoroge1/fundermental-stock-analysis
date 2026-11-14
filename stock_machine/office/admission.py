@@ -13,14 +13,15 @@ What admission can and cannot do:
 * A weak result is admitted as weak: PASS_WEAK is kept on the decision and is never rounded up to PASS.
 * Admitting the same version to the same book again returns the deployment that already exists.
 
-Supported execution kinds are listed in ``SUPPORTED_EXECUTION``. It is empty in this change: the paper
-ledger and the importer for local records arrive later, so every real candidate is blocked at check 3.
+Execution is supported only where code exists for it. NATIVE is supported for a strategy version that has
+a rule registered in ``paper.RULES``; none is registered for any real strategy. EXTERNAL_LOCAL arrives with
+the importer for local records. So every real candidate is still blocked at check 3.
 """
 from __future__ import annotations
 
 from psycopg.types.json import Jsonb
 
-from . import config, tasks, tools
+from . import config, paper, tasks, tools
 
 ROLE = "portfolio_manager"
 POLICY_VERSION = "admission.v1"
@@ -115,13 +116,14 @@ def admit(strategy_id: str, version: str, *, book_id: str | None = None, reviewe
         active = tools.active_deployments(ROLE, conn, book_id) if book is not None else []
         signoff = bool(reviewer_run_id) and tools.strategy_signoff(
             ROLE, conn, reviewer_run_id, strategy_id, version, task_type=REVIEW_TASK, verdict=SIGNOFF_VERDICT)
-        paper = config.paper_enabled()
-        checks = evaluate(strategy, book=book, active=active, signoff=signoff, paper_enabled=paper,
-                          excluded_hashes=tools.excluded_rule_hashes(ROLE, conn))
+        paper_on = config.paper_enabled()
+        supported = SUPPORTED_EXECUTION | ({"NATIVE"} if (strategy_id, version) in paper.RULES else set())
+        checks = evaluate(strategy, book=book, active=active, signoff=signoff, paper_enabled=paper_on,
+                          excluded_hashes=tools.excluded_rule_hashes(ROLE, conn), supported=frozenset(supported))
         result = outcome(checks)
         digest = tools.sha256({"record": strategy["record_sha256"], "book": book, "active": active,
-                               "signoff": reviewer_run_id if signoff else None, "paper": paper,
-                               "supported": sorted(SUPPORTED_EXECUTION), "policy": POLICY_VERSION})
+                               "signoff": reviewer_run_id if signoff else None, "paper": paper_on,
+                               "supported": sorted(supported), "policy": POLICY_VERSION})
         decision = tools.write_admission_decision(
             ROLE, conn, strategy_id=strategy_id, version=version, book_id=book_id if book is not None else None,
             policy_version=POLICY_VERSION, outcome=result, checks=checks, input_sha256=digest,

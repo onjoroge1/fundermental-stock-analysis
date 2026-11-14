@@ -70,7 +70,8 @@ def test_no_real_candidate_is_admitted_today(strategy_id):
 
 
 def test_nothing_is_supported_for_execution_in_this_change():
-    assert admission.SUPPORTED_EXECUTION == frozenset()
+    from stock_machine.office import paper
+    assert admission.SUPPORTED_EXECUTION == frozenset() and paper.RULES == {}    # no real rule is registered
     assert fails(run(BY_ID["QM-1"], supported=None))[3] == ["EXECUTION_NOT_SUPPORTED"]
 
 
