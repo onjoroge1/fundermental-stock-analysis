@@ -183,8 +183,12 @@ def test_the_database_refuses_a_deployment_without_its_own_admitted_decision_and
                                ("UPDATE office_books SET max_active_deployments = 20", "written once")):
         with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState, match=message):
             sql(ready, statement)
-    with pytest.raises(psycopg.errors.CheckViolation):
-        sql(ready, "UPDATE office_deployments SET state = 'LIVE'")
+    with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState, match="needs its written reason"):
+        sql(ready, "UPDATE office_deployments SET state = 'LIVE'")            # and no reason can be written for it
+    with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState, match="not allowed"):
+        sql(ready, "INSERT INTO office_deployment_events(event_id, deployment_id, from_state, to_state, actor, "
+                   "policy_version, reason_code) VALUES (%s, %s, 'PAUSED', 'LIVE', 'owner:owner', 'x', 'A_REASON')",
+            (str(uuid4()), admitted["deployment_id"]))
     with pytest.raises(roles.ToolNotAllowed), ready() as conn:
         tools.write_admission_decision("qa", conn, strategy_id="FIXTURE-OTHER", version="v1", book_id=None,
                                        policy_version="x", outcome="BLOCKED", checks=[], input_sha256="0" * 64,
