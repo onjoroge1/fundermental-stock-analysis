@@ -168,6 +168,22 @@ async def office(request: Request):
     return await safe(work)
 
 
+@router.post("/api/operator/office/external-records")
+async def office_external_record(request: Request):
+    """Store one results summary exported on the owner's machine. Refused while the office is off."""
+    async def work():
+        from ..office import config as office_config, external
+        account = await owner(request, write=True)
+        data = await body(request, set(external.TOP))
+        try:
+            return response(await run_in_threadpool(external.import_record, data, uploaded_by=account["username"]))
+        except external.ExternalRecordError as exc:
+            raise PanelError(exc.code, 422) from None
+        except office_config.OfficeDisabled:
+            raise PanelError("OFFICE_DISABLED", 409) from None
+    return await safe(work)
+
+
 @router.post("/api/operator/controls")
 async def controls(request: Request):
     async def work():
