@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from stock_machine.office import research, worker
+from stock_machine.office import config, research, worker
 from stock_machine.office.paper import Signal
 from stock_machine.office.providers import FakeProvider
 from tests.test_office_paper_postgres import T, desk  # noqa: F401
@@ -25,6 +25,13 @@ def not_on_a_runner(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
 
+def stamp(pg, version=config.OFFICE_SCHEMA_VERSION):  # noqa: F811
+    """The test schema is built by running the migrations directly, so it has no revision stamp yet."""
+    sql(pg, "CREATE TABLE IF NOT EXISTS alembic_version (version_num TEXT PRIMARY KEY)")
+    sql(pg, "DELETE FROM alembic_version")
+    sql(pg, "INSERT INTO alembic_version VALUES (%s)", (version,))
+
+
 def at(hour):
     return datetime(2026, 11, 12, hour, tzinfo=UTC)                          # a Thursday: no weekly briefing
 
@@ -34,6 +41,7 @@ def rows(pg, *tables):  # noqa: F811
 
 
 def test_one_pass_does_the_research_chain_once_and_is_matched_to_its_github_run(pg, monkeypatch):  # noqa: F811
+    stamp(pg)
     monkeypatch.setenv("OFFICE_MODEL", MODEL)
     monkeypatch.setenv("GITHUB_RUN_ID", RUN)
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
@@ -72,6 +80,7 @@ def test_one_pass_does_the_research_chain_once_and_is_matched_to_its_github_run(
 
 
 def test_with_no_provider_chosen_memos_wait_and_nothing_is_sent(pg):  # noqa: F811
+    stamp(pg)
     out = worker.work(now=at(15))
     assert out["state"] == "COMPLETED" and out["steps"]["research"] == {"skipped": "PROVIDER_NOT_CONFIGURED"}
     assert out["steps"]["queue_memos"] == {"ok": True, "queued": 1, "already_today": 0}
@@ -80,6 +89,7 @@ def test_with_no_provider_chosen_memos_wait_and_nothing_is_sent(pg):  # noqa: F8
 
 
 def test_the_paper_steps_scan_mark_and_score_once(floor):  # noqa: F811
+    stamp(floor.pg)
     floor.signals[T] = [Signal("ACME", "LONG", 1)]
     out = worker.work(provider=FakeProvider({}), max_tasks=0, now=at(15))
     assert out["state"] == "COMPLETED", out
@@ -97,6 +107,7 @@ def test_the_paper_steps_scan_mark_and_score_once(floor):  # noqa: F811
 
 
 def test_a_book_that_does_not_reconcile_is_paused_by_the_pass(floor):  # noqa: F811
+    stamp(floor.pg)
     sql(floor.pg, "INSERT INTO office_marks(book_id, session, equity_usd, realized_usd, unrealized_usd, "
                   "gross_exposure_usd, open_positions) VALUES ('experimental', %s, 150000, 0, 0, 0, 0)", (T,))
     out = worker.work(provider=FakeProvider({}), max_tasks=0, now=at(15))
@@ -107,3 +118,10 @@ def test_a_book_that_does_not_reconcile_is_paused_by_the_pass(floor):  # noqa: F
         ("policy", "PAUSE_FOR_DATA_OR_EXECUTION_DEFECT")]
     later = worker.work(provider=FakeProvider({}), max_tasks=0, now=at(16))            # still paused, not paused twice
     assert later["steps"]["qa"]["state_changes"] == 0 and rows(floor.pg, "office_deployment_events") == [1]
+
+
+def test_a_database_that_is_not_at_the_office_revision_is_left_untouched(pg):  # noqa: F811
+    assert worker.work(now=at(15)) == {"mode": "work", "steps": {}, "state": "SCHEMA_NOT_READY"}     # no stamp at all
+    stamp(pg, "0034_office_external")
+    assert worker.work(now=at(15))["state"] == "SCHEMA_NOT_READY"
+    assert rows(pg, "office_tasks", "office_events", "office_strategy_versions", "office_agent_definitions") == [0, 0, 0, 0]
