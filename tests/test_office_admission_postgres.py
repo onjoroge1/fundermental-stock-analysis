@@ -173,7 +173,9 @@ def test_the_database_refuses_a_deployment_without_its_own_admitted_decision_and
                    "outcome, checks, input_sha256) VALUES (%s, 'FIXTURE-OTHER', 'v1', 'experimental', 'x', 'ADMITTED', "
                    "'[]'::jsonb, %s)", (str(uuid4()), "0" * 64))
     # a deployment's state may change (pause, retire); nothing else about it may, and it cannot be deleted
-    sql(ready, "UPDATE office_deployments SET state = 'PAUSED'")
+    with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState, match="needs its written reason"):
+        sql(ready, "UPDATE office_deployments SET state = 'PAUSED'")
+    assert admission.set_state(admitted["deployment_id"], "PAUSED", owner="owner", reason_code="OWNER_PAUSE")["changed"]
     for statement, message in (("UPDATE office_deployments SET book_id = 'experimental', version = 'v2'", "Only the state"),
                                ("UPDATE office_deployments SET execution_kind = 'EXTERNAL_LOCAL'", "Only the state"),
                                ("DELETE FROM office_deployments", "written once"),

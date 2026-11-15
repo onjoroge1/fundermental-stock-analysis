@@ -346,4 +346,9 @@ def build_briefing(kind: str = "MORNING", on: date | None = None) -> dict:
                    "blocked": [{k: r[k] for k in r if k != "summary"} for r in rows if r["verdict"] == "BLOCKED"],
                    "in_revision": [{k: r[k] for k in r if k != "summary"} for r in rows
                                    if r["verdict"] == "REVISION_REQUESTED"]}
+        if kind == "WEEKLY" and conn.execute("SELECT to_regclass('office_evaluations') IS NOT NULL").fetchone()[0]:
+            from . import qa
+            scored = qa.latest(conn)
+            if scored["evaluations"] or scored["proposals_waiting"]:
+                content["paper_qa"] = scored
         return tools.write_briefing("qa", conn, kind=kind, briefing_date=on, content=content)

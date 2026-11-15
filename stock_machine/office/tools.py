@@ -366,3 +366,177 @@ def write_deployment_state(role: str, conn, *, strategy: dict, book_id: str, sta
     if row is None:
         return {**deployment(role, conn, strategy["strategy_id"], strategy["version"], book_id), "created": False}
     return {"deployment_id": str(row[0]), "state": state, "created": True}
+
+
+# ------------------------------------------------------------------------------ QA and state changes
+
+STATE_CHANGES = {("EXPERIMENTAL_PAPER", "PAUSED"), ("EXPERIMENTAL_PAPER", "RETIRED"),
+                 ("PAUSED", "EXPERIMENTAL_PAPER"), ("PAUSED", "RETIRED")}
+
+
+def deployment_ledger(role: str, conn, deployment_id: str, as_of: date) -> dict | None:
+    """Everything recorded for one deployment up to ``as_of``: signals, simulated orders, fills, positions
+    and the book's latest mark. Read only; these rows are written once and QA cannot change them."""
+    roles.authorize(role, "read_paper_book")
+    roles.authorize(role, "read_outcomes")
+    head = conn.execute(
+        """SELECT d.strategy_id, d.version, d.book_id, d.state, d.execution_kind, d.forward_protocol,
+                  b.starting_equity, b.cost_model
+           FROM office_deployments d JOIN office_books b ON b.book_id = d.book_id
+           WHERE d.deployment_id = %s""", (deployment_id,)).fetchone()
+    if head is None:
+        return None
+    book_id = head[2]
+    opportunities = conn.execute(
+        """SELECT signal_session, ticker, status, reason_codes FROM office_opportunities
+           WHERE deployment_id = %s AND signal_session <= %s ORDER BY signal_session, signal_rank NULLS FIRST""",
+        (deployment_id, as_of)).fetchall()
+    orders = conn.execute(
+        """SELECT order_id, ticker, side, shares, signal_session, state FROM office_orders
+           WHERE deployment_id = %s AND signal_session <= %s ORDER BY signal_session, ticker""",
+        (deployment_id, as_of)).fetchall()
+    fills = conn.execute(
+        """SELECT f.order_id, f.leg, f.fill_session, f.price, f.shares, f.cost_usd FROM office_fills f
+           JOIN office_orders r ON r.order_id = f.order_id
+           WHERE r.deployment_id = %s AND f.fill_session <= %s ORDER BY f.fill_session, f.order_id, f.leg""",
+        (deployment_id, as_of)).fetchall()
+    positions = conn.execute(
+        """SELECT order_id, ticker, side, shares, entry_session, entry_price, holding_sessions, state,
+                  exit_session, exit_price, costs_usd, realized_pnl_usd FROM office_positions
+           WHERE deployment_id = %s AND entry_session <= %s ORDER BY entry_session, ticker""",
+        (deployment_id, as_of)).fetchall()
+    mark = conn.execute(
+        """SELECT session, equity_usd, realized_usd, unrealized_usd, detail->'stale_prices' FROM office_marks
+           WHERE book_id = %s AND session <= %s ORDER BY session DESC LIMIT 1""", (book_id, as_of)).fetchone()
+    book_realized = None if mark is None else conn.execute(
+        "SELECT COALESCE(sum(realized_pnl_usd), 0) FROM office_positions WHERE book_id = %s "
+        "AND state = 'CLOSED' AND exit_session <= %s", (book_id, mark[0])).fetchone()[0]
+    return {
+        "deployment_id": str(deployment_id), "strategy_id": head[0], "version": head[1], "book_id": book_id,
+        "state": head[3], "execution_kind": head[4], "forward_protocol": head[5] or {},
+        "starting_equity": str(head[6]), "cost_model": head[7] or {}, "as_of": str(as_of),
+        "opportunities": [{"signal_session": str(s), "ticker": t, "status": st, "reason_codes": c or []}
+                          for s, t, st, c in opportunities],
+        "orders": [{"order_id": str(o), "ticker": t, "side": sd, "shares": str(sh), "signal_session": str(s),
+                    "state": st} for o, t, sd, sh, s, st in orders],
+        "fills": [{"order_id": str(o), "leg": leg, "fill_session": str(s), "price": str(p), "shares": str(sh),
+                   "cost_usd": str(c)} for o, leg, s, p, sh, c in fills],
+        "positions": [{"order_id": str(o), "ticker": t, "side": sd, "shares": str(sh), "entry_session": str(en),
+                       "entry_price": str(ep), "holding_sessions": h, "state": st,
+                       "exit_session": None if ex is None else str(ex),
+                       "exit_price": None if xp is None else str(xp), "costs_usd": str(c),
+                       "realized_pnl_usd": None if pnl is None else str(pnl)}
+                      for o, t, sd, sh, en, ep, h, st, ex, xp, c, pnl in positions],
+        "mark": None if mark is None else {"session": str(mark[0]), "equity_usd": str(mark[1]),
+                                           "realized_usd": str(mark[2]), "unrealized_usd": str(mark[3]),
+                                           "stale_prices": mark[4] or [], "book_realized_usd": str(book_realized)},
+    }
+
+
+def benchmark_outcomes(role: str, conn, ticker: str, windows: list[tuple[str, str]]) -> list[float | None]:
+    """A benchmark's return in basis points over each window: that entry session's open to that exit
+    session's close. None where a bar is missing. Returns numbers only."""
+    roles.authorize(role, "read_outcomes")
+    if not _TICKER.match(ticker or ""):
+        return [None] * len(windows)
+    out = []
+    for entered, exited in windows:
+        row = conn.execute(
+            """SELECT (SELECT open FROM prices_daily WHERE ticker = %s AND date = %s),
+                      (SELECT close FROM prices_daily WHERE ticker = %s AND date = %s)""",
+            (ticker, entered, ticker, exited)).fetchone()
+        start, end = _number(row[0]), _number(row[1])
+        out.append(None if not start or end is None or start <= 0 else round((end / start - 1) * 10_000, 2))
+    return out
+
+
+_EVALUATION_COLUMNS = ("evaluation_id, deployment_id, kind, as_of, maturity, verdict, scorecard, limitations, "
+                       "input_sha256")
+
+
+def _evaluation(row) -> dict | None:
+    if row is None:
+        return None
+    keys = ("evaluation_id", "deployment_id", "kind", "as_of", "maturity", "verdict", "scorecard", "limitations",
+            "input_sha256")
+    return {**dict(zip(keys, row)), "evaluation_id": str(row[0]), "deployment_id": str(row[1]), "as_of": str(row[3])}
+
+
+def evaluation(role: str, conn, evaluation_id: str) -> dict | None:
+    roles.authorize(role, "read_outcomes")
+    return _evaluation(conn.execute(
+        f"SELECT {_EVALUATION_COLUMNS} FROM office_evaluations WHERE evaluation_id = %s", (evaluation_id,)).fetchone())
+
+
+def latest_evaluation(role: str, conn, deployment_id: str, kind: str) -> dict | None:
+    roles.authorize(role, "read_outcomes")
+    return _evaluation(conn.execute(
+        f"""SELECT {_EVALUATION_COLUMNS} FROM office_evaluations WHERE deployment_id = %s AND kind = %s
+            ORDER BY as_of DESC LIMIT 1""", (deployment_id, kind)).fetchone())
+
+
+def matured_evaluation(role: str, conn, deployment_id: str) -> dict | None:
+    """The one registered evaluation of a deployment, if it has already been run."""
+    roles.authorize(role, "read_outcomes")
+    return _evaluation(conn.execute(
+        f"""SELECT {_EVALUATION_COLUMNS} FROM office_evaluations
+            WHERE deployment_id = %s AND kind = 'STRATEGY' AND maturity = 'MATURED'""", (deployment_id,)).fetchone())
+
+
+def write_evaluation(role: str, conn, *, deployment_id: str, kind: str, as_of, maturity: str, verdict: str,
+                     scorecard: dict, limitations: list, protocol: dict, policy_version: str,
+                     input_sha256: str) -> dict:
+    """Record one scorecard. One per deployment, kind and date; asking again returns the one stored."""
+    roles.authorize(role, "write_evaluation")
+    row = conn.execute(
+        """INSERT INTO office_evaluations(evaluation_id, deployment_id, kind, as_of, maturity, verdict, scorecard,
+               limitations, protocol, policy_version, input_sha256)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+           ON CONFLICT (deployment_id, kind, as_of) DO NOTHING RETURNING evaluation_id""",
+        (str(uuid4()), deployment_id, kind, as_of, maturity, verdict, Jsonb(scorecard), Jsonb(limitations),
+         Jsonb(protocol), policy_version, input_sha256)).fetchone()
+    stored = _evaluation(conn.execute(
+        f"SELECT {_EVALUATION_COLUMNS} FROM office_evaluations WHERE deployment_id = %s AND kind = %s AND as_of = %s",
+        (deployment_id, kind, as_of)).fetchone())
+    return {**stored, "created": row is not None}
+
+
+def write_proposal(role: str, conn, *, strategy_id: str, version: str, proposed_version: str, reason: str,
+                   change: dict, evaluation_id: str | None) -> dict:
+    """Record an idea for a new version. It changes nothing about the version it starts from."""
+    roles.authorize(role, "write_proposal")
+    row = conn.execute(
+        """INSERT INTO office_proposals(proposal_id, strategy_id, version, proposed_version, evaluation_id,
+               reason, change) VALUES (%s, %s, %s, %s, %s, %s, %s)
+           ON CONFLICT (strategy_id, proposed_version) DO NOTHING RETURNING proposal_id""",
+        (str(uuid4()), strategy_id, version, proposed_version, evaluation_id, reason, Jsonb(change))).fetchone()
+    if row is not None:
+        return {"proposal_id": str(row[0]), "created": True}
+    stored = conn.execute(
+        "SELECT proposal_id, version, reason, change FROM office_proposals WHERE strategy_id = %s "
+        "AND proposed_version = %s", (strategy_id, proposed_version)).fetchone()
+    if (stored[1], stored[2], stored[3]) != (version, reason, change):
+        raise ValueError("PROPOSED_VERSION_ALREADY_USED")
+    return {"proposal_id": str(stored[0]), "created": False}
+
+
+def change_deployment_state(role: str, conn, *, deployment_id: str, to_state: str, actor: str, reason_code: str,
+                            policy_version: str, evaluation_id: str | None = None) -> dict:
+    """Pause, resume or retire a deployment, writing the reason first. No other state can be reached here,
+    and the database refuses a change that has no written reason."""
+    roles.authorize(role, "write_deployment_state")
+    row = conn.execute("SELECT state FROM office_deployments WHERE deployment_id = %s FOR UPDATE",
+                       (deployment_id,)).fetchone()
+    if row is None:
+        raise ValueError("DEPLOYMENT_NOT_FOUND")
+    if row[0] == to_state:
+        return {"deployment_id": str(deployment_id), "state": to_state, "changed": False}
+    if (row[0], to_state) not in STATE_CHANGES:
+        raise ValueError("STATE_CHANGE_NOT_ALLOWED")
+    conn.execute(
+        """INSERT INTO office_deployment_events(event_id, deployment_id, from_state, to_state, actor,
+               policy_version, reason_code, evaluation_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+        (str(uuid4()), deployment_id, row[0], to_state, actor, policy_version, reason_code, evaluation_id))
+    conn.execute("UPDATE office_deployments SET state = %s, updated_at = now() WHERE deployment_id = %s",
+                 (to_state, deployment_id))
+    return {"deployment_id": str(deployment_id), "state": to_state, "changed": True, "from_state": row[0]}

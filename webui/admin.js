@@ -107,6 +107,8 @@ async function refreshOffice(){
       officeLine('Tasks',Object.keys(t).length?Object.keys(t).sort().map(k=>k+' '+t[k]).join(' · '):'None'),
       officeLine('Last 7 days',w.events+' events · '+w.memos+' memos · reviews: '+(r.PASS||0)+' passed, '+(r.REVISION_REQUESTED||0)+' sent back, '+(r.BLOCKED||0)+' blocked'),
       officeLine('Latest briefing',b?b.kind+' '+b.date:'None yet'));
+    for(const q of (o.qa||{}).evaluations||[])box.append(officeLine(q.kind==='OPERATIONAL'?'Paper book check':'Paper result',q.strategy_id+' '+q.version+' · as of '+q.as_of+' · '+(q.kind==='OPERATIONAL'?(Object.keys(q.defects||{}).length?'defects: '+Object.keys(q.defects).join(', '):'no defects found'):(q.trades+' closed trades on '+q.decision_dates+' dates · net '+money(q.net_usd)+' · '+q.maturity.toLowerCase()))+' · '+q.verdict.replaceAll('_',' ').toLowerCase()+' · simulation, not broker fills'));
+    if((o.qa||{}).proposals_waiting)box.append(officeLine('Proposals waiting for you',String(o.qa.proposals_waiting)));
     for(const m of o.mirrored_records||[])box.append(officeLine('Mirrored from your machine',m.strategy_id+' '+m.version+' · through '+m.through_session+' · '+m.sessions+' sessions · '+m.trades+' trades on '+m.trade_dates+' dates · simulation, not broker fills'));
     for(const x of o.needs_attention||[])box.append(make('p',x.task_type+' · '+x.state+(x.error_code?' · '+x.error_code:'')+' · attempts '+x.attempts+' · '+tradeTime(x.updated_at),'hint'));
   }catch(e){$('office-state').textContent='Office status unavailable';box.replaceChildren(make('p',e.message,'hint'));}

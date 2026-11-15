@@ -41,7 +41,7 @@ def test_no_tool_offers_a_shell_sql_credentials_the_web_a_broker_or_an_order():
         parts = name.split("_")
         assert not set(parts) & set(roles.FORBIDDEN_WORDS), name
     assert not any(t in ("office_orders", "office_fills", "office_positions", "office_strategy_versions",
-                         "office_external_records")
+                         "office_external_records", "office_deployment_events")
                    for _, t in TOOLS.values())             # code writes these, never a role
 
 
