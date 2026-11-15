@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 from decimal import Decimal, InvalidOperation
 
-OFFICE_SCHEMA_VERSION = "0032_office_strategies"
+OFFICE_SCHEMA_VERSION = "0033_office_paper"
 
 # Pilot ceilings from the build brief for the queue. Spending ceilings are further down.
 MAX_CONCURRENT_TASKS = 2
@@ -51,6 +51,13 @@ def model() -> str:
 def require_enabled() -> None:
     if not enabled():
         raise OfficeDisabled("OFFICE_DISABLED")
+
+
+def require_paper() -> None:
+    """The paper book runs only when both switches are on."""
+    require_enabled()
+    if not paper_enabled():
+        raise OfficeDisabled("OFFICE_PAPER_DISABLED")
 
 
 def retry_delay_seconds(attempts: int) -> int:
