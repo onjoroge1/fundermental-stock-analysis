@@ -184,6 +184,51 @@ async def office_external_record(request: Request):
     return await safe(work)
 
 
+@router.post("/api/operator/office/deployments/state")
+async def office_deployment_state(request: Request):
+    """The owner pauses, resumes or retires a simulated paper deployment. No other state can be set."""
+    async def work():
+        from ..office import admission, config as office_config
+        account = await owner(request, write=True)
+        data = await body(request, {"deployment_id", "to_state", "reason_code"})
+        if not all(type(data[k]) is str for k in data):
+            raise PanelError("INVALID_REQUEST")
+        try:
+            UUID(data["deployment_id"])
+        except ValueError:
+            raise PanelError("INVALID_REQUEST") from None
+        try:
+            return response(await run_in_threadpool(
+                admission.set_state, data["deployment_id"], data["to_state"], owner=account["username"],
+                reason_code=data["reason_code"]))
+        except ValueError as exc:
+            raise PanelError(str(exc), 422) from None
+        except office_config.OfficeDisabled:
+            raise PanelError("OFFICE_DISABLED", 409) from None
+    return await safe(work)
+
+
+@router.post("/api/operator/office/proposals/accept")
+async def office_proposal_accept(request: Request):
+    """The owner records a proposed strategy version as an untested idea. It is not admitted to anything."""
+    async def work():
+        from ..office import config as office_config, qa
+        account = await owner(request, write=True)
+        data = await body(request, {"proposal_id"})
+        try:
+            UUID(data["proposal_id"])
+        except (TypeError, ValueError, AttributeError):
+            raise PanelError("INVALID_REQUEST") from None
+        try:
+            return response(await run_in_threadpool(qa.accept_proposal, data["proposal_id"],
+                                                    accepted_by=account["username"]))
+        except ValueError as exc:
+            raise PanelError(str(exc), 422) from None
+        except office_config.OfficeDisabled:
+            raise PanelError("OFFICE_DISABLED", 409) from None
+    return await safe(work)
+
+
 @router.post("/api/operator/controls")
 async def controls(request: Request):
     async def work():

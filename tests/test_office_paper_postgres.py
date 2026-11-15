@@ -166,7 +166,7 @@ def test_a_pause_stops_entries_and_lets_exits_and_marks_run(desk):
     bar(desk.pg, "ACME", day(1), 41, 42)
     bar(desk.pg, "BETA", day(1), 100, 100)
     assert paper.fill_due("experimental")["filled"] == 1
-    sql(desk.pg, "UPDATE office_deployments SET state = 'PAUSED' WHERE deployment_id = %s", (deployment,))
+    admission.set_state(deployment, "PAUSED", owner="owner", reason_code="OWNER_PAUSE")
     desk.signals[day(1)] = [Signal("BETA", "LONG", 1)]
     assert paper.scan(deployment, day(1))["counts"] == {"REJECTED": 1}
     assert desk.opportunities()[-1] == ("BETA", "REJECTED", ["DEPLOYMENT_PAUSED"]) and desk.count("office_orders") == 1

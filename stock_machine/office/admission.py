@@ -13,11 +13,16 @@ What admission can and cannot do:
 * A weak result is admitted as weak: PASS_WEAK is kept on the decision and is never rounded up to PASS.
 * Admitting the same version to the same book again returns the deployment that already exists.
 
+A deployment can later be paused, resumed or retired, and each change is written down with who made it and
+why. The policy pauses or retires only on a QA assessment that says so; resuming is the owner's alone.
+
 Execution is supported only where code exists for it. NATIVE is supported for a strategy version that has
 a rule registered in ``paper.RULES``; none is registered for any real strategy. EXTERNAL_LOCAL arrives with
 the importer for local records. So every real candidate is still blocked at check 3.
 """
 from __future__ import annotations
+
+import re
 
 from psycopg.types.json import Jsonb
 
@@ -31,6 +36,10 @@ PROTOCOL_FIELDS = ("registered_on", "horizon", "benchmarks", "maturity", "stop_c
 REVIEW_TASK = "review_strategy"
 SIGNOFF_VERDICT = "FAIRLY_REPRESENTED"
 ADMISSION_LOCK = 0x0FF1CE03
+STATE_POLICY_VERSION = "deployment-state.v1"
+VERDICT_STATE = {"PAUSE_FOR_DATA_OR_EXECUTION_DEFECT": "PAUSED", "RETIRE_UNDER_REGISTERED_RULE": "RETIRED"}
+OWNER_STATES = ("PAUSED", "EXPERIMENTAL_PAPER", "RETIRED")
+_REASON = re.compile(r"^[A-Z0-9_]{3,60}$")
 NAMES = ("eligible", "positive net development result, reproducible", "no unresolved critical defect",
          "frozen rules and supported paper execution", "forward protocol recorded first",
          "independent reviewer sign-off", "capacity in the book, not already active")
@@ -135,3 +144,42 @@ def admit(strategy_id: str, version: str, *, book_id: str | None = None, reviewe
                 decision_id=decision["decision_id"])
             out.update(deployed)
     return out
+
+
+def apply_evaluation(evaluation_id: str) -> dict:
+    """Act on one QA assessment under the fixed policy: a defect pauses, a failed registered evaluation
+    retires. Only the newest assessment of its kind counts. A request for a qualification review changes
+    nothing here: that decision is the owner's, after an independent review."""
+    config.require_enabled()
+    with tasks.connect() as conn:
+        conn.execute("SELECT pg_advisory_xact_lock(%s)", (ADMISSION_LOCK,))
+        found = tools.evaluation(ROLE, conn, evaluation_id)
+        if found is None:
+            raise ValueError("EVALUATION_NOT_FOUND")
+        newest = tools.latest_evaluation(ROLE, conn, found["deployment_id"], found["kind"])
+        if newest["evaluation_id"] != found["evaluation_id"]:
+            return {"changed": False, "code": "NEWER_EVALUATION_EXISTS"}
+        to_state = VERDICT_STATE.get(found["verdict"])
+        if to_state is None:
+            return {"changed": False, "code": "NEEDS_OWNER_REVIEW" if found["verdict"] ==
+                    "REQUEST_QUALIFICATION_REVIEW" else "NO_CHANGE_NEEDED"}
+        try:
+            return tools.change_deployment_state(
+                ROLE, conn, deployment_id=found["deployment_id"], to_state=to_state, actor="policy",
+                reason_code=found["verdict"], policy_version=STATE_POLICY_VERSION, evaluation_id=evaluation_id)
+        except ValueError as error:
+            if str(error) != "STATE_CHANGE_NOT_ALLOWED":
+                raise
+            return {"changed": False, "code": "STATE_CHANGE_NOT_ALLOWED"}        # already retired
+
+
+def set_state(deployment_id: str, to_state: str, *, owner: str, reason_code: str) -> dict:
+    """The owner pauses, resumes or retires a deployment. No other state can be set, and none is live."""
+    config.require_enabled()
+    if to_state not in OWNER_STATES or not _REASON.match(reason_code or ""):
+        raise ValueError("STATE_CHANGE_NOT_ALLOWED")
+    with tasks.connect() as conn:
+        conn.execute("SELECT pg_advisory_xact_lock(%s)", (ADMISSION_LOCK,))
+        return tools.change_deployment_state(
+            ROLE, conn, deployment_id=deployment_id, to_state=to_state, actor=f"owner:{owner}",
+            reason_code=reason_code, policy_version=STATE_POLICY_VERSION)

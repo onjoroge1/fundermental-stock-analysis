@@ -15,13 +15,13 @@ from psycopg.types.json import Jsonb
 
 from .config import DATABASE_URL
 
-REQUIRED_SCHEMA_VERSION = "0034_office_external"
-# 0029 to 0034 only add office_* tables and alter nothing that existed at 0028, so this code runs on any of
+REQUIRED_SCHEMA_VERSION = "0035_office_qa"
+# 0029 to 0035 only add office_* tables and alter nothing that existed at 0028, so this code runs on any of
 # them. Accepting all of them lets a merge deploy first and the production migration follow as a separate, owner-started
 # step, without ingestion failing in between. Office code needs its own tables and fails plainly without them.
 COMPATIBLE_SCHEMA_VERSIONS = frozenset({"0028_fair_value_forward", "0029_office_tasks", "0030_office_budget",
                                        "0031_office_research", "0032_office_strategies",
-                                       "0033_office_paper",
+                                       "0033_office_paper", "0034_office_external",
                                        REQUIRED_SCHEMA_VERSION})
 
 
