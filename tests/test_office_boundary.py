@@ -77,9 +77,13 @@ def test_no_checked_in_file_turns_the_office_on():
     hits = []
     for path in [ROOT / "vercel.json", ROOT / ".env.example", *sorted((ROOT / ".github/workflows").glob("*.yml"))]:
         if path.exists():
-            text = path.read_text()
+            # The worker may pass the owner's repository Variable through. Nothing may set a value itself.
+            text = path.read_text().replace("OFFICE_ENABLED: ${{ vars.OFFICE_ENABLED }}", "").replace(
+                "OFFICE_PAPER_ENABLED: ${{ vars.OFFICE_PAPER_ENABLED }}", "")
             hits += [path.name for flag in ("OFFICE_ENABLED", "OFFICE_PAPER_ENABLED") if flag in text]
     assert hits == []
+    passed_through = [p.name for p in sorted((ROOT / ".github/workflows").glob("*.yml")) if "vars.OFFICE_ENABLED" in p.read_text()]
+    assert passed_through == ["office-worker.yml"]
 
 
 def test_retry_delays_grow_and_are_capped():

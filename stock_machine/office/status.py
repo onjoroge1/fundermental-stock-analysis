@@ -9,7 +9,7 @@ from . import config, external, qa, tasks
 
 TABLES = ("office_tasks", "office_runs", "office_budget_reservations", "office_events", "office_memos",
           "office_reviews", "office_briefings")
-BOUNDARIES = {"broker_submission": False, "live_trading": False, "paper_book": "NOT_BUILT"}
+BOUNDARIES = {"broker_submission": False, "live_trading": False, "paper_book": "SIMULATED_ONLY"}
 
 
 def _switches() -> dict:

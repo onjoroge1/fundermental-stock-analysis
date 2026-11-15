@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -146,6 +147,9 @@ def claim(actor: str, *, task_types: tuple[str, ...] | None = None, lease_second
     if not 1 <= seconds <= config.MAX_LEASE_SECONDS:
         raise ValueError("lease_seconds out of range")
     limit = config.MAX_CONCURRENT_TASKS if max_concurrent is None else max_concurrent
+    # On a GitHub runner every run is stamped with the workflow run and commit, so it can be matched later.
+    github_run_id = github_run_id or (os.environ.get("GITHUB_RUN_ID", "").strip() or None)
+    code_version = code_version or os.environ.get("GITHUB_SHA", "").strip()[:40]
     token, run_id = str(uuid4()), str(uuid4())
     with connect() as conn, conn.cursor() as cur:
         cur.execute("SELECT pg_advisory_xact_lock(%s)", (CLAIM_LOCK,))

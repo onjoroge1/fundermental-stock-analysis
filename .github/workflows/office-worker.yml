@@ -1,0 +1,62 @@
+name: Office Worker
+
+# Manual only for now. A schedule is added in a later change, after a real run has been checked.
+# "observe" only reads and prints the office status. "work" does one bounded pass of office work.
+# This workflow sets no switch: the office stays off until the owner sets the repository Variables
+# it reads. It never applies a migration and has no broker access.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: observe (read only) or work (one bounded pass)
+        required: true
+        default: observe
+        type: choice
+        options: [observe, work]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: office-worker
+  cancel-in-progress: false
+
+jobs:
+  worker:
+    if: github.ref == 'refs/heads/main'
+    environment: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -e .
+      - name: Install the model SDK only if Anthropic is the chosen provider
+        if: inputs.mode == 'work' && vars.OFFICE_MODEL_PROVIDER == 'anthropic'
+        run: python -m pip install -e ".[office-anthropic]"
+      - name: Observe (read only)
+        if: inputs.mode == 'observe'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OFFICE_ENABLED: ${{ vars.OFFICE_ENABLED }}
+          OFFICE_PAPER_ENABLED: ${{ vars.OFFICE_PAPER_ENABLED }}
+          OFFICE_MODEL_PROVIDER: ${{ vars.OFFICE_MODEL_PROVIDER }}
+          OFFICE_MODEL: ${{ vars.OFFICE_MODEL }}
+          OFFICE_DAILY_USD_CAP: ${{ vars.OFFICE_DAILY_USD_CAP }}
+          OFFICE_MONTHLY_USD_CAP: ${{ vars.OFFICE_MONTHLY_USD_CAP }}
+        run: python -m stock_machine.office.worker --mode observe
+      - name: Work (one bounded pass)
+        if: inputs.mode == 'work'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OFFICE_ENABLED: ${{ vars.OFFICE_ENABLED }}
+          OFFICE_PAPER_ENABLED: ${{ vars.OFFICE_PAPER_ENABLED }}
+          OFFICE_MODEL_PROVIDER: ${{ vars.OFFICE_MODEL_PROVIDER }}
+          OFFICE_MODEL: ${{ vars.OFFICE_MODEL }}
+          OFFICE_DAILY_USD_CAP: ${{ vars.OFFICE_DAILY_USD_CAP }}
+          OFFICE_MONTHLY_USD_CAP: ${{ vars.OFFICE_MONTHLY_USD_CAP }}
+        run: python -m stock_machine.office.worker --mode work
