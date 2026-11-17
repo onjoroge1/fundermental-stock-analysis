@@ -24,6 +24,8 @@ dev = [
     "pytest-cov>=5.0",
 ]
 prediction = ["torch>=2.2"]
+# The office worker installs this only when Anthropic is the chosen model provider.
+office-anthropic = ["anthropic>=2.4,<3"]
 p1 = [
     "numpy>=1.26",
     "scikit-learn>=1.5",
