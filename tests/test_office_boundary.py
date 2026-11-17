@@ -79,7 +79,9 @@ def test_no_checked_in_file_turns_the_office_on():
         if path.exists():
             # The worker may pass the owner's repository Variable through. Nothing may set a value itself.
             text = path.read_text().replace("OFFICE_ENABLED: ${{ vars.OFFICE_ENABLED }}", "").replace(
-                "OFFICE_PAPER_ENABLED: ${{ vars.OFFICE_PAPER_ENABLED }}", "")
+                "OFFICE_PAPER_ENABLED: ${{ vars.OFFICE_PAPER_ENABLED }}", "").replace(
+                # ... and its schedule may read, never write, that Variable to decide whether to start at all
+                "(github.event_name != 'schedule' || vars.OFFICE_ENABLED == 'true')", "")
             hits += [path.name for flag in ("OFFICE_ENABLED", "OFFICE_PAPER_ENABLED") if flag in text]
     assert hits == []
     passed_through = [p.name for p in sorted((ROOT / ".github/workflows").glob("*.yml")) if "vars.OFFICE_ENABLED" in p.read_text()]

@@ -137,7 +137,8 @@ def admit(strategy_id: str, version: str, *, book_id: str | None = None, reviewe
             ROLE, conn, strategy_id=strategy_id, version=version, book_id=book_id if book is not None else None,
             policy_version=POLICY_VERSION, outcome=result, checks=checks, input_sha256=digest,
             reviewer_run_id=reviewer_run_id if signoff else None)
-        out = {"outcome": result, "decision_id": decision["decision_id"], "checks": checks, "created": False}
+        out = {"outcome": result, "decision_id": decision["decision_id"], "checks": checks, "created": False,
+               "decision_created": decision["created"]}
         if result == "ADMITTED":
             deployed = tools.write_deployment_state(
                 ROLE, conn, strategy=strategy, book_id=book_id, state="EXPERIMENTAL_PAPER",
@@ -183,3 +184,76 @@ def set_state(deployment_id: str, to_state: str, *, owner: str, reason_code: str
         return tools.change_deployment_state(
             ROLE, conn, deployment_id=deployment_id, to_state=to_state, actor=f"owner:{owner}",
             reason_code=reason_code, policy_version=STATE_POLICY_VERSION)
+
+
+# Who has to act on each blocker, and what the next step is. Fixed wording: nothing here is written by a model.
+NEXT_ACTIONS = {
+    "EXECUTION_NOT_SUPPORTED:EXTERNAL_LOCAL": ("build, then owner", "Build a paper runner for the owner's machine that records each "
+                                               "prospective simulated order, fill and exit there and uploads receipts. The licensed data stays there."),
+    "EXECUTION_NOT_SUPPORTED:NATIVE": ("build", "Register this version's frozen rule in the paper engine and check it against the frozen implementation."),
+    "NO_REVIEWER_SIGNOFF": ("build", "Build the independent strategy review task. A separate reviewer run must sign off this exact version and its hashes."),
+    "NO_BOOK": ("owner", "Approve the paper book: starting equity, limits and cost model."),
+    "PAPER_BOOK_SWITCHED_OFF": ("owner", "Switch the paper book on once an execution route exists."),
+    "SHORTS_NEED_A_BORROW_POLICY": ("owner", "Decide the paper book's borrow policy and borrow cost for short positions."),
+    "STRATEGY_ALREADY_ACTIVE": ("owner", "Nothing to do: this strategy is already active in the book."),
+    "RISK_GROUP_ALREADY_ACTIVE": ("owner", "Decide how this strategy shares one allocation with the active strategy in its risk group."),
+    "BOOK_FULL": ("owner", "The book is at its limit of active strategies; retire one or raise the limit in a new book."),
+}
+RUNS_ON = {"EXTERNAL_LOCAL": "the owner's machine (licensed data)", "NATIVE": "this app", "NONE": "nowhere"}
+
+
+def decide_candidates() -> dict:
+    """Apply the admission checks to every candidate in the inventory and record each decision with its date.
+    A decision on unchanged inputs is recorded once. Zero admissions is a valid result."""
+    config.require_enabled()
+    with tasks.connect() as conn:
+        candidates = conn.execute("SELECT strategy_id, version FROM office_strategy_versions WHERE admissible "
+                                  "ORDER BY strategy_id, version").fetchall()
+        books = [r[0] for r in conn.execute("SELECT book_id FROM office_books ORDER BY book_id")]
+    book_id = books[0] if len(books) == 1 else None
+    out = {"candidates": len(candidates), "admitted": 0, "blocked": 0, "new_decisions": 0}
+    for strategy_id, version in candidates:
+        decided = admit(strategy_id, version, book_id=book_id)
+        out["admitted" if decided["outcome"] == "ADMITTED" else "blocked"] += 1
+        out["new_decisions"] += bool(decided.get("decision_created"))
+    return out
+
+
+def decision_report(conn) -> dict:
+    """Every strategy version in the inventory with its latest admission decision: evidence, where it can
+    run, what blocks it, who acts next. Read only. Text comes from the checked-in inventory and from the
+    fixed wording above."""
+    rows = conn.execute(
+        """SELECT s.strategy_id, s.version, s.admissible, s.execution_kind, s.evidence_tier, s.original_status,
+                  s.risk_group, s.record, d.outcome, d.checks, d.created_at, d.policy_version, d.decision_id
+           FROM office_strategy_versions s
+           LEFT JOIN LATERAL (SELECT outcome, checks, created_at, policy_version, decision_id
+                              FROM office_admission_decisions a
+                              WHERE a.strategy_id = s.strategy_id AND a.version = s.version
+                              ORDER BY a.created_at DESC LIMIT 1) d ON true
+           ORDER BY s.strategy_id, s.version""").fetchall()
+    candidates, excluded = [], []
+    for (strategy_id, version, admissible, kind, tier, status, risk_group, record, outcome, checks, decided_at,
+         policy, decision_id) in rows:
+        if not admissible:
+            excluded.append({"strategy_id": strategy_id, "version": version, "original_status": status,
+                             "reason": record.get("exclusion_reason")})
+            continue
+        blockers = [c for check in checks or [] if check["outcome"] == "FAIL" for c in check["codes"]]
+        weak = [c for check in checks or [] if check["outcome"] == "PASS_WEAK" for c in check["codes"]]
+        actions = []
+        for code in blockers:
+            who, what = NEXT_ACTIONS.get(f"{code}:{kind}") or NEXT_ACTIONS.get(code) or ("research", f"Resolve {code} in the strategy's own record.")
+            if {"who": who, "what": what} not in actions:
+                actions.append({"who": who, "what": what})
+        development = record.get("development") or {}
+        candidates.append({
+            "strategy_id": strategy_id, "version": version, "original_status": status, "risk_group": risk_group,
+            "decision": None if outcome is None else {"outcome": outcome, "decided_at": decided_at.isoformat(),
+                                                      "policy_version": policy, "decision_id": str(decision_id)},
+            "evidence": {"tier": tier, "samples": development.get("samples") or [], "weak_points": development.get("weak") or [],
+                         "open_defects": sorted({d.get("category") for d in record.get("defects") or [] if not d.get("resolved")}),
+                         "forward_protocol": {k: (record.get("forward_protocol") or {}).get(k) for k in ("registered_on", "spec", "horizon")}},
+            "runs_on": RUNS_ON[kind], "blockers": blockers, "passed_as_weak": weak, "next_actions": actions,
+            "notes": record.get("display_notes") or []})
+    return {"candidates": candidates, "excluded": excluded}

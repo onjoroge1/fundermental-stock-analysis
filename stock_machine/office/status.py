@@ -5,7 +5,7 @@ been created yet. It returns setting names and states, never a key or any other 
 """
 from __future__ import annotations
 
-from . import config, external, qa, tasks
+from . import admission, config, external, qa, tasks
 
 TABLES = ("office_tasks", "office_runs", "office_budget_reservations", "office_events", "office_memos",
           "office_reviews", "office_briefings")
@@ -25,6 +25,10 @@ def summary() -> dict:
                    if conn.execute("SELECT to_regclass(%s) IS NOT NULL", (name,)).fetchone()[0]}
         if present != set(TABLES):
             return {**out, "schema": "NOT_MIGRATED", "tables_missing": sorted(set(TABLES) - present)}
+        stamped = conn.execute("SELECT to_regclass('alembic_version') IS NOT NULL").fetchone()[0]
+        revision = sorted(r[0] for r in conn.execute("SELECT version_num FROM alembic_version")) if stamped else []
+        if revision != [config.OFFICE_SCHEMA_VERSION]:
+            return {**out, "schema": "REVISION_MISMATCH", "schema_revision": revision}
         day, month, unresolved = conn.execute(
             """SELECT COALESCE(sum(c) FILTER (WHERE created_at >= date_trunc('day', now() AT TIME ZONE 'UTC')
                                                     AT TIME ZONE 'UTC'), 0),
@@ -53,7 +57,18 @@ def summary() -> dict:
                     else None)
         scored = (qa.latest(conn)
                   if conn.execute("SELECT to_regclass('office_evaluations') IS NOT NULL").fetchone()[0] else None)
-    return {**out, "schema": "READY",
+        candidates = admission.decision_report(conn)
+        last = conn.execute(
+            """SELECT t.logical_key, t.state, t.updated_at, r.github_run_id, r.run_id, t.result->>'state'
+               FROM office_tasks t LEFT JOIN LATERAL (
+                   SELECT github_run_id, run_id FROM office_runs r WHERE r.task_id = t.task_id
+                   ORDER BY attempt DESC LIMIT 1) r ON true
+               WHERE t.task_type = 'worker_pulse' ORDER BY t.updated_at DESC LIMIT 1""").fetchone()
+    return {**out, "schema": "READY", "schema_revision": revision[0],
+            "last_pass": None if last is None else {
+                "pulse": last[0], "task_state": last[1], "at": last[2].isoformat(), "github_run_id": last[3],
+                "run_id": None if last[4] is None else str(last[4]), "result": last[5]},
+            "candidates": candidates,
             "spend": {"day_usd": str(day), "month_usd": str(month), "unresolved_calls": unresolved},
             "tasks": states,
             "needs_attention": [{"task_type": t, "state": s, "error_code": e, "attempts": a,
