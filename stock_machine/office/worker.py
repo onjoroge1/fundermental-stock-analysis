@@ -1,21 +1,29 @@
 """One bounded pass of office work, for a GitHub runner or a person at a terminal.
 
     python -m stock_machine.office.worker --mode observe
-    python -m stock_machine.office.worker --mode work
+    python -m stock_machine.office.worker --mode work [--trigger schedule] [--require-research]
 
 ``observe`` only reads. It prints the same summary the owner's console shows and works while the office
 is off. ``work`` does one pass and stops:
 
 1. record the role definitions and the strategy inventory (both are written once);
-2. turn new filings and company events into office events, and queue at most three new memos a day;
-3. run a bounded number of memo and review tasks, if a model provider and a model have been chosen;
-4. build the morning briefing (and the weekly one on a Friday);
+2. apply the admission checks to every candidate and record each decision with its date;
+3. turn new filings and company events into office events, and queue at most three new memos a day;
+4. run a bounded number of memo and review tasks, if a model provider and a model have been chosen;
 5. if the paper book is switched on: fill due orders, close due positions, scan each deployed rule for
-   the latest price session, mark the book, score it, and apply the pause or retire policy.
+   the latest price session, mark the book, score it, and apply the pause or retire policy;
+6. build the morning briefing after 08:15 New York time, and the weekly one after 19:30 on a Friday.
 
-Every step is safe to repeat, so a pass that is run twice or cut short adds nothing twice. The pass is
-itself recorded as one office task with the GitHub run number, so a real run can be matched to a database
-row. With the office switched off, ``work`` does nothing and says so.
+Every step is safe to repeat. A pass is one office task with a stable key: a scheduled pass is keyed by
+its half-hour slot, a manual one by its GitHub run. Starting the same slot or run again continues that
+same task, it never makes a second one, and the receipt printed is the task that was actually claimed.
+
+What the exit status means, so that GitHub shows a real problem in red:
+
+* 0: the pass completed, or there was deliberately nothing to do (office off, outside office hours, slot
+  already worked);
+* 1: the database is not at the office revision, a step failed, the slot's task has failed for good, or
+  ``--require-research`` was given and no memo task completed cleanly.
 
 This module applies no migration, places no order, connects to no broker and reads no secret. It prints
 counts and short codes only: never an exception's text, a connection string or a model's words.
@@ -28,7 +36,7 @@ import os
 import re
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time as clock
 from zoneinfo import ZoneInfo
 
 from . import admission, config, inventory, paper, qa, research, roles, scout, status, tasks
@@ -40,7 +48,12 @@ MAX_TASKS = 4
 MAX_SECONDS = 600
 NEW_YORK = ZoneInfo("America/New_York")
 _SAFE = re.compile(r"^[A-Z][A-Z0-9_:.-]{2,119}$")
-SKIPPED = ("PROVIDER_NOT_CONFIGURED", "PAPER_OFF", "NO_PRICE_SESSION", "OUT_OF_TIME", "DAILY_MEMO_LIMIT_REACHED")
+SLOT_MINUTES = 30
+OFFICE_HOURS = (clock(7, 0), clock(20, 15))          # New York, weekdays; scheduled passes outside these do nothing
+MORNING_BRIEFING_FROM = clock(8, 15)
+WEEKLY_BRIEFING_FROM = clock(19, 30)                # Fridays
+SUCCESS = ("COMPLETED", "COMPLETED_WITH_ATTENTION", "OFFICE_OFF", "OUTSIDE_OFFICE_HOURS", "SLOT_ALREADY_COMPLETED",
+           "SLOT_IN_PROGRESS", "SLOT_RETRY_NOT_DUE")
 
 
 def safe_code(error: BaseException) -> str:
@@ -87,12 +100,34 @@ def _research(max_tasks: int, deadline: float, provider) -> dict:
             break
         state = str(result.get("state", "UNKNOWN"))
         states[state] = states.get(state, 0) + 1
-    return {"tasks": sum(states.values()), "states": states}
+    done = states.get("COMPLETED", 0)
+    return {"tasks": sum(states.values()), "states": states, "completed": done,
+            "needing_attention": sum(states.values()) - done}
 
 
 def _briefings(now: datetime) -> dict:
-    kinds = ["MORNING"] + (["WEEKLY"] if now.astimezone(NEW_YORK).weekday() == 4 else [])
-    return {kind.lower() + "_created": research.build_briefing(kind)["created"] for kind in kinds}
+    """Briefings are built last in a pass, and only once their time in New York has come."""
+    local = now.astimezone(NEW_YORK)
+    kinds = (["MORNING"] if local.time() >= MORNING_BRIEFING_FROM else []) + (
+        ["WEEKLY"] if local.weekday() == 4 and local.time() >= WEEKLY_BRIEFING_FROM else [])
+    if not kinds:
+        raise Skip("BRIEFING_NOT_DUE")
+    return {kind.lower() + "_created": research.build_briefing(kind, local.date())["created"] for kind in kinds}
+
+
+def pulse_key(now: datetime, trigger: str) -> str:
+    """The stable name of this pass. A schedule is keyed by its half-hour slot, so a late, repeated or
+    re-run trigger for the same slot is the same task. A manual run is keyed by its GitHub run."""
+    if trigger == "schedule":
+        utc = now.astimezone(UTC)
+        return f"pulse:slot:{utc:%Y%m%dT%H}{utc.minute // SLOT_MINUTES * SLOT_MINUTES:02d}"
+    run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
+    return f"pulse:manual:{run_id}" if run_id.isdigit() else f"pulse:local:{now:%Y%m%dT%H%M%S}"
+
+
+def in_office_hours(now: datetime) -> bool:
+    local = now.astimezone(NEW_YORK)
+    return local.weekday() < 5 and OFFICE_HOURS[0] <= local.time() < OFFICE_HOURS[1]
 
 
 def _paper_targets() -> tuple[object, list[str], list[tuple[str, str, str, str]]]:
@@ -152,33 +187,43 @@ def _qa() -> dict:
     return {"session": str(session), "deployments": len(deployments), "verdicts": verdicts, "state_changes": changed}
 
 
-def work(*, max_tasks: int = MAX_TASKS, max_seconds: int = MAX_SECONDS, provider=None, now: datetime | None = None) -> dict:
+def work(*, max_tasks: int = MAX_TASKS, max_seconds: int = MAX_SECONDS, provider=None, now: datetime | None = None,
+         trigger: str = "manual", require_research: bool = False) -> dict:
     """One pass. Returns a summary of counts and codes; raises nothing for an ordinary failure."""
-    out: dict = {"mode": "work", "steps": {}}
+    out: dict = {"mode": "work", "trigger": trigger, "steps": {}}
     if not config.enabled():
         return {**out, "state": "OFFICE_OFF"}
+    now = now or datetime.now(UTC)
+    if trigger == "schedule" and not in_office_hours(now):
+        return {**out, "state": "OUTSIDE_OFFICE_HOURS"}
     if not _schema_ready():
         return {**out, "state": "SCHEMA_NOT_READY"}
-    now = now or datetime.now(UTC)
     deadline = time.monotonic() + max_seconds
     run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
-    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1").strip()
-    key = f"pulse:{run_id}:{attempt}" if run_id.isdigit() and attempt.isdigit() else f"pulse:local:{now:%Y%m%dT%H%M%S}"
-    tasks.enqueue(key, PULSE_TASK, {"max_tasks": max_tasks, "max_seconds": max_seconds})
-    lease = tasks.claim(ACTOR, task_types=(PULSE_TASK,), max_concurrent=1000,
-                        lease_seconds=min(max_seconds + 300, config.MAX_LEASE_SECONDS),
-                        github_run_id=run_id if run_id.isdigit() else None,
+    run_id = run_id if run_id.isdigit() else None
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "").strip()
+    key = pulse_key(now, trigger)
+    queued = tasks.enqueue(key, PULSE_TASK, {"trigger": trigger})
+    lease = tasks.claim(ACTOR, task_types=(PULSE_TASK,), logical_key=key, max_concurrent=1000,
+                        lease_seconds=min(max_seconds + 300, config.MAX_LEASE_SECONDS), github_run_id=run_id,
                         code_version=os.environ.get("GITHUB_SHA", "")[:40])
-    if lease is None:
-        return {**out, "state": "PULSE_ALREADY_RECORDED"}
+    receipt = {"pulse": key, "task_id": queued["task_id"], "github_run_id": run_id,
+               "github_run_attempt": int(attempt) if attempt.isdigit() else None}
+    if lease is None:                                   # this slot or run already has its task: say where it stands
+        current = (tasks.get(queued["task_id"]) or {}).get("state", "UNKNOWN")
+        state = {"COMPLETED": "SLOT_ALREADY_COMPLETED", "RUNNING": "SLOT_IN_PROGRESS", "RETRY_WAIT": "SLOT_RETRY_NOT_DUE",
+                 "QUEUED": "SLOT_RETRY_NOT_DUE"}.get(current, "SLOT_FAILED")
+        return {**out, **receipt, "state": state}
+    receipt.update(run_id=lease.run_id, attempt=lease.attempt)
     steps = (("roles", lambda: {"created": sum(r["created"] for r in roles.register_all(config.provider(), config.model()))}),
              ("inventory", inventory.load),
+             ("admissions", admission.decide_candidates),
              ("scout", scout.scan),
              ("queue_memos", _queue_memos),
              ("research", lambda: _research(max_tasks, deadline, provider)),
-             ("briefings", lambda: _briefings(now)),
              ("paper", _paper),
-             ("qa", _qa))
+             ("qa", _qa),
+             ("briefings", lambda: _briefings(now)))
     failed = False
     for name, step in steps:
         if time.monotonic() >= deadline:
@@ -191,30 +236,47 @@ def work(*, max_tasks: int = MAX_TASKS, max_seconds: int = MAX_SECONDS, provider
         except Exception as error:                                   # recorded as a code; the pass goes on
             failed = True
             out["steps"][name] = {"ok": False, "code": safe_code(error)}
-    out["state"] = "COMPLETED_WITH_ERRORS" if failed else "COMPLETED"
+    researched = out["steps"].get("research", {})
+    canary_failed = require_research and not (researched.get("ok") and researched.get("completed", 0) >= 1
+                                              and researched.get("needing_attention") == 0)
+    if failed:
+        out["state"] = "COMPLETED_WITH_ERRORS"
+    elif canary_failed:
+        out["state"] = "CANARY_FAILED"
+    elif researched.get("needing_attention"):
+        out["state"] = "COMPLETED_WITH_ATTENTION"
+    else:
+        out["state"] = "COMPLETED"
     try:
         if failed:
-            tasks.fail(lease, "STEP_FAILED", retryable=False)
+            tasks.fail(lease, "STEP_FAILED")                         # the same slot or run may be tried again
+        elif canary_failed:
+            tasks.fail(lease, "CANARY_FAILED", retryable=False)
         else:
-            tasks.complete(lease, {"steps": out["steps"]})
+            tasks.complete(lease, {"state": out["state"], "steps": out["steps"], **receipt})
     except tasks.LeaseLost:
         out["state"] = "LEASE_LOST"
-    return {**out, "pulse": key, "github_run_id": run_id if run_id.isdigit() else None}
+    return {**out, **receipt}
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="One bounded pass of office work.")
     parser.add_argument("--mode", choices=["observe", "work"], default="observe")
+    parser.add_argument("--trigger", choices=["manual", "schedule"], default="manual")
+    parser.add_argument("--require-research", action="store_true",
+                        help="canary: fail unless at least one memo task completed and none needs attention")
     parser.add_argument("--max-tasks", type=int, default=MAX_TASKS, choices=range(0, 11), metavar="0..10")
     parser.add_argument("--max-seconds", type=int, default=MAX_SECONDS, choices=range(30, 1801), metavar="30..1800")
     args = parser.parse_args(argv)
     try:
-        result = observe() if args.mode == "observe" else work(max_tasks=args.max_tasks, max_seconds=args.max_seconds)
+        result = observe() if args.mode == "observe" else work(
+            max_tasks=args.max_tasks, max_seconds=args.max_seconds, trigger=args.trigger,
+            require_research=args.require_research)
     except Exception as error:
         print(json.dumps({"mode": args.mode, "state": "FAILED", "code": safe_code(error)}))
         return 1
     print(json.dumps(result, indent=1, sort_keys=True, default=str))
-    return 1 if result.get("state") in ("COMPLETED_WITH_ERRORS", "LEASE_LOST") else 0
+    return 0 if args.mode == "observe" or result.get("state") in SUCCESS else 1
 
 
 if __name__ == "__main__":

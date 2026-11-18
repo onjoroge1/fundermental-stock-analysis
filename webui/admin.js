@@ -101,12 +101,14 @@ async function refreshOffice(){
     const o=await api('/office'),s=o.switches||{};
     $('office-state').textContent=s.office_enabled?'Office switched on':'Office switched off';
     box.replaceChildren(officeLine('Model provider',(s.provider||'none')+(s.model?' · '+s.model:' · no model chosen')),officeLine('Spending caps',money(s.daily_cap_usd)+' a day · '+money(s.monthly_cap_usd)+' a month'));
-    if(o.schema!=='READY'){box.append(officeLine('Database','Office tables are not created yet. The owner starts that migration by hand.'));return;}
+    if(o.schema!=='READY'){box.append(officeLine('Database',o.schema==='REVISION_MISMATCH'?'The database is at revision '+(o.schema_revision||[]).join(', ')+', not the one this code needs.':'Office tables are not created yet.'));return;}
     const t=o.tasks||{},w=o.last_7_days||{},r=w.reviews||{},b=o.latest_briefing;
     box.append(officeLine('Spent',money(o.spend.day_usd)+' today · '+money(o.spend.month_usd)+' this month'+(o.spend.unresolved_calls?' · '+o.spend.unresolved_calls+' call(s) with an unknown outcome':'')),
       officeLine('Tasks',Object.keys(t).length?Object.keys(t).sort().map(k=>k+' '+t[k]).join(' · '):'None'),
       officeLine('Last 7 days',w.events+' events · '+w.memos+' memos · reviews: '+(r.PASS||0)+' passed, '+(r.REVISION_REQUESTED||0)+' sent back, '+(r.BLOCKED||0)+' blocked'),
       officeLine('Latest briefing',b?b.kind+' '+b.date:'None yet'));
+    if(o.last_pass)box.append(officeLine('Last worker pass',o.last_pass.at.slice(0,16).replace('T',' ')+' UTC · '+(o.last_pass.result||o.last_pass.task_state).replaceAll('_',' ').toLowerCase()+(o.last_pass.github_run_id?' · GitHub run '+o.last_pass.github_run_id:'')));
+    for(const c of (o.candidates||{}).candidates||[])box.append(officeLine('Candidate '+c.strategy_id,c.decision?c.decision.outcome.toLowerCase()+' on '+c.decision.decided_at.slice(0,10)+' · runs on '+c.runs_on+(c.blockers.length?' · blocked by: '+c.blockers.join(', ').replaceAll('_',' ').toLowerCase():''):'no decision recorded yet'));
     for(const q of (o.qa||{}).evaluations||[])box.append(officeLine(q.kind==='OPERATIONAL'?'Paper book check':'Paper result',q.strategy_id+' '+q.version+' · as of '+q.as_of+' · '+(q.kind==='OPERATIONAL'?(Object.keys(q.defects||{}).length?'defects: '+Object.keys(q.defects).join(', '):'no defects found'):(q.trades+' closed trades on '+q.decision_dates+' dates · net '+money(q.net_usd)+' · '+q.maturity.toLowerCase()))+' · '+q.verdict.replaceAll('_',' ').toLowerCase()+' · simulation, not broker fills'));
     if((o.qa||{}).proposals_waiting)box.append(officeLine('Proposals waiting for you',String(o.qa.proposals_waiting)));
     for(const m of o.mirrored_records||[])box.append(officeLine('Mirrored from your machine',m.strategy_id+' '+m.version+' · through '+m.through_session+' · '+m.sessions+' sessions · '+m.trades+' trades on '+m.trade_dates+' dates · simulation, not broker fills'));

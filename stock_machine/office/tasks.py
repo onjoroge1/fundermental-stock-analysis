@@ -140,8 +140,9 @@ def recover_expired() -> dict:
 
 def claim(actor: str, *, task_types: tuple[str, ...] | None = None, lease_seconds: int | None = None,
           max_concurrent: int | None = None, code_version: str = "", config_version: str = "",
-          github_run_id: str | None = None) -> Lease | None:
-    """Take the next runnable task, or return None when there is none or the office is at its limit."""
+          github_run_id: str | None = None, logical_key: str | None = None) -> Lease | None:
+    """Take the next runnable task, or return None when there is none or the office is at its limit.
+    With ``logical_key`` only that one task can be taken, so the caller's record is of the task it asked for."""
     config.require_enabled()
     seconds = lease_seconds or config.DEFAULT_LEASE_SECONDS
     if not 1 <= seconds <= config.MAX_LEASE_SECONDS:
@@ -164,6 +165,7 @@ def claim(actor: str, *, task_types: tuple[str, ...] | None = None, lease_second
                           OR (t.state = 'RETRY_WAIT' AND t.retry_at <= now()))
                      AND t.attempts < t.max_attempts
                      AND (%(types)s::text[] IS NULL OR t.task_type = ANY(%(types)s::text[]))
+                     AND (%(key)s::text IS NULL OR t.logical_key = %(key)s::text)
                      AND NOT EXISTS (
                          SELECT 1 FROM office_task_dependencies d
                          JOIN office_tasks p ON p.task_id = d.depends_on
@@ -175,7 +177,7 @@ def claim(actor: str, *, task_types: tuple[str, ...] | None = None, lease_second
                    retry_at = NULL, error_code = NULL, updated_at = now()
                FROM pick WHERE t.task_id = pick.task_id
                RETURNING t.task_id, t.logical_key, t.task_type, t.payload""",
-            {"types": list(task_types) if task_types else None, "actor": actor, "token": token,
+            {"types": list(task_types) if task_types else None, "key": logical_key, "actor": actor, "token": token,
              "seconds": seconds})
         row = cur.fetchone()
         if row is None:

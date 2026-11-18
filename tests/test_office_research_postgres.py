@@ -62,6 +62,9 @@ def pg(monkeypatch):
                 spec.loader.exec_module(module)
                 module.op = SimpleNamespace(execute=conn.execute)
                 module.upgrade()
+            # Migrations ran in order, so the schema is at the office revision, as Alembic would record it.
+            conn.execute("CREATE TABLE alembic_version (version_num TEXT PRIMARY KEY)")
+            conn.execute("INSERT INTO alembic_version VALUES (%s)", (config.OFFICE_SCHEMA_VERSION,))
             conn.execute(SOURCE_TABLES)
             seed(conn)
         monkeypatch.setattr(tasks, "connect", connect)

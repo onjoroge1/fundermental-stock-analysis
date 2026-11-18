@@ -1,18 +1,25 @@
 name: Office Worker
 
-# Manual only for now. A schedule is added in a later change, after a real run has been checked.
-# "observe" only reads and prints the office status. "work" does one bounded pass of office work.
-# This workflow sets no switch: the office stays off until the owner sets the repository Variables
-# it reads. It never applies a migration and has no broker access.
+# One bounded pass of office work.
+# - By hand: "observe" only reads and prints the office status; "work" does one pass; "canary" is a
+#   work pass that fails unless at least one memo task completes cleanly.
+# - On the schedule: a work pass every half hour on weekdays. The scheduled job does not even start
+#   unless the owner has set the repository Variable that switches the office on, and the worker itself
+#   does nothing outside 07:00 to 20:15 New York time.
+# This workflow sets no switch, never applies a migration and has no broker access.
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: observe (read only) or work (one bounded pass)
+        description: observe (read only), work (one bounded pass) or canary (work that must complete a memo)
         required: true
         default: observe
         type: choice
-        options: [observe, work]
+        options: [observe, work, canary]
+  schedule:
+    # UTC. Covers 07:00 to 20:15 New York in both winter and summer time; the worker checks the hour itself.
+    - cron: "7,37 11-23 * * 1-5"
+    - cron: "7,37 0 * * 2-6"
 
 permissions:
   contents: read
@@ -23,7 +30,7 @@ concurrency:
 
 jobs:
   worker:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'schedule' || vars.OFFICE_ENABLED == 'true')
     environment: Production
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -35,10 +42,10 @@ jobs:
           cache: pip
       - run: python -m pip install -e .
       - name: Install the model SDK only if Anthropic is the chosen provider
-        if: inputs.mode == 'work' && vars.OFFICE_MODEL_PROVIDER == 'anthropic'
+        if: (github.event_name == 'schedule' || inputs.mode != 'observe') && vars.OFFICE_MODEL_PROVIDER == 'anthropic'
         run: python -m pip install -e ".[office-anthropic]"
       - name: Observe (read only)
-        if: inputs.mode == 'observe'
+        if: github.event_name != 'schedule' && inputs.mode == 'observe'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           OFFICE_ENABLED: ${{ vars.OFFICE_ENABLED }}
@@ -49,7 +56,7 @@ jobs:
           OFFICE_MONTHLY_USD_CAP: ${{ vars.OFFICE_MONTHLY_USD_CAP }}
         run: python -m stock_machine.office.worker --mode observe
       - name: Work (one bounded pass)
-        if: inputs.mode == 'work'
+        if: github.event_name == 'schedule' || inputs.mode != 'observe'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -59,4 +66,6 @@ jobs:
           OFFICE_MODEL: ${{ vars.OFFICE_MODEL }}
           OFFICE_DAILY_USD_CAP: ${{ vars.OFFICE_DAILY_USD_CAP }}
           OFFICE_MONTHLY_USD_CAP: ${{ vars.OFFICE_MONTHLY_USD_CAP }}
-        run: python -m stock_machine.office.worker --mode work
+          WORKER_TRIGGER: ${{ github.event_name == 'schedule' && 'schedule' || 'manual' }}
+          WORKER_CANARY: ${{ inputs.mode == 'canary' && '--require-research' || '' }}
+        run: python -m stock_machine.office.worker --mode work --trigger "$WORKER_TRIGGER" $WORKER_CANARY
