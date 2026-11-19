@@ -443,4 +443,9 @@ def test_a_key_never_reaches_an_error_a_log_or_a_stored_row(pg, monkeypatch, cap
     assert stored and SENTINEL not in stored
     assert SENTINEL not in "".join(seen) and SENTINEL not in caplog.text
     source = "".join(p.read_text() for p in (Path(providers.__file__).parent).glob("*.py"))
-    assert "api_key" not in source and "API_KEY" not in source and "import logging" not in source
+    assert "api_key" not in source and "import logging" not in source
+    # The credential's name appears once, in the list used to ask whether one is set. Its value is never read out.
+    named = [line for line in source.splitlines() if "API_KEY" in line]
+    assert len(named) == 1 and named[0].startswith("CREDENTIAL_NAMES = (")
+    uses = [line.strip() for line in source.splitlines() if "CREDENTIAL_NAMES" in line and not line.startswith("CREDENTIAL_NAMES")]
+    assert uses == ['if self._client is None and not any(os.environ.get(name, "").strip() for name in CREDENTIAL_NAMES):']
