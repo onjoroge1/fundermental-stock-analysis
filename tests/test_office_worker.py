@@ -175,6 +175,7 @@ def test_a_failing_step_is_a_code_never_its_text_the_pass_goes_on_and_may_be_ret
 def research_with(monkeypatch, results):
     monkeypatch.setenv("OFFICE_MODEL_PROVIDER", "anthropic")
     monkeypatch.setenv("OFFICE_MODEL", "some-model")
+    monkeypatch.setattr(worker.providers, "get", lambda: object())            # a provider that needs no key check
     queue = iter(results)
     monkeypatch.setattr(worker.research, "work_one", lambda actor, provider: next(queue, None))
 
@@ -256,7 +257,7 @@ def test_the_workflow_runs_by_hand_or_on_its_schedule_on_main_only_and_sets_no_s
     trigger = WORKFLOW.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
     assert "workflow_dispatch:" in trigger and "schedule:" in trigger
     assert not any(word in trigger for word in ("push:", "pull_request", "workflow_run", "timezone"))
-    assert "options: [observe, work, canary]" in trigger and "default: observe" in trigger
+    assert "options: [observe, work, canary, resolve]" in trigger and "default: observe" in trigger
     assert [line.split('"')[1] for line in trigger.splitlines() if "cron:" in line] == ["7,37 11-23 * * 1-5", "7,37 0 * * 2-6"]
     assert "permissions:\n  contents: read\n" in WORKFLOW and WORKFLOW.count("permissions:") == 1
     assert "environment: Production" in WORKFLOW and "cancel-in-progress: false" in WORKFLOW and "timeout-minutes:" in WORKFLOW
@@ -289,7 +290,7 @@ def test_the_model_key_reaches_only_the_work_step_and_observe_gets_the_database_
     steps = WORKFLOW.split("    steps:\n", 1)[1].split("\n      - ")
     with_key = [s for s in steps if "ANTHROPIC_API_KEY" in s]
     assert len(with_key) == 1 and "--mode work" in with_key[0]
-    assert "if: github.event_name == 'schedule' || inputs.mode != 'observe'" in with_key[0]
+    assert "if: github.event_name == 'schedule' || (inputs.mode != 'observe' && inputs.mode != 'resolve')" in with_key[0]
     assert "--trigger \"$WORKER_TRIGGER\" $WORKER_CANARY" in with_key[0]
     assert "WORKER_TRIGGER: ${{ github.event_name == 'schedule' && 'schedule' || 'manual' }}" in with_key[0]
     assert "WORKER_CANARY: ${{ inputs.mode == 'canary' && '--require-research' || '' }}" in with_key[0]
@@ -297,6 +298,47 @@ def test_the_model_key_reaches_only_the_work_step_and_observe_gets_the_database_
     observe = next(s for s in steps if "--mode observe" in s)
     assert "if: github.event_name != 'schedule' && inputs.mode == 'observe'" in observe
     assert observe.count("secrets.") == 1 and "secrets.DATABASE_URL" in observe
-    assert WORKFLOW.count("secrets.") == 3 and "env:" not in WORKFLOW.split("    steps:\n", 1)[0]
+    assert WORKFLOW.count("secrets.") == 4 and "env:" not in WORKFLOW.split("    steps:\n", 1)[0]
+    resolve = next(s for s in steps if "--mode resolve" in s)                 # an owner action, by hand only
+    assert "if: github.event_name != 'schedule' && inputs.mode == 'resolve'" in resolve
+    assert resolve.count("secrets.") == 1 and "secrets.DATABASE_URL" in resolve and "OFFICE_PAPER" not in resolve
+    assert "WORKER_TASK_IDS: ${{ inputs.task_ids }}" in resolve
+    assert resolve.split("run:")[1].strip() == 'python -m stock_machine.office.worker --mode resolve --call-not-made --task-ids "$WORKER_TASK_IDS"'
     install = next(s for s in steps if "office-anthropic" in s)
     assert "vars.OFFICE_MODEL_PROVIDER == 'anthropic'" in install and "secrets." not in install
+
+
+def test_a_provider_that_cannot_send_fails_the_research_step_before_any_task_is_claimed(monkeypatch):
+    """With the provider chosen but no key, the pass shows red and no memo task is touched."""
+    from stock_machine.office import providers
+    monkeypatch.setenv("OFFICE_MODEL_PROVIDER", "anthropic")
+    monkeypatch.setenv("OFFICE_MODEL", "claude-opus-5-5")
+    for name in providers.CREDENTIAL_NAMES:
+        monkeypatch.delenv(name, raising=False)
+    claimed = []
+    monkeypatch.setattr(worker.research, "work_one", lambda *a, **k: claimed.append(1))
+    with pytest.raises(providers.ProviderRefused) as caught:
+        worker._research(4, 10 ** 12, None)
+    assert worker.safe_code(caught.value) == "PROVIDER_KEY_MISSING" and claimed == []
+
+
+def test_resolve_needs_the_statement_and_well_formed_ids(monkeypatch, capsys):
+    monkeypatch.setenv("OFFICE_ENABLED", "true")
+    seen = []
+    monkeypatch.setattr(worker.budget, "resolve_not_made",
+                        lambda task_id, reference: seen.append((task_id, reference)) or {"task_id": task_id})
+    good = "9794e3ff-17af-48b1-a439-7fca9667813a"
+    assert worker.main(["--mode", "resolve", "--task-ids", good]) == 1 and seen == []          # no statement
+    assert worker.main(["--mode", "resolve", "--call-not-made", "--task-ids", ""]) == 1
+    assert worker.main(["--mode", "resolve", "--call-not-made", "--task-ids", good + ",x; DROP"]) == 1 and seen == []
+    monkeypatch.setenv("GITHUB_RUN_ID", "44433304120")
+    assert worker.main(["--mode", "resolve", "--call-not-made", "--task-ids", f"{good}, {good}"]) == 0
+    assert seen == [(good, "github-run:44433304120")]
+
+    def refuse(task_id, reference):
+        raise ValueError("TASK_NOT_BLOCKED_ON_AN_UNCERTAIN_CALL")
+    monkeypatch.setattr(worker.budget, "resolve_not_made", refuse)
+    assert worker.main(["--mode", "resolve", "--call-not-made", "--task-ids", good]) == 1
+    assert "RESOLVED_WITH_REFUSALS" in capsys.readouterr().out
+    monkeypatch.setenv("OFFICE_ENABLED", "false")
+    assert worker.main(["--mode", "resolve", "--call-not-made", "--task-ids", good]) == 1     # office off: nothing

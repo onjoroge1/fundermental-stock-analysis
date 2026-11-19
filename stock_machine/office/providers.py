@@ -3,8 +3,8 @@
 The default provider is ``none``, which refuses every call. ``fake`` replays recorded responses for tests.
 ``anthropic`` uses the official SDK. ``openai`` is a reserved name with no implementation yet: it refuses.
 
-Secrets: this module never reads, stores, logs or returns an API key. The Anthropic SDK reads its own
-credential from the process environment. Every failure is reduced to a short code before it leaves this
+Secrets: this module never stores, logs or returns an API key. It checks only whether one is set; the
+Anthropic SDK reads its own credential from the process environment. Every failure is reduced to a short code before it leaves this
 module, and the original exception (whose text could quote a request or a header) is dropped, not chained.
 
 ``call`` is the only way a role should reach a provider. Around one request it:
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Protocol
@@ -35,6 +36,8 @@ ANTHROPIC_PRICES = {
     "claude-sonnet-5": (Decimal("2"), Decimal("10")),
     "claude-haiku-5-5": (Decimal("0.50"), Decimal("2.50")),
 }
+
+CREDENTIAL_NAMES = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")     # names only; a value is never read out
 
 
 class ProviderRefused(RuntimeError):
@@ -145,8 +148,20 @@ class AnthropicProvider:
             self._sdk = anthropic
         if self._client is None:
             # No key is passed here: the SDK resolves its credential from the environment itself.
-            self._client = self._sdk.Anthropic(max_retries=0, timeout=config.PROVIDER_TIMEOUT_SECONDS)
+            try:
+                self._client = self._sdk.Anthropic(max_retries=0, timeout=config.PROVIDER_TIMEOUT_SECONDS)
+            except Exception:
+                self._client = None
+            if self._client is None:           # building a client sends nothing, so this is a clean refusal
+                raise ProviderRefused("PROVIDER_CLIENT_FAILED")
         return self._sdk, self._client
+
+    def ready(self) -> None:
+        """Refuse now if no call could be sent at all: no credential, no SDK, or no client. Nothing is
+        reserved and nothing is sent, so a missing key can never look like a call with an unknown outcome."""
+        if self._client is None and not any(os.environ.get(name, "").strip() for name in CREDENTIAL_NAMES):
+            raise ProviderRefused("PROVIDER_KEY_MISSING")
+        self._load()
 
     @staticmethod
     def _prices(model: str) -> tuple[Decimal, Decimal]:
@@ -156,6 +171,7 @@ class AnthropicProvider:
 
     def max_cost_usd(self, request: ProviderRequest) -> Decimal:
         price_in, price_out = self._prices(request.model)
+        self.ready()
         return ((request.input_token_ceiling() * price_in + request.max_tokens * price_out) / MTOK
                 ).quantize(Decimal("0.000001"))
 

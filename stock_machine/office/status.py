@@ -40,7 +40,7 @@ def summary() -> dict:
         ).fetchone()
         states = dict(conn.execute("SELECT state, count(*) FROM office_tasks GROUP BY state").fetchall())
         attention = conn.execute(
-            """SELECT task_type, state, error_code, attempts, updated_at FROM office_tasks
+            """SELECT task_type, state, error_code, attempts, updated_at, task_id FROM office_tasks
                WHERE state IN ('BLOCKED','FAILED','WAITING_DATA','WAITING_REVIEW')
                ORDER BY updated_at DESC LIMIT 10""").fetchall()
         events, memos = conn.execute(
@@ -71,8 +71,8 @@ def summary() -> dict:
             "candidates": candidates,
             "spend": {"day_usd": str(day), "month_usd": str(month), "unresolved_calls": unresolved},
             "tasks": states,
-            "needs_attention": [{"task_type": t, "state": s, "error_code": e, "attempts": a,
-                                 "updated_at": u.isoformat()} for t, s, e, a, u in attention],
+            "needs_attention": [{"task_id": str(i), "task_type": t, "state": s, "error_code": e, "attempts": a,
+                                 "updated_at": u.isoformat()} for t, s, e, a, u, i in attention],
             "last_7_days": {"events": events, "memos": memos, "reviews": verdicts},
             "mirrored_records": mirrored,
             "qa": scored,
