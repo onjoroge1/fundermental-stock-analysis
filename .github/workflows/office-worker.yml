@@ -2,7 +2,9 @@ name: Office Worker
 
 # One bounded pass of office work.
 # - By hand: "observe" only reads and prints the office status; "work" does one pass; "canary" is a
-#   work pass that fails unless at least one memo task completes cleanly.
+#   work pass that fails unless at least one memo task completes cleanly. "resolve" is an owner action:
+#   it states that the named blocked tasks' uncertain model calls were never sent, stops charging their
+#   reservations and queues the tasks again. It calls no model.
 # - On the schedule: a work pass every half hour on weekdays. The scheduled job does not even start
 #   unless the owner has set the repository Variable that switches the office on, and the worker itself
 #   does nothing outside 07:00 to 20:15 New York time.
@@ -11,11 +13,16 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: observe (read only), work (one bounded pass) or canary (work that must complete a memo)
+        description: observe (read only), work (one bounded pass), canary (work that must complete a memo) or resolve
         required: true
         default: observe
         type: choice
-        options: [observe, work, canary]
+        options: [observe, work, canary, resolve]
+      task_ids:
+        description: "resolve only: ids of tasks blocked on an uncertain call that the owner states was never sent"
+        required: false
+        default: ""
+        type: string
   schedule:
     # UTC. Covers 07:00 to 20:15 New York in both winter and summer time; the worker checks the hour itself.
     - cron: "7,37 11-23 * * 1-5"
@@ -42,7 +49,7 @@ jobs:
           cache: pip
       - run: python -m pip install -e .
       - name: Install the model SDK only if Anthropic is the chosen provider
-        if: (github.event_name == 'schedule' || inputs.mode != 'observe') && vars.OFFICE_MODEL_PROVIDER == 'anthropic'
+        if: (github.event_name == 'schedule' || (inputs.mode != 'observe' && inputs.mode != 'resolve')) && vars.OFFICE_MODEL_PROVIDER == 'anthropic'
         run: python -m pip install -e ".[office-anthropic]"
       - name: Observe (read only)
         if: github.event_name != 'schedule' && inputs.mode == 'observe'
@@ -55,8 +62,15 @@ jobs:
           OFFICE_DAILY_USD_CAP: ${{ vars.OFFICE_DAILY_USD_CAP }}
           OFFICE_MONTHLY_USD_CAP: ${{ vars.OFFICE_MONTHLY_USD_CAP }}
         run: python -m stock_machine.office.worker --mode observe
+      - name: Resolve (owner states the calls were never sent)
+        if: github.event_name != 'schedule' && inputs.mode == 'resolve'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OFFICE_ENABLED: ${{ vars.OFFICE_ENABLED }}
+          WORKER_TASK_IDS: ${{ inputs.task_ids }}
+        run: python -m stock_machine.office.worker --mode resolve --call-not-made --task-ids "$WORKER_TASK_IDS"
       - name: Work (one bounded pass)
-        if: github.event_name == 'schedule' || inputs.mode != 'observe'
+        if: github.event_name == 'schedule' || (inputs.mode != 'observe' && inputs.mode != 'resolve')
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

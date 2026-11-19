@@ -136,3 +136,26 @@ def release(reservation_id: str) -> None:
 def mark_unresolved(reservation_id: str) -> None:
     """The call may have run but its result is unknown. It stays charged at the maximum."""
     _settle(reservation_id, "UNRESOLVED", None, None)
+
+
+def resolve_not_made(task_id: str, *, reference: str) -> dict:
+    """The owner states that a blocked task's uncertain calls were never sent. Their reservations stop being
+    charged and the task goes back to the queue with its attempts reset.
+
+    Only for a task that is BLOCKED with UNCERTAIN_EXTERNAL_CALL. The reservation rows are kept: each records
+    that it was released by this statement and the reference given (for example the GitHub run that did it).
+    """
+    note = Jsonb({"resolved": "CALL_NOT_MADE", "stated_by": "owner", "reference": str(reference)[:120]})
+    with connect() as conn:
+        task = conn.execute("SELECT state, error_code FROM office_tasks WHERE task_id = %s FOR UPDATE",
+                            (task_id,)).fetchone()
+        if task is None or tuple(task) != ("BLOCKED", "UNCERTAIN_EXTERNAL_CALL"):
+            raise ValueError("TASK_NOT_BLOCKED_ON_AN_UNCERTAIN_CALL")
+        released = conn.execute(
+            """UPDATE office_budget_reservations b SET state = 'RELEASED', usage = COALESCE(b.usage, '{}'::jsonb) || %s
+               FROM office_runs r WHERE r.run_id = b.run_id AND r.task_id = %s AND b.state = 'UNRESOLVED'
+               RETURNING b.reservation_id""", (note, task_id)).fetchall()
+        conn.execute(
+            """UPDATE office_tasks SET state = 'QUEUED', error_code = NULL, due_at = now(), updated_at = now(),
+                   attempts = 0 WHERE task_id = %s""", (task_id,))
+    return {"task_id": str(task_id), "released": len(released), "state": "QUEUED"}

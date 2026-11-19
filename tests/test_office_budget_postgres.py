@@ -300,6 +300,13 @@ class StandInSDK:
         return self.outcome
 
 
+@pytest.fixture(autouse=True)
+def a_credential_is_set(monkeypatch):
+    """The adapter refuses outright with no credential, so these tests set a stand-in one. It is not a key."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "stand-in-not-a-key")
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+
+
 def message(usage=True):
     return SimpleNamespace(
         model="claude-opus-5-5", stop_reason="end_turn",
@@ -360,6 +367,56 @@ def test_a_timeout_or_dropped_connection_is_uncertain(pg, error):
     with pytest.raises(budget.UncertainCall):
         providers.call(lease(), 1, providers.AnthropicProvider(sdk=sdk), REQUEST)
     assert ledger(pg)[0][1] == "UNRESOLVED" and len(sdk.requests) == 1
+
+
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_a_missing_key_is_refused_before_anything_is_reserved_or_sent(pg, monkeypatch, value):
+    """The 2026-11-18 production pass: no key, yet three memo tasks ended as calls with an unknown outcome."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY") if value is None else monkeypatch.setenv("ANTHROPIC_API_KEY", value)
+    sdk, held = StandInSDK(message()), lease()
+    with pytest.raises(providers.ProviderRefused) as caught:
+        providers.call(held, 1, providers.AnthropicProvider(sdk=sdk), REQUEST)
+    assert (caught.value.code, caught.value.retryable) == ("PROVIDER_KEY_MISSING", False)
+    assert ledger(pg) == [] and sdk.constructed == [] and sdk.requests == []
+    assert sql(pg, "SELECT external_call_open FROM office_runs") == [(False,)]
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "stand-in-not-a-token")        # the SDK's other credential counts
+    assert providers.call(held, 1, providers.AnthropicProvider(sdk=sdk), REQUEST).text == "A memo."
+
+
+def test_a_client_that_cannot_be_built_is_a_clean_refusal_not_an_unknown_outcome(pg):
+    sdk = StandInSDK(message())
+
+    def broken(**kwargs):
+        raise RuntimeError(f"could not resolve credentials {SENTINEL}")
+    sdk.Anthropic = broken
+    with pytest.raises(providers.ProviderRefused) as caught:
+        providers.call(lease(), 1, providers.AnthropicProvider(sdk=sdk), REQUEST)
+    assert caught.value.code == "PROVIDER_CLIENT_FAILED" and SENTINEL not in repr(caught.value)
+    assert caught.value.__context__ is None and ledger(pg) == [] and sdk.requests == []
+
+
+def test_the_owner_can_state_that_an_uncertain_call_was_never_sent(pg):
+    held = lease()
+    fake = providers.FakeProvider({REQUEST.sha256(): TimeoutError("timed out")})
+    with pytest.raises(budget.UncertainCall):
+        providers.call(held, 1, fake, REQUEST)
+    tasks.block(held, "UNCERTAIN_EXTERNAL_CALL")
+    other = lease("memo:2")                                                    # a running task is not touched
+    assert budget.spent()["day_usd"] == Decimal("0.01")
+    with pytest.raises(ValueError, match="TASK_NOT_BLOCKED_ON_AN_UNCERTAIN_CALL"):
+        budget.resolve_not_made(other.task_id, reference="github-run:1")
+    with pytest.raises(ValueError, match="TASK_NOT_BLOCKED_ON_AN_UNCERTAIN_CALL"):
+        budget.resolve_not_made(str(uuid4()), reference="github-run:1")
+    assert budget.resolve_not_made(held.task_id, reference="github-run:44") == {
+        "task_id": held.task_id, "released": 1, "state": "QUEUED"}
+    assert budget.spent()["day_usd"] == Decimal("0")
+    row = sql(pg, "SELECT state, actual_usd, usage FROM office_budget_reservations")[0]
+    assert row[:2] == ("RELEASED", None)                                       # the row is kept, with its note
+    assert row[2] == {"resolved": "CALL_NOT_MADE", "stated_by": "owner", "reference": "github-run:44"}
+    assert sql(pg, "SELECT state, error_code, attempts FROM office_tasks WHERE task_id = %s", (held.task_id,)) == [
+        ("QUEUED", None, 0)]
+    with pytest.raises(ValueError):                                            # a second statement finds nothing
+        budget.resolve_not_made(held.task_id, reference="github-run:44")
 
 
 # ------------------------------------------------------------------------------------------- key safety

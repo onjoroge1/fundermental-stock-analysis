@@ -2,6 +2,7 @@
 
     python -m stock_machine.office.worker --mode observe
     python -m stock_machine.office.worker --mode work [--trigger schedule] [--require-research]
+    python -m stock_machine.office.worker --mode resolve --call-not-made --task-ids ID[,ID]
 
 ``observe`` only reads. It prints the same summary the owner's console shows and works while the office
 is off. ``work`` does one pass and stops:
@@ -39,7 +40,7 @@ import time
 from datetime import UTC, datetime, time as clock
 from zoneinfo import ZoneInfo
 
-from . import admission, config, inventory, paper, qa, research, roles, scout, status, tasks
+from . import admission, budget, config, inventory, paper, providers, qa, research, roles, scout, status, tasks
 
 ACTOR = "office-worker"
 PULSE_TASK = "worker_pulse"
@@ -91,6 +92,12 @@ def _queue_memos() -> dict:
 def _research(max_tasks: int, deadline: float, provider) -> dict:
     if provider is None and (config.provider() == "none" or not config.model()):
         raise Skip("PROVIDER_NOT_CONFIGURED")
+    if provider is None:
+        # Before any task is claimed: a provider that cannot send at all (no key, no SDK) fails this step
+        # with its code and leaves every memo task untouched in the queue.
+        ready = getattr(providers.get(), "ready", None)
+        if ready is not None:
+            ready()
     states: dict[str, int] = {}
     for _ in range(max_tasks):
         if time.monotonic() >= deadline:
@@ -259,9 +266,33 @@ def work(*, max_tasks: int = MAX_TASKS, max_seconds: int = MAX_SECONDS, provider
     return {**out, **receipt}
 
 
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
+def resolve(task_ids: list[str]) -> dict:
+    """Owner action: these blocked tasks' uncertain calls were never sent. Release their reservations and
+    queue the tasks again. Refused as a whole unless every id is well formed."""
+    config.require_enabled()
+    if not task_ids or len(task_ids) > 20 or any(not _UUID.match(t) for t in task_ids):
+        return {"mode": "resolve", "state": "TASK_IDS_INVALID"}
+    run = os.environ.get("GITHUB_RUN_ID", "").strip()
+    reference = f"github-run:{run}" if run.isdigit() else "local"
+    done, refused = [], 0
+    for task_id in dict.fromkeys(task_ids):
+        try:
+            done.append(budget.resolve_not_made(task_id, reference=reference))
+        except ValueError:
+            refused += 1
+    return {"mode": "resolve", "state": "RESOLVED" if not refused else "RESOLVED_WITH_REFUSALS",
+            "resolved": done, "refused": refused}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="One bounded pass of office work.")
-    parser.add_argument("--mode", choices=["observe", "work"], default="observe")
+    parser.add_argument("--mode", choices=["observe", "work", "resolve"], default="observe")
+    parser.add_argument("--task-ids", default="", help="resolve: comma-separated ids of tasks blocked on an uncertain call")
+    parser.add_argument("--call-not-made", action="store_true",
+                        help="resolve: the owner states these calls were never sent")
     parser.add_argument("--trigger", choices=["manual", "schedule"], default="manual")
     parser.add_argument("--require-research", action="store_true",
                         help="canary: fail unless at least one memo task completed and none needs attention")
@@ -269,14 +300,18 @@ def main(argv=None) -> int:
     parser.add_argument("--max-seconds", type=int, default=MAX_SECONDS, choices=range(30, 1801), metavar="30..1800")
     args = parser.parse_args(argv)
     try:
-        result = observe() if args.mode == "observe" else work(
-            max_tasks=args.max_tasks, max_seconds=args.max_seconds, trigger=args.trigger,
-            require_research=args.require_research)
+        if args.mode == "resolve":
+            result = resolve([t.strip() for t in args.task_ids.split(",") if t.strip()]) if args.call_not_made else {
+                "mode": "resolve", "state": "STATEMENT_REQUIRED"}
+        else:
+            result = observe() if args.mode == "observe" else work(
+                max_tasks=args.max_tasks, max_seconds=args.max_seconds, trigger=args.trigger,
+                require_research=args.require_research)
     except Exception as error:
         print(json.dumps({"mode": args.mode, "state": "FAILED", "code": safe_code(error)}))
         return 1
     print(json.dumps(result, indent=1, sort_keys=True, default=str))
-    return 0 if args.mode == "observe" or result.get("state") in SUCCESS else 1
+    return 0 if args.mode == "observe" or result.get("state") in (*SUCCESS, "RESOLVED") else 1
 
 
 if __name__ == "__main__":
