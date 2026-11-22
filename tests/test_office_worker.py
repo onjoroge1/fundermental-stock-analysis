@@ -34,7 +34,7 @@ def desk(monkeypatch):
     monkeypatch.setattr(worker.admission, "decide_candidates", lambda: {"candidates": 4, "admitted": 0, "blocked": 4, "new_decisions": 4})
     monkeypatch.setattr(worker.tasks, "fail", lambda lease, code, **kw: done.update(failed=code, **kw))
     monkeypatch.setattr(worker.roles, "register_all", lambda provider, model: [{"created": True}] * 7)
-    monkeypatch.setattr(worker.inventory, "load", lambda: {"records": 28, "created": 0})
+    monkeypatch.setattr(worker.inventory, "load", lambda: {"records": 30, "created": 0})
     monkeypatch.setattr(worker.scout, "scan", lambda: {"seen": 4, "created": 1})
     monkeypatch.setattr(worker, "_queue_memos", lambda: {"queued": 1, "already_today": 0})
     monkeypatch.setattr(worker.research, "work_one", lambda actor, provider: pytest.fail("no provider was chosen"))

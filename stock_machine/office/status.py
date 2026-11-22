@@ -5,7 +5,7 @@ been created yet. It returns setting names and states, never a key or any other 
 """
 from __future__ import annotations
 
-from . import admission, config, external, qa, tasks
+from . import admission, config, external, qa, tasks, unified
 
 TABLES = ("office_tasks", "office_runs", "office_budget_reservations", "office_events", "office_memos",
           "office_reviews", "office_briefings")
@@ -75,6 +75,7 @@ def summary() -> dict:
                                  "updated_at": u.isoformat()} for t, s, e, a, u, i in attention],
             "last_7_days": {"events": events, "memos": memos, "reviews": verdicts},
             "mirrored_records": mirrored,
+            "unified_ledger": unified.overview(),
             "qa": scored,
             "latest_briefing": None if briefing is None else {
                 "kind": briefing[0], "date": str(briefing[1]), "counts": briefing[2],

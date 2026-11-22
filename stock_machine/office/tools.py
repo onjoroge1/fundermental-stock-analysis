@@ -17,7 +17,7 @@ from uuid import uuid4
 
 from psycopg.types.json import Jsonb
 
-from . import roles
+from . import roles, unified
 
 EVENT_TYPES = ("EARNINGS", "EX_DIVIDEND", "SPLIT")
 FILING_FORMS = ("10-K", "10-Q", "8-K", "10-K/A", "10-Q/A", "8-K/A")
@@ -290,6 +290,15 @@ def excluded_rule_hashes(role: str, conn) -> set[str]:
     roles.authorize(role, "read_strategy_evidence")
     rows = conn.execute("SELECT record->'hashes' FROM office_strategy_versions WHERE NOT admissible").fetchall()
     return {h for (hashes,) in rows for h in (hashes or {}).values()}
+
+
+def unified_ledger(role: str, strategy_id: str | None = None, *, family: str | None = None):
+    """The unified strategy ledger's summary: the overview, one rule's entry, or one family's rules.
+    Reference material only. No entry is a candidate and none is new evidence."""
+    roles.authorize(role, "read_strategy_evidence")
+    if strategy_id is not None:
+        return unified.rule(strategy_id)
+    return unified.family(family) if family is not None else unified.overview()
 
 
 def strategy_signoff(role: str, conn, run_id: str, strategy_id: str, version: str, *, task_type: str,

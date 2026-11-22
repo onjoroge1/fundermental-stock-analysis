@@ -58,7 +58,7 @@ def test_one_pass_does_the_research_chain_once_and_is_matched_to_its_github_run(
     assert out["state"] == "COMPLETED" and out["pulse"] == f"pulse:manual:{RUN}" and out["github_run_id"] == RUN
     assert steps_of(out)["admissions"] == {"ok": True, "candidates": 4, "admitted": 0, "blocked": 4, "new_decisions": 4}
     steps = out["steps"]
-    assert steps["roles"] == {"ok": True, "created": 7} and steps["inventory"] == {"ok": True, "records": 28, "created": 28}
+    assert steps["roles"] == {"ok": True, "created": 7} and steps["inventory"] == {"ok": True, "records": 30, "created": 30}
     assert steps["queue_memos"] == {"ok": True, "queued": 0, "already_today": 1}
     assert steps["research"] == {"ok": True, "tasks": 2, "states": {"COMPLETED": 2}, "completed": 2,
                                  "needing_attention": 0} and len(fake.calls) == 2
@@ -75,7 +75,7 @@ def test_one_pass_does_the_research_chain_once_and_is_matched_to_its_github_run(
         (out["task_id"], out["run_id"], "COMPLETED", out["run_id"], "2")]
     before = rows(pg, "office_events", "office_memos", "office_reviews", "office_briefings", "office_strategy_versions",
                   "office_agent_definitions", "office_budget_reservations", "office_admission_decisions")
-    assert before == [1, 1, 1, 1, 28, 7, 2, 4]
+    assert before == [1, 1, 1, 1, 30, 7, 2, 4]
     # the same run started again, or re-run as attempt 2, is the same task: nothing is worked twice
     assert worker.work(provider=fake, now=at(16))["state"] == "SLOT_ALREADY_COMPLETED"
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
