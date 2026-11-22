@@ -18,6 +18,14 @@ def _switches() -> dict:
             "daily_cap_usd": str(config.daily_usd_cap()), "monthly_cap_usd": str(config.monthly_usd_cap())}
 
 
+def _unified() -> dict:
+    """The unified ledger's few figures. A missing or invalid summary file must not take the status down."""
+    try:
+        return unified.overview()
+    except (OSError, ValueError) as error:
+        return {"unavailable": getattr(error, "code", type(error).__name__)}
+
+
 def summary() -> dict:
     out = {"switches": _switches(), "boundaries": BOUNDARIES, "schema_version_needed": config.OFFICE_SCHEMA_VERSION}
     with tasks.connect() as conn:
@@ -75,7 +83,7 @@ def summary() -> dict:
                                  "updated_at": u.isoformat()} for t, s, e, a, u, i in attention],
             "last_7_days": {"events": events, "memos": memos, "reviews": verdicts},
             "mirrored_records": mirrored,
-            "unified_ledger": unified.overview(),
+            "unified_ledger": _unified(),
             "qa": scored,
             "latest_briefing": None if briefing is None else {
                 "kind": briefing[0], "date": str(briefing[1]), "counts": briefing[2],

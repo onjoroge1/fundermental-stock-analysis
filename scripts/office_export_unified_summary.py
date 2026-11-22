@@ -36,6 +36,7 @@ PERIODS = {"2016-23": "development", "2024-26": "research-exposed"}
 LOOK_AHEAD = "ORIGINAL_RULE_USES_LATER_CANDLES"
 NO_ROWS = "NO_ROWS_OF_ITS_OWN"
 PICKS_ONLY = "PARITY_ON_MONTHLY_PICKS_ONLY"
+MIN_FIGURE_TRADES = 20                                  # below this a period shows counts only
 MIN_TRADES = 100                                        # below this a period's mean is not counted as positive or negative
 NOTES = [
     "Every figure restates a rule that had already been run and counted. Nothing here is new evidence.",
@@ -45,7 +46,7 @@ NOTES = [
     "The four exits of one GAP-1 entry are four rows on the same fill: never count them as four trades.",
     "Fills are modelled from bars. None is a broker fill.",
 ]
-COST_MODEL = ("One schedule for every rule: tiered commissions plus slippage on a $10,000 order and on its "
+COST_MODEL = ("One schedule for every rule: tiered commissions plus slippage on a 10,000-dollar order and on its "
               "SPY hedge, at modelled prices. 'net' is the primary schedule; 'stress' is the harsher one.")
 
 
@@ -71,12 +72,29 @@ def number(text, digits: int = 2):
     return round(value, digits) if math.isfinite(value) else None
 
 
-_PATH = re.compile(r";?\s*[~\w.-]*(?:/[\w.-]+)+")
+_FILE_REF = re.compile(r";?\s*[~\w./-]*\.(?:py|pkl|csv|json|gz|md|parquet|txt|ipynb|xlsx|db)\b")
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+REWORD = {"the last to the 2023-12-29 close": "the last to the close of the final session of 2023"}
+
+
+def plain(text: str) -> str:
+    """Registry text as it is, refused if it names a file or a calendar date."""
+    if re.search(r"\S/\S", text) or "~" in text or "\\" in text or _ISO_DATE.search(text):
+        raise Refused("TEXT_HAS_PATH_OR_DATE")
+    return text
 
 
 def rule_text(text: str) -> str:
-    """The rule as the registry words it, without any file reference the registry put in it."""
-    return _PATH.sub("", text).replace("( ", "(").replace(" )", ")").replace("()", "").strip()
+    """The rule as the registry words it, without a file reference or a calendar date. Only a token ending
+    in a file extension is removed; any other path-like text is refused, not rewritten."""
+    for old, new in REWORD.items():
+        text = text.replace(old, new)
+    return plain(_FILE_REF.sub("", text).strip())
+
+
+def figures(trades: int, **values) -> dict:
+    """Means and t of a period, or none of them when it has fewer than MIN_FIGURE_TRADES trades."""
+    return {k: (number(v) if trades >= MIN_FIGURE_TRADES else None) for k, v in values.items()}
 
 
 def count(text) -> int:
@@ -102,16 +120,15 @@ def minute_entries(work: Path) -> list[dict]:
         periods.setdefault(r["strategy_id"], []).append({
             "period": r["span"], "label": PERIODS[r["span"]], "orders": count(r["orders"]),
             "trades": count(r["trades"]), "dates": count(r["dates"]),
-            "mean_hedged_bps": number(r["hedged_bps"]), "t_hedged": number(r["t_hedged"]),
-            "mean_net_bps": number(r["net_primary_bps"]), "t_net": number(r["t_net"]),
-            "mean_net_stress_bps": number(r["net_stress_bps"])})
+            **figures(count(r["trades"]), mean_hedged_bps=r["hedged_bps"], t_hedged=r["t_hedged"],
+                      mean_net_bps=r["net_primary_bps"], t_net=r["t_net"], mean_net_stress_bps=r["net_stress_bps"])})
     if set(periods) - set(registry):
         raise Refused("SUMMARY_ID_NOT_IN_REGISTRY")
     out = []
     for strategy_id, meta in registry.items():
         mine = sorted(periods.get(strategy_id, []), key=lambda p: p["period"])
         flags = ([LOOK_AHEAD] if strategy_id.startswith("R8.C.") else []) + ([] if mine else [NO_ROWS])
-        out.append({"strategy_id": strategy_id, "bars": "minute", "family": meta["family"], "status": meta["status"],
+        out.append({"strategy_id": strategy_id, "bars": "minute", "family": plain(meta["family"]), "status": plain(meta["status"]),
                     "subset_of": meta["subset_of"], "rule": rule_text(meta["rule"]),
                     "parity": parity_block(parity.get(strategy_id)), "flags": flags, "periods": mine})
     return out
@@ -130,10 +147,10 @@ def daily_entries(work: Path) -> list[dict]:
         mine = [] if r is None else [{
             "period": meta["span"], "label": "development" if meta["span"].endswith("2023-12") else "development and research-exposed",
             "orders": None, "trades": count(r["trades"]), "dates": count(r["dates"]),
-            "mean_hedged_bps": number(r["hedged_bps"]), "t_hedged": None,
-            "mean_net_bps": number(r["net_primary_bps"]), "t_net": None, "mean_net_stress_bps": None}]
+            **figures(count(r["trades"]), mean_hedged_bps=r["hedged_bps"], mean_net_bps=r["net_primary_bps"]),
+            "t_hedged": None, "t_net": None, "mean_net_stress_bps": None}]
         flags = ([PICKS_ONLY] if strategy_id.startswith("QM-1.") else []) + ([] if mine else [NO_ROWS])
-        out.append({"strategy_id": strategy_id, "bars": "daily", "family": meta["family"], "status": meta["status"],
+        out.append({"strategy_id": strategy_id, "bars": "daily", "family": plain(meta["family"]), "status": plain(meta["status"]),
                     "subset_of": None, "rule": rule_text(meta["rule"]), "parity": parity_block(parity.get(strategy_id)),
                     "flags": flags, "periods": mine})
     return out
@@ -141,18 +158,16 @@ def daily_entries(work: Path) -> list[dict]:
 
 def positive(entries: list[dict]) -> dict:
     """Of the minute rules with at least MIN_TRADES trades in a period, how many have a positive mean after
-    costs there, and which have one in both periods."""
-    out = {"rules_with_rows": sum(bool(e["periods"]) for e in entries), "min_trades": MIN_TRADES}
+    costs there, and which have one in both periods. The office recomputes this when it reads the file."""
     good = lambda p: p["trades"] >= MIN_TRADES and p["mean_net_bps"] is not None
+    out = {"rules_with_rows": sum(bool(e["periods"]) for e in entries), "min_trades": MIN_TRADES}
     for period in PERIODS:
         have = [p["mean_net_bps"] for e in entries for p in e["periods"] if p["period"] == period and good(p)]
         out[period] = {"rules": len(have), "net_positive": sum(m > 0 for m in have)}
-    both = []
-    for e in entries:
-        means = {p["period"]: p["mean_net_bps"] for p in e["periods"] if good(p)}
-        if all(means.get(p, 0) > 0 for p in PERIODS):
-            both.append(e["strategy_id"])
-    return {**out, "net_positive_in_both": sorted(both)}
+    means = lambda e: {p["period"]: p["mean_net_bps"] for p in e["periods"] if good(p)}
+    counted = [e for e in entries if len(means(e)) == len(PERIODS)]
+    return {**out, "rules_counted_in_both": len(counted),
+            "net_positive_in_both": sorted(e["strategy_id"] for e in counted if all(m > 0 for m in means(e).values()))}
 
 
 def build(research: Path) -> dict:
@@ -194,7 +209,8 @@ def main(argv=None) -> int:
     out.write_text(json.dumps(summary, indent=1, sort_keys=True) + "\n")
     counts, net = summary["counts"], summary["minute_net_after_costs"]
     print(f"WRITTEN {out.name}: {counts['minute_rules']} minute rules, {counts['daily_rules']} daily rules; "
-          f"net positive in both periods: {len(net['net_positive_in_both'])} of {net['rules_with_rows']}")
+          f"net positive in both periods: {len(net['net_positive_in_both'])} of {net['rules_counted_in_both']} "
+          f"with at least {net['min_trades']} trades in each")
     return 0
 
 

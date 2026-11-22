@@ -182,7 +182,7 @@ def test_every_candidate_gets_a_dated_decision_with_its_blockers_and_next_action
                    "bool_and(created_at::date = current_date) FROM office_admission_decisions") == [(4, 4, True, True)]
     assert rows(pg, "office_deployments", "office_books") == [0, 0]
     report = status.summary()["candidates"]
-    assert len(report["candidates"]) == 4 and len(report["excluded"]) == 24
+    assert len(report["candidates"]) == 4 and len(report["excluded"]) == 26
     assert all(e["reason"] and e["original_status"] for e in report["excluded"])
     by_id = {c["strategy_id"]: c for c in report["candidates"]}
     assert set(by_id) == {"X2-FLOW", "X2-STRESS", "QM-1", "fair-value-convergence.v1:sector_timed_120"}

@@ -14,6 +14,7 @@ had already been run and counted, on years that research has already read.
 """
 from __future__ import annotations
 
+import copy
 import json
 import math
 import re
@@ -27,17 +28,23 @@ TOP = ("schema", "ledger_version", "span", "universe", "cost_model", "notes", "c
 RULE = ("strategy_id", "bars", "family", "status", "subset_of", "rule", "parity", "flags", "periods")
 PERIOD = ("period", "label", "orders", "trades", "dates", "mean_hedged_bps", "t_hedged", "mean_net_bps", "t_net",
           "mean_net_stress_bps")
-FLAGS = {"ORIGINAL_RULE_USES_LATER_CANDLES": "The original rule reads candles after its decision minute. Its "
-                                             "figures reproduce the experiment as it ran and are not usable.",
-         "NO_ROWS_OF_ITS_OWN": "Its orders are another rule's rows; it was registered only for the parity check.",
-         "PARITY_ON_MONTHLY_PICKS_ONLY": "The original record holds no result per holding, so the re-run was "
-                                         "checked on the monthly picks only."}
-LABELS = ("development", "research-exposed", "development and research-exposed")
-_ID = re.compile(r"^[A-Za-z0-9._:-]{1,80}$")
-_SHA = re.compile(r"^[0-9a-f]{64}$")
-_FILE = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
-_PATHLIKE = re.compile(r"\S/\S|\.(?:py|pkl|csv|json|gz|md)\b")
-_PERIOD = re.compile(r"^\d{4}(-\d{2})?(\.\.|-)\d{2,4}(-\d{2})?$")
+FIGURES = PERIOD[5:]
+SOURCES = ("registry.json", "registry_daily.json", "summary_unified.csv", "summary_daily.csv", "parity.csv",
+           "parity_daily.csv")
+LOOK_AHEAD, NO_ROWS, PICKS_ONLY = "ORIGINAL_RULE_USES_LATER_CANDLES", "NO_ROWS_OF_ITS_OWN", "PARITY_ON_MONTHLY_PICKS_ONLY"
+FLAGS = {LOOK_AHEAD: "The original rule reads candles after its decision minute. Its figures reproduce the "
+                     "experiment as it ran and are not usable.",
+         NO_ROWS: "Its orders are another rule's rows; it was registered only for the parity check.",
+         PICKS_ONLY: "The original record holds no result per holding, so the re-run was checked on the monthly "
+                     "picks only."}
+MINUTE_PERIODS = {"2016-23": "development", "2024-26": "research-exposed"}
+MIN_FIGURE_TRADES = 20            # a period with fewer trades shows counts only
+MIN_TRADES = 100                  # a period with fewer trades is not counted as positive or negative
+_ID = re.compile(r"[A-Za-z0-9._:-]{1,80}")
+_SHA = re.compile(r"[0-9a-f]{64}")
+_DAILY_PERIOD = re.compile(r"(\d{4})-(0[1-9]|1[0-2])\.\.(\d{4})-(0[1-9]|1[0-2])")
+# Text that names a file, a calendar date or a price is refused wherever it appears.
+_NOT_PLAIN = re.compile(r"\S[/\u2044\u2215]\S|(?:^|\s)/\S|\.(?:py|pkl|csv|json|gz|md|parquet|txt|ipynb|xlsx|db)\b|\d{4}-\d{2}-\d{2}|[$~\\\\]")
 
 
 class UnifiedSummaryError(ValueError):
@@ -52,9 +59,12 @@ def _need(ok: bool, code: str) -> None:
 
 
 def _text(value, top: int) -> bool:
-    """Plain text of a bounded length that names no file: no path, no home folder, no backslash."""
-    return (isinstance(value, str) and 0 < len(value) <= top and value.isprintable()
-            and not _PATHLIKE.search(value) and "~" not in value and "\\" not in value)
+    """Plain text of a bounded length that names no file, no calendar date and no price."""
+    return isinstance(value, str) and 0 < len(value) <= top and value.isprintable() and not _NOT_PLAIN.search(value)
+
+
+def _id(value) -> bool:
+    return isinstance(value, str) and bool(_ID.fullmatch(value))
 
 
 def _count(value, *, optional: bool = False) -> bool:
@@ -62,43 +72,76 @@ def _count(value, *, optional: bool = False) -> bool:
 
 
 def _number(value) -> bool:
-    return value is None or (type(value) in (int, float) and math.isfinite(value) and abs(value) <= 1e6)
+    return value is None or (type(value) in (int, float) and math.isfinite(value) and abs(value) <= 1e6
+                             and round(value, 2) == value)
+
+
+def _period(row: dict, period) -> None:
+    _need(isinstance(period, dict) and set(period) == set(PERIOD), "PERIOD_FIELDS_INVALID")
+    name = period["period"]
+    if row["bars"] == "minute":
+        _need(isinstance(name, str) and MINUTE_PERIODS.get(name) == period["label"], "PERIOD_NAME_INVALID")
+    else:
+        match = _DAILY_PERIOD.fullmatch(name) if isinstance(name, str) else None
+        _need(match is not None and (match[1], match[2]) <= (match[3], match[4]), "PERIOD_NAME_INVALID")
+        _need(period["label"] == ("development" if match[3] <= "2023" else "development and research-exposed"),
+              "PERIOD_NAME_INVALID")
+    _need(_count(period["orders"], optional=row["bars"] == "daily") and _count(period["trades"])
+          and _count(period["dates"]) and period["dates"] <= period["trades"]
+          and (period["orders"] is None or period["trades"] <= period["orders"]), "PERIOD_COUNT_INVALID")
+    _need(all(_number(period[k]) for k in FIGURES), "PERIOD_FIGURE_INVALID")
+    _need(period["trades"] >= MIN_FIGURE_TRADES or all(period[k] is None for k in FIGURES), "PERIOD_SAMPLE_TOO_SMALL")
 
 
 def _rule(row) -> None:
     _need(isinstance(row, dict) and set(row) == set(RULE), "RULE_FIELDS_INVALID")
-    _need(isinstance(row["strategy_id"], str) and bool(_ID.match(row["strategy_id"])), "RULE_ID_INVALID")
+    _need(_id(row["strategy_id"]), "RULE_ID_INVALID")
     _need(row["bars"] in ("minute", "daily"), "RULE_BARS_INVALID")
     _need(_text(row["family"], 80) and _text(row["status"], 80) and _text(row["rule"], 600), "RULE_TEXT_INVALID")
-    _need(row["subset_of"] is None or (isinstance(row["subset_of"], str) and bool(_ID.match(row["subset_of"]))),
+    _need(row["subset_of"] is None or (_id(row["subset_of"]) and row["subset_of"] != row["strategy_id"]),
           "RULE_SUBSET_INVALID")
     parity = row["parity"]
     _need(isinstance(parity, dict) and set(parity) == {"verdict", "recorded", "matched"}
           and parity["verdict"] == "PASS" and _count(parity["recorded"]) and _count(parity["matched"])
           and parity["matched"] <= parity["recorded"], "RULE_PARITY_INVALID")
-    _need(isinstance(row["flags"], list) and set(row["flags"]) <= set(FLAGS), "RULE_FLAG_UNKNOWN")
-    _need(isinstance(row["periods"], list) and len(row["periods"]) <= 2, "RULE_PERIODS_INVALID")
-    _need(bool(row["periods"]) != ("NO_ROWS_OF_ITS_OWN" in row["flags"]), "RULE_PERIODS_INVALID")
-    for period in row["periods"]:
-        _need(isinstance(period, dict) and set(period) == set(PERIOD), "PERIOD_FIELDS_INVALID")
-        _need(isinstance(period["period"], str) and bool(_PERIOD.match(period["period"]))
-              and period["label"] in LABELS, "PERIOD_NAME_INVALID")
-        _need(_count(period["orders"], optional=True) and _count(period["trades"]) and _count(period["dates"])
-              and period["dates"] <= period["trades"]
-              and (period["orders"] is None or period["trades"] <= period["orders"]), "PERIOD_COUNT_INVALID")
-        _need(all(_number(period[k]) for k in PERIOD[5:]), "PERIOD_FIGURE_INVALID")
+    flags = row["flags"]
+    _need(isinstance(flags, list) and all(isinstance(f, str) and f in FLAGS for f in flags)
+          and len(set(flags)) == len(flags), "RULE_FLAG_UNKNOWN")
+    # The marker of a rule that reads later candles cannot be dropped, and cannot be put on another rule.
+    _need((LOOK_AHEAD in flags) == row["strategy_id"].startswith("R8.C."), "RULE_FLAG_MISSING")
+    periods = row["periods"]
+    _need(isinstance(periods, list) and len(periods) <= 2 and bool(periods) != (NO_ROWS in flags), "RULE_PERIODS_INVALID")
+    for period in periods:
+        _period(row, period)
+    _need(len({p["period"] for p in periods}) == len(periods), "RULE_PERIODS_INVALID")
+
+
+def net_after_costs(rules: list[dict]) -> dict:
+    """Of the minute rules with at least MIN_TRADES trades in a period, how many have a positive mean after
+    costs there, and which have one in both periods. Computed from the entries, never taken on trust."""
+    minute = [r for r in rules if r["bars"] == "minute"]
+    good = lambda p: p["trades"] >= MIN_TRADES and p["mean_net_bps"] is not None
+    out = {"rules_with_rows": sum(bool(r["periods"]) for r in minute), "min_trades": MIN_TRADES}
+    for name in MINUTE_PERIODS:
+        have = [p["mean_net_bps"] for r in minute for p in r["periods"] if p["period"] == name and good(p)]
+        out[name] = {"rules": len(have), "net_positive": sum(m > 0 for m in have)}
+    means = lambda r: {p["period"]: p["mean_net_bps"] for p in r["periods"] if good(p)}
+    counted = [r for r in minute if len(means(r)) == len(MINUTE_PERIODS)]
+    return {**out, "rules_counted_in_both": len(counted),
+            "net_positive_in_both": sorted(r["strategy_id"] for r in counted if all(m > 0 for m in means(r).values()))}
 
 
 def validate(payload) -> dict:
     """Return the summary unchanged if every field is known and well formed; otherwise raise a code."""
     _need(isinstance(payload, dict) and set(payload) == set(TOP), "SUMMARY_FIELDS_INVALID")
     _need(payload["schema"] == SCHEMA, "SUMMARY_SCHEMA_UNKNOWN")
-    _need(all(_text(payload[k], 400) for k in ("ledger_version", "span", "universe", "cost_model")), "SUMMARY_TEXT_INVALID")
-    _need(isinstance(payload["notes"], list) and all(_text(n, 300) for n in payload["notes"]), "SUMMARY_TEXT_INVALID")
+    _need(_text(payload["ledger_version"], 40) and _text(payload["universe"], 80) and _text(payload["cost_model"], 400)
+          and isinstance(payload["span"], str) and bool(_DAILY_PERIOD.fullmatch(payload["span"])), "SUMMARY_TEXT_INVALID")
+    notes = payload["notes"]
+    _need(isinstance(notes, list) and len(notes) <= 20 and all(_text(n, 300) for n in notes), "SUMMARY_TEXT_INVALID")
     sources = payload["sources"]
-    _need(isinstance(sources, dict) and bool(sources) and all(
-        isinstance(k, str) and bool(_FILE.match(k)) and isinstance(v, str) and bool(_SHA.match(v))
-        for k, v in sources.items()), "SUMMARY_SOURCES_INVALID")
+    _need(isinstance(sources, dict) and set(sources) == set(SOURCES)
+          and all(isinstance(v, str) and bool(_SHA.fullmatch(v)) for v in sources.values()), "SUMMARY_SOURCES_INVALID")
     rules = payload["rules"]
     _need(isinstance(rules, list) and 0 < len(rules) <= 5_000, "SUMMARY_RULES_INVALID")
     for row in rules:
@@ -106,32 +149,28 @@ def validate(payload) -> dict:
     ids = [r["strategy_id"] for r in rules]
     _need(len(set(ids)) == len(ids), "RULE_ID_REPEATED")
     _need(all(r["subset_of"] is None or r["subset_of"] in ids for r in rules), "RULE_SUBSET_INVALID")
-    counts = payload["counts"]
-    _need(counts == {"minute_rules": sum(r["bars"] == "minute" for r in rules),
-                     "daily_rules": sum(r["bars"] == "daily" for r in rules)}, "SUMMARY_COUNTS_INVALID")
-    net = payload["minute_net_after_costs"]
-    _need(isinstance(net, dict) and set(net) == {"rules_with_rows", "min_trades", "2016-23", "2024-26", "net_positive_in_both"}
-          and _count(net["rules_with_rows"]) and _count(net["min_trades"])
-          and all(isinstance(net[p], dict) and set(net[p]) == {"rules", "net_positive"} and _count(net[p]["rules"])
-                  and _count(net[p]["net_positive"]) and net[p]["net_positive"] <= net[p]["rules"]
-                  for p in ("2016-23", "2024-26"))
-          and isinstance(net["net_positive_in_both"], list) and set(net["net_positive_in_both"]) <= set(ids),
-          "SUMMARY_NET_INVALID")
+    _need(payload["counts"] == {"minute_rules": sum(r["bars"] == "minute" for r in rules),
+                                "daily_rules": sum(r["bars"] == "daily" for r in rules)}, "SUMMARY_COUNTS_INVALID")
+    _need(payload["minute_net_after_costs"] == net_after_costs(rules), "SUMMARY_NET_INVALID")
     return payload
 
 
 @lru_cache(maxsize=1)
-def read(path: Path = PATH) -> dict:
+def _read(path: Path) -> dict:
     return validate(json.loads(path.read_text()))
+
+
+def read(path: Path | None = None) -> dict:
+    """The checked summary. Each caller gets its own copy."""
+    return copy.deepcopy(_read(path or PATH))
 
 
 def overview() -> dict:
     """The few figures the owner's console shows. No rule text."""
     data = read()
-    flagged = lambda name: sorted(r["strategy_id"] for r in data["rules"] if name in r["flags"])
     return {"ledger_version": data["ledger_version"], "span": data["span"], **data["counts"],
             "parity": "ALL_PASS", "minute_net_after_costs": data["minute_net_after_costs"],
-            "not_usable": flagged("ORIGINAL_RULE_USES_LATER_CANDLES"),
+            "not_usable": sorted(r["strategy_id"] for r in data["rules"] if LOOK_AHEAD in r["flags"]),
             "new_evidence": False, "candidates": False}
 
 
