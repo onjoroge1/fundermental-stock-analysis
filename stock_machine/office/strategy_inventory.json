@@ -754,6 +754,54 @@
    "runner_status": "EXCLUDED",
    "exclusion_reason": "Measurements, not strategies.",
    "display_notes": []
+  },
+  {
+   "strategy_id": "UNIFIED-LEDGER",
+   "version": "unified-1",
+   "source_repository": "research",
+   "original_status": "Closed; a measurement",
+   "evidence_tier": "NONE",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "UNIFIED-LEDGER",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "A measurement, not a strategy: every registered rule re-run under one set of fills and costs (258 on minute bars, 58 on daily bars), after each reproduced its original record. Per-rule figures are in unified_ledger_summary.json. They restate rules already counted and are not new evidence.",
+   "display_notes": []
+  },
+  {
+   "strategy_id": "UPOOL-1",
+   "version": "v1",
+   "source_repository": "research",
+   "original_status": "Closed, FAIL at the development gate",
+   "evidence_tier": "DEVELOPMENT",
+   "admissible": false,
+   "execution_kind": "NONE",
+   "risk_group": "UPOOL-1",
+   "rule_summary": "",
+   "hashes": {},
+   "development": null,
+   "shorts": null,
+   "defects": [],
+   "forward_protocol": null,
+   "runner_status": "EXCLUDED",
+   "exclusion_reason": "A pooled take-or-skip model over the unified ledger's rules. Best of 24 configurations had t 1.89 against 2.0 needed; the nested test made -5.78 bps a trade after costs and traded in one year only. No model was exported and no forward record was opened.",
+   "display_notes": []
+  }
+ ],
+ "additions": [
+  {
+   "added_on": "2026-11-22",
+   "records": [
+    "UNIFIED-LEDGER",
+    "UPOOL-1"
+   ],
+   "taken_from": "research records of 2026-11-20 (unified ledger parity and summary) and 2026-11-21 (UPOOL-1 development run and QA verdict). The 28 earlier records are unchanged."
   }
  ]
 }

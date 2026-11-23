@@ -29,7 +29,7 @@ def fails(checks):
 
 
 def test_the_inventory_tells_candidates_from_excluded_strategies_and_keeps_their_own_labels():
-    assert [r["strategy_id"] for r in ROWS if r["admissible"]] == CANDIDATES and len(ROWS) == 28
+    assert [r["strategy_id"] for r in ROWS if r["admissible"]] == CANDIDATES and len(ROWS) == 30
     assert all(r["evidence_tier"] == "DEVELOPMENT" for r in ROWS if r["admissible"])    # none is a tested edge
     assert BY_ID["EXT-FADE"]["original_status"] == "Closed, FAIL"
     assert BY_ID["EXT-FADE-X2"]["original_status"] == "Parked"

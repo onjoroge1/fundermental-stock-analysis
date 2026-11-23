@@ -46,10 +46,10 @@ def counts(pg):
 
 
 def test_the_inventory_loads_once_and_a_stored_record_cannot_be_changed(pg):
-    assert inventory.load() == {"records": 28, "created": 28}
-    assert inventory.load() == {"records": 28, "created": 0}
+    assert inventory.load() == {"records": 30, "created": 30}
+    assert inventory.load() == {"records": 30, "created": 0}
     rows = dict(sql(pg, "SELECT strategy_id, original_status FROM office_strategy_versions"))
-    assert rows["EXT-FADE"] == "Closed, FAIL" and rows["EXT-FADE-X2"] == "Parked" and len(rows) == 28
+    assert rows["EXT-FADE"] == "Closed, FAIL" and rows["EXT-FADE-X2"] == "Parked" and len(rows) == 30
     assert sql(pg, "SELECT count(*) FROM office_strategy_versions WHERE admissible")[0][0] == 4
     # the same version with a kinder label is refused, in code and in the database
     relabelled = [{**r, "original_status": "Promising"} if r["strategy_id"] == "EXT-FADE" else r for r in inventory.read()]

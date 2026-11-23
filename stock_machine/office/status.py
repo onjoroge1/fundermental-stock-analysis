@@ -5,7 +5,7 @@ been created yet. It returns setting names and states, never a key or any other 
 """
 from __future__ import annotations
 
-from . import admission, config, external, qa, tasks
+from . import admission, config, external, qa, tasks, unified
 
 TABLES = ("office_tasks", "office_runs", "office_budget_reservations", "office_events", "office_memos",
           "office_reviews", "office_briefings")
@@ -16,6 +16,14 @@ def _switches() -> dict:
     return {"office_enabled": config.enabled(), "paper_enabled": config.paper_enabled(),
             "provider": config.provider(), "model": config.model() or None,
             "daily_cap_usd": str(config.daily_usd_cap()), "monthly_cap_usd": str(config.monthly_usd_cap())}
+
+
+def _unified() -> dict:
+    """The unified ledger's few figures. A missing or invalid summary file must not take the status down."""
+    try:
+        return unified.overview()
+    except (OSError, ValueError) as error:
+        return {"unavailable": getattr(error, "code", type(error).__name__)}
 
 
 def summary() -> dict:
@@ -75,6 +83,7 @@ def summary() -> dict:
                                  "updated_at": u.isoformat()} for t, s, e, a, u, i in attention],
             "last_7_days": {"events": events, "memos": memos, "reviews": verdicts},
             "mirrored_records": mirrored,
+            "unified_ledger": _unified(),
             "qa": scored,
             "latest_briefing": None if briefing is None else {
                 "kind": briefing[0], "date": str(briefing[1]), "counts": briefing[2],
