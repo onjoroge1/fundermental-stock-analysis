@@ -257,7 +257,7 @@ def test_the_workflow_runs_by_hand_or_on_its_schedule_on_main_only_and_sets_no_s
     trigger = WORKFLOW.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
     assert "workflow_dispatch:" in trigger and "schedule:" in trigger
     assert not any(word in trigger for word in ("push:", "pull_request", "workflow_run", "timezone"))
-    assert "options: [observe, work, canary, resolve]" in trigger and "default: observe" in trigger
+    assert "options: [observe, work, canary, resolve, requeue]" in trigger and "default: observe" in trigger
     assert [line.split('"')[1] for line in trigger.splitlines() if "cron:" in line] == ["7,37 11-23 * * 1-5", "7,37 0 * * 2-6"]
     assert "permissions:\n  contents: read\n" in WORKFLOW and WORKFLOW.count("permissions:") == 1
     assert "environment: Production" in WORKFLOW and "cancel-in-progress: false" in WORKFLOW and "timeout-minutes:" in WORKFLOW
@@ -290,7 +290,7 @@ def test_the_model_key_reaches_only_the_work_step_and_observe_gets_the_database_
     steps = WORKFLOW.split("    steps:\n", 1)[1].split("\n      - ")
     with_key = [s for s in steps if "ANTHROPIC_API_KEY" in s]
     assert len(with_key) == 1 and "--mode work" in with_key[0]
-    assert "if: github.event_name == 'schedule' || (inputs.mode != 'observe' && inputs.mode != 'resolve')" in with_key[0]
+    assert "if: github.event_name == 'schedule' || inputs.mode == 'work' || inputs.mode == 'canary'" in with_key[0]
     assert "--trigger \"$WORKER_TRIGGER\" $WORKER_CANARY" in with_key[0]
     assert "WORKER_TRIGGER: ${{ github.event_name == 'schedule' && 'schedule' || 'manual' }}" in with_key[0]
     assert "WORKER_CANARY: ${{ inputs.mode == 'canary' && '--require-research' || '' }}" in with_key[0]
@@ -298,7 +298,7 @@ def test_the_model_key_reaches_only_the_work_step_and_observe_gets_the_database_
     observe = next(s for s in steps if "--mode observe" in s)
     assert "if: github.event_name != 'schedule' && inputs.mode == 'observe'" in observe
     assert observe.count("secrets.") == 1 and "secrets.DATABASE_URL" in observe
-    assert WORKFLOW.count("secrets.") == 4 and "env:" not in WORKFLOW.split("    steps:\n", 1)[0]
+    assert WORKFLOW.count("secrets.") == 5 and "env:" not in WORKFLOW.split("    steps:\n", 1)[0]
     resolve = next(s for s in steps if "--mode resolve" in s)                 # an owner action, by hand only
     assert "if: github.event_name != 'schedule' && inputs.mode == 'resolve'" in resolve
     assert resolve.count("secrets.") == 1 and "secrets.DATABASE_URL" in resolve and "OFFICE_PAPER" not in resolve

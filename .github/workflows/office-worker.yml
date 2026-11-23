@@ -4,7 +4,9 @@ name: Office Worker
 # - By hand: "observe" only reads and prints the office status; "work" does one pass; "canary" is a
 #   work pass that fails unless at least one memo task completes cleanly. "resolve" is an owner action:
 #   it states that the named blocked tasks' uncertain model calls were never sent, stops charging their
-#   reservations and queues the tasks again. It calls no model.
+#   reservations and queues the tasks again. It calls no model. "requeue" is an owner action too: it states
+#   that the cause of a provider's rejection (for example an empty credit balance) has been fixed and queues
+#   the named tasks again. It only moves tasks blocked with a provider-rejection code and calls no model.
 # - On the schedule: a work pass every half hour on weekdays. The scheduled job does not even start
 #   unless the owner has set the repository Variable that switches the office on, and the worker itself
 #   does nothing outside 07:00 to 20:15 New York time.
@@ -13,13 +15,13 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: observe (read only), work (one bounded pass), canary (work that must complete a memo) or resolve
+        description: observe (read only), work (one bounded pass), canary (work that must complete a memo), resolve or requeue
         required: true
         default: observe
         type: choice
-        options: [observe, work, canary, resolve]
+        options: [observe, work, canary, resolve, requeue]
       task_ids:
-        description: "resolve only: ids of tasks blocked on an uncertain call that the owner states was never sent"
+        description: "resolve: ids of tasks blocked on an uncertain call that the owner states was never sent. requeue: ids of tasks blocked on a provider rejection whose cause the owner states is fixed"
         required: false
         default: ""
         type: string
@@ -49,7 +51,7 @@ jobs:
           cache: pip
       - run: python -m pip install -e .
       - name: Install the model SDK only if Anthropic is the chosen provider
-        if: (github.event_name == 'schedule' || (inputs.mode != 'observe' && inputs.mode != 'resolve')) && vars.OFFICE_MODEL_PROVIDER == 'anthropic'
+        if: (github.event_name == 'schedule' || inputs.mode == 'work' || inputs.mode == 'canary') && vars.OFFICE_MODEL_PROVIDER == 'anthropic'
         run: python -m pip install -e ".[office-anthropic]"
       - name: Observe (read only)
         if: github.event_name != 'schedule' && inputs.mode == 'observe'
@@ -69,8 +71,15 @@ jobs:
           OFFICE_ENABLED: ${{ vars.OFFICE_ENABLED }}
           WORKER_TASK_IDS: ${{ inputs.task_ids }}
         run: python -m stock_machine.office.worker --mode resolve --call-not-made --task-ids "$WORKER_TASK_IDS"
+      - name: Requeue (owner states the cause of the rejection is fixed)
+        if: github.event_name != 'schedule' && inputs.mode == 'requeue'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OFFICE_ENABLED: ${{ vars.OFFICE_ENABLED }}
+          WORKER_TASK_IDS: ${{ inputs.task_ids }}
+        run: python -m stock_machine.office.worker --mode requeue --cause-fixed --task-ids "$WORKER_TASK_IDS"
       - name: Work (one bounded pass)
-        if: github.event_name == 'schedule' || (inputs.mode != 'observe' && inputs.mode != 'resolve')
+        if: github.event_name == 'schedule' || inputs.mode == 'work' || inputs.mode == 'canary'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

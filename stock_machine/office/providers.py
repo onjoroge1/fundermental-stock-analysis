@@ -6,6 +6,8 @@ The default provider is ``none``, which refuses every call. ``fake`` replays rec
 Secrets: this module never stores, logs or returns an API key. It checks only whether one is set; the
 Anthropic SDK reads its own credential from the process environment. Every failure is reduced to a short code before it leaves this
 module, and the original exception (whose text could quote a request or a header) is dropped, not chained.
+For a rejected request the provider's message is matched against a fixed list of phrases to choose a more
+exact code (``REASONS``); the message itself is not kept.
 
 ``call`` is the only way a role should reach a provider. Around one request it:
 reserves the maximum cost, marks the run as having an external call open, sends the request once (no
@@ -188,7 +190,8 @@ class AnthropicProvider:
         except sdk.APIStatusError as exc:
             # The API answered with an error status: the request was rejected or failed and is not billed.
             status = getattr(exc, "status_code", 0)
-            refused = ProviderRefused(_status_code(status), retryable=status in (408, 409, 429) or status >= 500)
+            refused = ProviderRefused(_reason_code(status, _error_message(exc)),
+                                      retryable=status in (408, 409, 429) or status >= 500)
         except Exception:
             refused = UncertainCall()
         if refused is not None:
@@ -212,6 +215,40 @@ def _status_code(status: int) -> str:
             403: "PROVIDER_FORBIDDEN", 404: "PROVIDER_MODEL_NOT_FOUND", 413: "PROVIDER_REQUEST_TOO_LARGE",
             429: "PROVIDER_RATE_LIMITED"}.get(status, "PROVIDER_SERVER_ERROR" if status >= 500
                                               else "PROVIDER_REJECTED")
+
+
+# A 400 or 403 covers unrelated causes, and its bare code tells the owner nothing about which. The provider's
+# message is matched here against a fixed list of phrases and reduced to one of these codes. The message
+# itself goes no further than this function: it is not stored, logged, returned or attached to an error.
+# The phrases are the provider's wording as known on 2026-11-23, not checked against a live rejection; the
+# first match wins. A message that matches none keeps the plain status code, so a different wording loses
+# detail and nothing else.
+REASONS = (
+    ("credit balance", "PROVIDER_CREDIT_TOO_LOW"),
+    ("usage limit", "PROVIDER_USAGE_LIMIT_REACHED"),
+    ("prompt is too long", "PROVIDER_PROMPT_TOO_LONG"),
+    ("context limit", "PROVIDER_PROMPT_TOO_LONG"),          # checked before max_tokens: such a message names both
+    ("context window", "PROVIDER_PROMPT_TOO_LONG"),
+    ("max_tokens", "PROVIDER_MAX_TOKENS_REJECTED"),
+)
+REASON_STATUSES = (400, 403)
+
+
+def _error_message(exc) -> str:
+    """The provider's own error message, for matching only. Never the request, a header or a key."""
+    body = getattr(exc, "body", None)
+    error = body.get("error") if isinstance(body, dict) else None
+    message = error.get("message") if isinstance(error, dict) else None
+    return message if isinstance(message, str) else ""
+
+
+def _reason_code(status: int, message: str) -> str:
+    if status in REASON_STATUSES:
+        text = message[:2_000].lower()
+        for phrase, code in REASONS:
+            if phrase in text:
+                return code
+    return _status_code(status)
 
 
 def get(name: str | None = None) -> Provider:
