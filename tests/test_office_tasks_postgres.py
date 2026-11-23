@@ -347,3 +347,31 @@ def test_agent_definitions_are_versioned_and_cannot_be_changed(pg):
     with pytest.raises(psycopg.errors.CheckViolation):
         sql(pg, "INSERT INTO office_agent_definitions VALUES ('analyst', 3, 'broker', '', '{}', repeat('a', 64))")
     assert sql(pg, "SELECT count(*) FROM office_agent_definitions")[0][0] == 2
+
+
+def test_the_owner_can_requeue_a_task_the_provider_rejected_and_nothing_else(pg):
+    def held(key, finish):
+        task_id = tasks.enqueue(key, "analyst_memo")["task_id"]
+        finish(tasks.claim("w", logical_key=key))
+        return task_id
+    block = lambda code: lambda lease: tasks.block(lease, code)
+    rejected = held("memo:A:1", block("PROVIDER_CREDIT_TOO_LOW"))
+    others = [held("memo:B:1", block("UNCERTAIN_EXTERNAL_CALL")), held("memo:C:1", block("EVENT_NOT_FOUND")),
+              held("memo:D:1", lambda lease: tasks.fail(lease, "PROVIDER_BAD_REQUEST", retryable=False)),
+              held("memo:E:1", lambda lease: tasks.fail(lease, "PROVIDER_RATE_LIMITED")),          # waits to retry
+              held("memo:F:1", lambda lease: tasks.wait(lease, "WAITING_DATA", "PROVIDER_BAD_REQUEST")),
+              held("memo:G:1", block("PROVIDER_BAD_REQUEST"))]
+    assert tasks.cancel(others[-1])                                           # cancelled with a provider code
+    sql(pg, "UPDATE office_tasks SET due_at = now() + interval '1 day' WHERE task_id = %s", (rejected,))
+    row = lambda i: sql(pg, "SELECT state, error_code, attempts, due_at, updated_at FROM office_tasks WHERE task_id = %s", (i,))[0]
+    all_runs = lambda: sql(pg, "SELECT run_id, task_id, attempt, outcome, error_code, finished_at FROM office_runs ORDER BY run_id")
+    before, runs_before = {i: row(i) for i in others}, all_runs()
+    assert row(rejected)[:3] == ("BLOCKED", "PROVIDER_CREDIT_TOO_LOW", 1) and tasks.claim("w") is None
+    assert tasks.requeue_rejected(rejected) == "PROVIDER_CREDIT_TOO_LOW"
+    assert row(rejected)[:3] == ("QUEUED", None, 0)
+    assert sql(pg, "SELECT due_at <= now() FROM office_tasks WHERE task_id = %s", (rejected,))[0][0]   # due at once
+    assert tasks.requeue_rejected(rejected) is None                           # a second time: no longer blocked
+    for i in (*others, str(uuid4())):
+        assert tasks.requeue_rejected(i) is None
+    assert {i: row(i) for i in others} == before and all_runs() == runs_before    # no other task, no run row
+    assert tasks.claim("w").task_id == rejected and tasks.claim("w") is None

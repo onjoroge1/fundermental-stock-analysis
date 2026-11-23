@@ -3,6 +3,7 @@
     python -m stock_machine.office.worker --mode observe
     python -m stock_machine.office.worker --mode work [--trigger schedule] [--require-research]
     python -m stock_machine.office.worker --mode resolve --call-not-made --task-ids ID[,ID]
+    python -m stock_machine.office.worker --mode requeue --cause-fixed --task-ids ID[,ID]
 
 ``observe`` only reads. It prints the same summary the owner's console shows and works while the office
 is off. ``work`` does one pass and stops:
@@ -287,10 +288,30 @@ def resolve(task_ids: list[str]) -> dict:
             "resolved": done, "refused": refused}
 
 
+def requeue(task_ids: list[str]) -> dict:
+    """Owner action: the cause of a provider's rejection has been fixed, so queue these blocked tasks again.
+    Only tasks blocked with a provider-rejection code move; nothing was billed for them and no reservation
+    is touched. Refused as a whole unless every id is well formed. It calls no model."""
+    config.require_enabled()
+    if not task_ids or len(task_ids) > 20 or any(not _UUID.match(t) for t in task_ids):
+        return {"mode": "requeue", "state": "TASK_IDS_INVALID"}
+    done, refused = [], 0
+    for task_id in dict.fromkeys(task_ids):
+        was = tasks.requeue_rejected(task_id)
+        if was is None:
+            refused += 1
+        else:
+            done.append({"task_id": task_id, "was_blocked_with": was, "state": "QUEUED"})
+    return {"mode": "requeue", "state": "REQUEUED" if not refused else "REQUEUED_WITH_REFUSALS",
+            "requeued": done, "refused": refused}
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="One bounded pass of office work.")
-    parser.add_argument("--mode", choices=["observe", "work", "resolve"], default="observe")
-    parser.add_argument("--task-ids", default="", help="resolve: comma-separated ids of tasks blocked on an uncertain call")
+    parser.add_argument("--mode", choices=["observe", "work", "resolve", "requeue"], default="observe")
+    parser.add_argument("--task-ids", default="", help="resolve, requeue: comma-separated ids of blocked tasks")
+    parser.add_argument("--cause-fixed", action="store_true",
+                        help="requeue: the owner states the cause of the provider's rejection has been fixed")
     parser.add_argument("--call-not-made", action="store_true",
                         help="resolve: the owner states these calls were never sent")
     parser.add_argument("--trigger", choices=["manual", "schedule"], default="manual")
@@ -303,6 +324,9 @@ def main(argv=None) -> int:
         if args.mode == "resolve":
             result = resolve([t.strip() for t in args.task_ids.split(",") if t.strip()]) if args.call_not_made else {
                 "mode": "resolve", "state": "STATEMENT_REQUIRED"}
+        elif args.mode == "requeue":
+            result = requeue([t.strip() for t in args.task_ids.split(",") if t.strip()]) if args.cause_fixed else {
+                "mode": "requeue", "state": "STATEMENT_REQUIRED"}
         else:
             result = observe() if args.mode == "observe" else work(
                 max_tasks=args.max_tasks, max_seconds=args.max_seconds, trigger=args.trigger,
@@ -311,7 +335,7 @@ def main(argv=None) -> int:
         print(json.dumps({"mode": args.mode, "state": "FAILED", "code": safe_code(error)}))
         return 1
     print(json.dumps(result, indent=1, sort_keys=True, default=str))
-    return 0 if args.mode == "observe" or result.get("state") in (*SUCCESS, "RESOLVED") else 1
+    return 0 if args.mode == "observe" or result.get("state") in (*SUCCESS, "RESOLVED", "REQUEUED") else 1
 
 
 if __name__ == "__main__":

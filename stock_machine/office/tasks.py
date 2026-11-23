@@ -293,6 +293,33 @@ def requeue(task_id: str, *, reset_attempts: bool = False) -> bool:
     return row is not None
 
 
+# Codes of a call that was refused before it was sent, or that the provider rejected without running it.
+# Nothing was billed and the call's reservation (if one was made) was released at the time, so such a task
+# holds no money and can simply be queued again. Retryable refusals (rate limit, server error) are not here:
+# they retry on their own. An uncertain call is never here: only ``budget.resolve_not_made`` releases one.
+PROVIDER_REJECTED_CODES = (
+    "PROVIDER_BAD_REQUEST", "PROVIDER_AUTH_FAILED", "PROVIDER_BILLING", "PROVIDER_FORBIDDEN",
+    "PROVIDER_MODEL_NOT_FOUND", "PROVIDER_REQUEST_TOO_LARGE", "PROVIDER_REJECTED", "PROVIDER_CREDIT_TOO_LOW",
+    "PROVIDER_USAGE_LIMIT_REACHED", "PROVIDER_PROMPT_TOO_LONG", "PROVIDER_MAX_TOKENS_REJECTED",
+    "PROVIDER_KEY_MISSING", "PROVIDER_SDK_NOT_INSTALLED", "PROVIDER_CLIENT_FAILED", "MODEL_PRICE_UNKNOWN",
+    "PROVIDER_NOT_IMPLEMENTED", "PROVIDER_DISABLED", "MODEL_NOT_CONFIGURED",
+)
+
+
+def requeue_rejected(task_id: str) -> str | None:
+    """Owner action: queue again a task that is BLOCKED because its model call was refused or rejected, with
+    its attempts reset. Returns the code it was blocked with, or None if the task is not in that state (any
+    other blocked task, an uncertain call above all, is left exactly as it is)."""
+    with connect() as conn:
+        task = conn.execute("SELECT error_code FROM office_tasks WHERE task_id = %s FOR UPDATE", (task_id,)).fetchone()
+        row = conn.execute(
+            """UPDATE office_tasks SET state = 'QUEUED', error_code = NULL, due_at = now(), updated_at = now(),
+                   attempts = 0
+               WHERE task_id = %s AND state = 'BLOCKED' AND error_code = ANY(%s) RETURNING task_id""",
+            (task_id, list(PROVIDER_REJECTED_CODES))).fetchone()
+    return task[0] if row is not None else None
+
+
 def cancel(task_id: str) -> bool:
     """Cancel a task that is not running or finished. A running task ends through its own lease."""
     with connect() as conn:
