@@ -14,7 +14,10 @@ Layout, split by stock and month so the fetch resumes and space stays bounded:
   <out>/<TICKER>/<YYYY-MM>.csv.gz   session,minute,open,high,low,close,volume,wap,count (minute = HH:MM ET)
   <out>/<TICKER>/<YYYY-MM>.json     manifest: window, sessions, bars, empty or failed sessions, errors, timing
   <out>/<TICKER>/<YYYY-MM>.partial.json   progress while a month is being fetched (removed when complete)
-A month is final once every session has an answer; rerunning skips final months. Months from 2024-01 on (the
+A session is asked for only once it has closed (SETTLE after the closing bell). A month whose last session has not
+closed yet is written with what there is and its manifest lists the rest under "open_sessions"; rerunning asks for
+those of them that have closed since. A month is final once every session has an answer, and rerunning skips final
+months. Months from 2024-01 on (the
 replay's hold-out) are refused unless --allow-holdout: they are fetched only after its protocol is registered.
 """
 from __future__ import annotations
@@ -28,7 +31,7 @@ import json
 import os
 import sys
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -42,6 +45,7 @@ ET = ZoneInfo("America/New_York")
 HOLDOUT_FROM = "2024-01"
 WINDOWS = {"full": ("16:00:00", "1 D"), "first-hour": ("10:30:00", "3600 S")}
 COLUMNS = ("session", "minute", "open", "high", "low", "close", "volume", "wap", "count")
+SETTLE = timedelta(minutes=20)        # after the closing bell, before a session's bars are asked for
 PROVENANCE = "IBKR TWS reqHistoricalData, TRADES, 1 min, useRTH=1, formatDate=2 (split-adjusted, not dividend-adjusted)"
 
 
@@ -93,6 +97,36 @@ def month_schedule(month: str, window: str = "full") -> dict:
     return out
 
 
+def session_closes(sessions) -> dict:
+    """session -> the time its bars are complete (closing bell plus SETTLE, UTC), from the XNYS calendar."""
+    from stock_machine.market_calendar import _calendar
+    sessions = sorted(sessions)
+    if not sessions:
+        return {}
+    cal = _calendar(int(sessions[0][:4]), int(sessions[-1][:4]))
+    return {s: cal.session_close(s).to_pydatetime().astimezone(timezone.utc) + SETTLE for s in sessions}
+
+
+def _stamp(text) -> datetime | None:
+    try:
+        stamp = datetime.fromisoformat(text)
+    except (TypeError, ValueError):
+        return None
+    return stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)
+
+
+def asked_too_early(manifest: dict, closes: dict) -> list[str]:
+    """Sessions of a written month that have no trustworthy answer yet: the ones its manifest lists as open, or,
+    for a manifest written before that list existed, every session that closed after the month was last
+    fetched or checked (IBKR's "no data" for a session still to come was then recorded as an answer)."""
+    if "open_sessions" in manifest:
+        return [s for s in manifest["open_sessions"] if s in closes]
+    stamps = [x for x in (_stamp(manifest.get(k)) for k in ("retrieved_at", "checked_complete_at")) if x]
+    if not stamps:
+        return sorted(closes)
+    return sorted(s for s, at in closes.items() if at > max(stamps))
+
+
 def first_daily_bar(symbol: str, prices_dir: Path | None) -> str | None:
     path = prices_dir / f"{symbol}.json" if prices_dir else None
     if path and path.exists():
@@ -113,23 +147,56 @@ def _write_atomic(path: Path, data: bytes) -> None:
 
 
 def fetch_month(session_api, symbol: str, month: str, window: str, out: Path, *, listed_from: str | None,
-                log=print, backoff: float = 90.0, allow_holdout: bool = False, schedule: dict | None = None) -> dict:
+                log=print, backoff: float = 90.0, allow_holdout: bool = False, schedule: dict | None = None,
+                now: datetime | None = None) -> dict:
     if month >= HOLDOUT_FROM and not allow_holdout:
         raise SystemExit(f"{month} is in the replay's hold-out: fetched only after its protocol is registered")
     folder = out / symbol
     folder.mkdir(parents=True, exist_ok=True)
     final, partial = folder / f"{month}.json", folder / f"{month}.partial.json"
-    if final.exists():
-        return json.loads(final.read_text())
-    progress = json.loads(partial.read_text()) if partial.exists() else {"sessions": {}}
-    if progress.get("window", window) != window:
-        raise SystemExit(f"{symbol} {month}: partial progress was fetched with window {progress['window']}")
-    progress["window"] = window
     expected = schedule if schedule is not None else month_schedule(month, window)
+    now = now or datetime.now(timezone.utc)
+    closes = session_closes(expected)
+    still_open = sorted(s for s in expected if closes[s] > now)
+    written = json.loads(final.read_text()) if final.exists() else None
+    kept = {}                                  # rows already on file for a session that is asked for again
+    if written is not None:
+        early = set(asked_too_early(written, closes))
+        if not early - set(still_open):
+            return written
+        if written.get("window", window) != window:
+            raise SystemExit(f"{symbol} {month}: the month was fetched with window {written['window']}")
+        data = folder / f"{month}.csv.gz"
+        if not data.exists():
+            raise SystemExit(f"{symbol} {month}: the manifest is there but {data.name} is not")
+        # A written month is reopened from its own files, in memory: until the new answers are written the files
+        # stay as they are, readable, and an interrupted run starts again from them. Progress left beside a
+        # written month is from a run that did not finish and is not trusted.
+        partial.unlink(missing_ok=True)
+        on_file = {}
+        with gzip.open(data, "rt", newline="") as fh:
+            for r in csv.DictReader(fh):
+                on_file.setdefault(r["session"], []).append(r)
+        kept = {s: rows for s, rows in on_file.items() if s in early}
+        progress = {"sessions": {}}
+        for s in expected:
+            if s in early:
+                continue
+            if listed_from and s < listed_from and not on_file.get(s):
+                progress["sessions"][s] = {"status": "BEFORE_FIRST_DAILY_BAR", "rows": []}
+            else:
+                progress["sessions"][s] = {"status": "OK" if on_file.get(s) else "NO_BARS", "rows": on_file.get(s, []),
+                                           "errors": (written.get("errors") or {}).get(s) or []}
+    else:
+        progress = json.loads(partial.read_text()) if partial.exists() else {"sessions": {}}
+        if progress.get("window", window) != window:
+            raise SystemExit(f"{symbol} {month}: partial progress was fetched with window {progress['window']}")
+    progress["window"] = window
     started = time.monotonic()
 
     def save():
-        _write_atomic(partial, json.dumps(progress).encode())
+        if written is None:
+            _write_atomic(partial, json.dumps(progress).encode())
 
     def ask(call, label):
         got, errors = call()
@@ -145,9 +212,9 @@ def fetch_month(session_api, symbol: str, month: str, window: str, out: Path, *,
 
     pending = []
     for s in expected:
-        if s in progress["sessions"]:
+        if s in progress["sessions"] or s in still_open:
             continue
-        if listed_from and s < listed_from:
+        if listed_from and s < listed_from and not kept.get(s):
             progress["sessions"][s] = {"status": "BEFORE_FIRST_DAILY_BAR", "rows": []}
         else:
             pending.append(s)
@@ -167,6 +234,8 @@ def fetch_month(session_api, symbol: str, month: str, window: str, out: Path, *,
                 alone, alone_errs = ask(lambda d=s: session_api.minute_bars(symbol, d, window), s)
                 if len(alone) >= len(rows):
                     rows, errs = alone, alone_errs
+            if len(kept.get(s, [])) > len(rows):   # never replace a longer answer already on file with a shorter one
+                rows, errs = kept[s], (written.get("errors") or {}).get(s) or []
             progress["sessions"][s] = {"status": "OK" if rows else "NO_BARS", "rows": rows,
                                        "errors": [list(e) for e in errs]}
         save()
@@ -181,20 +250,24 @@ def fetch_month(session_api, symbol: str, month: str, window: str, out: Path, *,
                 "retrieved_at": datetime.now(timezone.utc).isoformat(), "sessions": len(statuses),
                 "bars": len(rows), "by_status": {k: sum(v == k for v in statuses.values()) for k in set(statuses.values())},
                 "empty_sessions": sorted(s for s, v in statuses.items() if v == "NO_BARS"),
+                "open_sessions": still_open,
                 "short_sessions": {s: [len(v["rows"]), expected[s]] for s, v in sorted(progress["sessions"].items())
                                    if v["status"] == "OK" and len(v["rows"]) < expected[s]},
                 "errors": {s: v.get("errors") for s, v in progress["sessions"].items() if v.get("errors")},
                 "seconds": round(time.monotonic() - started, 1)}
+    if written is not None and written.get("repaired"):
+        manifest["repaired"] = written["repaired"]             # what an earlier repair recorded stays
     _write_atomic(final, json.dumps(manifest, indent=1).encode())
     partial.unlink(missing_ok=True)
     return manifest
 
 
 def repair_month(session_api, symbol: str, month: str, window: str, out: Path, *, log=print, backoff: float = 90.0,
-                 allow_holdout: bool = False, schedule: dict | None = None) -> dict | None:
-    """For a finished month, ask again, alone, for every session with fewer bars than a complete one (fetched
-    before short answers were re-asked, or genuinely thin); keep the longer answer. Returns the updated manifest,
-    or None when the month is not finished."""
+                 allow_holdout: bool = False, schedule: dict | None = None,
+                 now: datetime | None = None) -> dict | None:
+    """For a written month, ask again, alone, for every closed session with fewer bars than a complete one
+    (fetched before short answers were re-asked, or genuinely thin); keep the longer answer. A session that has
+    not closed is left to the fetch. Returns the updated manifest, or None when the month is not written."""
     if month >= HOLDOUT_FROM and not allow_holdout:
         raise SystemExit(f"{month} is in the replay's hold-out: fetched only after its protocol is registered")
     folder = out / symbol
@@ -203,13 +276,15 @@ def repair_month(session_api, symbol: str, month: str, window: str, out: Path, *
         return None
     manifest = json.loads(final.read_text())
     expected = schedule if schedule is not None else month_schedule(month, window)
+    now = now or datetime.now(timezone.utc)
+    closes = session_closes(expected)
     by_session = {}
     for r in csv.DictReader(io.StringIO(gzip.decompress(data.read_bytes()).decode("utf-8"))):
         by_session.setdefault(r["session"], []).append(r)
     repaired = []
     for s, n in expected.items():                  # the caller leaves out sessions before the first daily bar
         have = by_session.get(s, [])
-        if len(have) >= n:
+        if len(have) >= n or closes[s] > now:
             continue
         rows, errors = session_api.minute_bars(symbol, s, window)
         if _failed(rows, errors):
@@ -301,7 +376,8 @@ def main() -> int:
                                        listed_from=first_daily_bar(symbol, prices_dir), allow_holdout=args.allow_holdout)
                 done += 1
                 print(f"[{done}/{len(months) * len(symbols)}] {symbol} {month}: {manifest['bars']} bars, "
-                      f"{manifest['by_status']}, {manifest['seconds']}s", flush=True)
+                      f"{manifest['by_status']}, {len(manifest.get('open_sessions', []))} sessions not closed yet, "
+                      f"{manifest['seconds']}s", flush=True)
     except probe.ProbeError as exc:
         print(f"stopped: {exc}", file=sys.stderr)
         return 2
