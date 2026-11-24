@@ -160,3 +160,166 @@ def test_a_week_ibkr_will_not_answer_whole_is_asked_for_day_by_day(tmp_path):
     dead = ("2023-12-11", "2023-12-12", "2023-12-13", "2023-12-14", "2023-12-15")
     assert api.calls.count(dead) == 2 and all(d in api.calls for d in dead)
     assert manifest["by_status"] == {"OK": 20} and manifest["bars"] == 40
+
+
+def _at(text):
+    from datetime import datetime, timezone
+    return datetime.fromisoformat(text).replace(tzinfo=timezone.utc)
+
+
+def _sessions_on_file(tmp_path, month="2023-12"):
+    with gzip.open(tmp_path / "AAA" / f"{month}.csv.gz", "rt") as fh:
+        return sorted({line.split(",")[0] for line in fh.read().splitlines()[1:]})
+
+
+def test_a_session_that_has_not_closed_is_not_asked_for_and_the_month_stays_open(tmp_path):
+    schedule = two_bar_schedule("2023-12")
+    api = FakeSession()
+    # Tuesday 2023-12-12, 21:10 UTC: the bell rang at 21:00, but the session counts as closed only SETTLE later.
+    first = fetch.fetch_month(api, "AAA", "2023-12", "full", tmp_path, listed_from=None, schedule=schedule,
+                              now=_at("2023-12-12T21:10:00"))
+    assert api.calls == ["2023-12-01", ("2023-12-04", "2023-12-05", "2023-12-06", "2023-12-07", "2023-12-08"),
+                         "2023-12-11"]
+    assert first["open_sessions"][0] == "2023-12-12" and len(first["open_sessions"]) == 13
+    assert first["sessions"] == 7 and first["by_status"] == {"OK": 7} and first["empty_sessions"] == []
+    assert _sessions_on_file(tmp_path)[-1] == "2023-12-11"
+    assert not (tmp_path / "AAA" / "2023-12.partial.json").exists()          # readers see a written month
+
+    same_evening = FakeSession()
+    assert fetch.fetch_month(same_evening, "AAA", "2023-12", "full", tmp_path, listed_from=None, schedule=schedule,
+                             now=_at("2023-12-12T21:15:00")) == first and not same_evening.calls
+
+    next_day = FakeSession()
+    second = fetch.fetch_month(next_day, "AAA", "2023-12", "full", tmp_path, listed_from=None, schedule=schedule,
+                               now=_at("2023-12-13T21:30:00"))
+    assert next_day.calls == [("2023-12-12", "2023-12-13")]                   # only what closed since
+    assert second["open_sessions"][0] == "2023-12-14" and second["sessions"] == 9
+    assert _sessions_on_file(tmp_path)[-1] == "2023-12-13"
+
+    end = FakeSession(empty={"2023-12-20"})
+    done = fetch.fetch_month(end, "AAA", "2023-12", "full", tmp_path, listed_from=None, schedule=schedule,
+                             now=_at("2024-01-02T12:00:00"))
+    assert done["open_sessions"] == [] and done["sessions"] == 20 and done["empty_sessions"] == ["2023-12-20"]
+    after = FakeSession()
+    assert fetch.fetch_month(after, "AAA", "2023-12", "full", tmp_path, listed_from=None, schedule=schedule,
+                             now=_at("2024-02-01T12:00:00")) == done and not after.calls   # a real empty answer is final
+
+
+def test_a_month_closed_too_early_by_the_old_rule_is_reopened_and_keeps_what_it_has(tmp_path):
+    schedule = two_bar_schedule("2023-12")
+    # What the old rule left: asked on the 12th for the whole month, "no data" recorded for every later session.
+    later = {s for s in schedule if s > "2023-12-12"}
+    fetch.fetch_month(FakeSession(empty=later), "AAA", "2023-12", "full", tmp_path, listed_from="2023-12-04",
+                      schedule=schedule, log=lambda *_: None, now=_at("2024-06-01T00:00:00"))
+    path = tmp_path / "AAA" / "2023-12.json"
+    old = json.loads(path.read_text())
+    del old["open_sessions"]
+    old["retrieved_at"] = "2023-12-13T00:54:39+00:00"
+    path.write_text(json.dumps(old))
+    before = (tmp_path / "AAA" / "2023-12.csv.gz").read_bytes()
+
+    api = FakeSession()
+    manifest = fetch.fetch_month(api, "AAA", "2023-12", "full", tmp_path, listed_from="2023-12-04", schedule=schedule,
+                                 now=_at("2023-12-14T21:30:00"))
+    assert api.calls == [("2023-12-13", "2023-12-14")]                        # nothing fetched before is asked again
+    assert manifest["open_sessions"][0] == "2023-12-15" and manifest["empty_sessions"] == []
+    assert manifest["by_status"] == {"BEFORE_FIRST_DAILY_BAR": 1, "OK": 9}
+    after = gzip.decompress((tmp_path / "AAA" / "2023-12.csv.gz").read_bytes())
+    assert after.startswith(gzip.decompress(before)) and len(after) > len(gzip.decompress(before))   # earlier rows unchanged
+    assert _sessions_on_file(tmp_path)[-1] == "2023-12-14"
+
+    # A month the old rule fetched after its last session closed is left alone.
+    fetch.fetch_month(FakeSession(empty={"2023-11-20"}), "AAA", "2023-11", "full", tmp_path, listed_from=None,
+                      schedule=two_bar_schedule("2023-11"), now=_at("2024-06-01T00:00:00"))
+    path = tmp_path / "AAA" / "2023-11.json"
+    old = json.loads(path.read_text())
+    del old["open_sessions"]
+    old["retrieved_at"] = "2023-12-02T00:00:00+00:00"
+    path.write_text(json.dumps(old))
+    quiet = FakeSession()
+    assert fetch.fetch_month(quiet, "AAA", "2023-11", "full", tmp_path, listed_from=None,
+                             schedule=two_bar_schedule("2023-11"), now=_at("2024-06-01T00:00:00")) == old
+    assert not quiet.calls
+    assert fetch.fetch_month(quiet, "AAA", "2023-11", "first-hour", tmp_path, listed_from=None,
+                             now=_at("2024-06-01T00:00:00")) == old            # a finished month is never reopened
+
+
+def test_a_shorter_second_answer_never_replaces_rows_on_file_and_repair_leaves_open_sessions_alone(tmp_path):
+    schedule = two_bar_schedule("2023-12")
+    fetch.fetch_month(FakeSession(), "AAA", "2023-12", "full", tmp_path, listed_from=None, schedule=schedule,
+                      now=_at("2024-06-01T00:00:00"))
+    path = tmp_path / "AAA" / "2023-12.json"
+    old = json.loads(path.read_text())
+    del old["open_sessions"]
+    old["retrieved_at"] = "2023-12-28T00:00:00+00:00"                         # before the 28th and 29th closed
+    path.write_text(json.dumps(old))
+    manifest = fetch.fetch_month(FakeSession(empty={"2023-12-28", "2023-12-29"}), "AAA", "2023-12", "full", tmp_path,
+                                 listed_from=None, schedule=schedule, log=lambda *_: None, now=_at("2024-06-01T00:00:00"))
+    assert manifest["bars"] == 40 and manifest["empty_sessions"] == [] and manifest["open_sessions"] == []
+
+    fetch.fetch_month(FakeSession(week_short={"2023-11-01"}, empty=set()), "AAA", "2023-11", "full", tmp_path,
+                      listed_from=None, schedule=two_bar_schedule("2023-11"), now=_at("2023-11-02T12:00:00"))
+    api = FakeSession()
+    repaired = fetch.repair_month(api, "AAA", "2023-11", "full", tmp_path, schedule=two_bar_schedule("2023-11"),
+                                  now=_at("2023-11-02T12:00:00"))
+    assert api.calls == [] and repaired["open_sessions"][0] == "2023-11-02"   # the 1st is whole, the rest are not closed
+
+
+def _legacy(tmp_path, retrieved_at, month="2023-12", **extra):
+    """Rewrite a month's manifest as the old rule left it: no list of open sessions."""
+    path = tmp_path / "AAA" / f"{month}.json"
+    old = json.loads(path.read_text())
+    del old["open_sessions"]
+    old.update(retrieved_at=retrieved_at, **extra)
+    path.write_text(json.dumps(old))
+    return old
+
+
+def test_an_interrupted_reopen_leaves_the_written_month_as_it_was(tmp_path):
+    schedule = two_bar_schedule("2023-12")
+    fetch.fetch_month(FakeSession(), "AAA", "2023-12", "full", tmp_path, listed_from=None, schedule=schedule,
+                      now=_at("2024-06-01T00:00:00"))
+    old = _legacy(tmp_path, "2023-12-28T00:00:00+00:00")                      # before the 28th and 29th closed
+    data = tmp_path / "AAA" / "2023-12.csv.gz"
+    before = data.read_bytes()
+    with pytest.raises(fetch.probe.ProbeError):                               # the week, then the day, unanswered twice each
+        fetch.fetch_month(FakeSession(failures=4), "AAA", "2023-12", "full", tmp_path, listed_from=None,
+                          schedule=schedule, log=lambda *_: None, backoff=0, now=_at("2024-06-01T00:00:00"))
+    assert data.read_bytes() == before and json.loads((tmp_path / "AAA" / "2023-12.json").read_text()) == old
+    assert not (tmp_path / "AAA" / "2023-12.partial.json").exists()           # readers still see a written month
+    manifest = fetch.fetch_month(FakeSession(empty={"2023-12-28", "2023-12-29"}), "AAA", "2023-12", "full", tmp_path,
+                                 listed_from=None, schedule=schedule, log=lambda *_: None, now=_at("2024-06-01T00:00:00"))
+    assert manifest["bars"] == 40 and manifest["empty_sessions"] == []        # the rows on file outlast "no data"
+
+
+def test_progress_left_beside_a_written_month_is_not_trusted_and_rows_before_the_first_daily_bar_stay(tmp_path):
+    schedule = two_bar_schedule("2023-12")
+    fetch.fetch_month(FakeSession(), "AAA", "2023-12", "full", tmp_path, listed_from=None, schedule=schedule,
+                      now=_at("2023-12-12T21:30:00"))
+    _legacy(tmp_path, "2023-12-13T00:00:00+00:00")
+    stale = {"window": "full", "sessions": {s: {"status": "NO_BARS", "rows": []} for s in schedule}}
+    (tmp_path / "AAA" / "2023-12.partial.json").write_text(json.dumps(stale))
+    api = FakeSession()
+    manifest = fetch.fetch_month(api, "AAA", "2023-12", "full", tmp_path, listed_from="2023-12-08", schedule=schedule,
+                                 now=_at("2023-12-14T21:30:00"))
+    assert api.calls == [("2023-12-13", "2023-12-14")] and manifest["empty_sessions"] == []
+    assert manifest["by_status"] == {"OK": 10} and manifest["bars"] == 20     # rows before the 8th are on file: kept
+    assert not (tmp_path / "AAA" / "2023-12.partial.json").exists()
+
+
+def test_a_month_checked_by_a_repair_is_reopened_from_that_check_and_keeps_the_repair_note(tmp_path):
+    schedule = two_bar_schedule("2023-12")
+    fetch.fetch_month(FakeSession(), "AAA", "2023-12", "full", tmp_path, listed_from=None, schedule=schedule,
+                      now=_at("2023-12-14T21:30:00"))
+    _legacy(tmp_path, "2023-12-12T00:54:00+00:00", checked_complete_at="2023-12-15T03:30:00+00:00",
+            repaired=["2023-12-13", "2023-12-14"])
+    api = FakeSession()
+    manifest = fetch.fetch_month(api, "AAA", "2023-12", "full", tmp_path, listed_from=None, schedule=schedule,
+                                 now=_at("2023-12-15T21:30:00"))
+    assert api.calls == ["2023-12-15"] and manifest["repaired"] == ["2023-12-13", "2023-12-14"]
+    assert manifest["open_sessions"][0] == "2023-12-18" and manifest["bars"] == 22
+
+
+def test_an_early_close_counts_as_closed_twenty_minutes_after_its_own_bell():
+    closes = fetch.session_closes(["2023-11-22", "2023-11-24"])
+    assert closes["2023-11-22"] == _at("2023-11-22T21:20:00") and closes["2023-11-24"] == _at("2023-11-24T18:20:00")
